@@ -1,4 +1,4 @@
-import React, { useState, FormEvent } from 'react';
+import React, { useState } from 'react';
 import { Mail, Phone, MapPin, Building, User, MessageSquare, Send } from 'lucide-react';
 import { motion } from 'framer-motion';
 

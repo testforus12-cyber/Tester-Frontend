@@ -1,7 +1,7 @@
 // src/components/layout/Footer.tsx
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Truck, Twitter, Linkedin, Facebook, ArrowRight } from 'lucide-react';
+import { Truck, Twitter, Linkedin, Facebook } from 'lucide-react';
 import { motion, Variants } from 'framer-motion';
 
 // --- Animated Background ---
@@ -14,15 +14,13 @@ const AnimatedWorldMap = () => (
             animate={{ x: '-50%' }}
             transition={{ duration: 40, repeat: Infinity, repeatType: 'mirror', ease: 'linear' }}
         >
-            {/* A simple world map SVG path - you can replace this with any pattern */}
+            {/* A simple world map SVG path */}
             <path fill="currentColor" d="M1000 500q126 0 236 38t192 104q82 66 128 152t46 181q0 98-40 181t-113 147q-73 64-167 98t-196 34q-114 0-213-36t-173-100q-74-64-121-155t-47-190q0-109 49-204t135-154q86-59 191-89t215-30zm-1-500q139 0 259 44t203 124q84 80 133 181t49 220q0 120-56 226t-154 176q-98 70-218 108t-245 38q-138 0-259-42t-205-122q-84-80-132-181t-48-219q0-120 57-227t155-177q98-70 217-108t243-38z" />
         </motion.svg>
     </div>
 );
 
-
 // --- Enhanced, Reusable Components ---
-
 const BrandLogo = () => (
   <Link to="/" className="flex items-center gap-2 flex-shrink-0">
     <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg">
@@ -39,7 +37,8 @@ const FooterLink = ({ to, children }: { to: string; children: React.ReactNode })
 );
 
 // New Component: System Status Link with live indicator
-const SystemStatusLink = () => (
+type SystemStatusLinkProps = {};
+const SystemStatusLink: React.FC<SystemStatusLinkProps> = () => (
     <a href="#" className="group flex items-center gap-2 text-slate-400 hover:text-white transition-colors duration-200">
         <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
@@ -48,7 +47,6 @@ const SystemStatusLink = () => (
         System Status
     </a>
 );
-
 
 const FooterSectionTitle = ({ children }: { children: React.ReactNode }) => (
   <h3 className="text-sm font-semibold text-white/90 tracking-wider uppercase mb-5">
@@ -75,7 +73,7 @@ const containerVariants: Variants = {
     visible: {
         opacity: 1,
         transition: {
-            staggerChildren: 0.15, // This creates the staggered animation effect
+            staggerChildren: 0.15,
         },
     },
 };
@@ -93,15 +91,12 @@ const itemVariants: Variants = {
 };
 
 // --- Main Footer Component ---
-
 const Footer: React.FC = () => {
   const currentYear = new Date().getFullYear();
 
   return (
     <footer className="relative bg-[#111827] text-slate-300">
       <AnimatedWorldMap />
-      
-      {/* The z-10 ensures the content is on top of the animated background */}
       <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <motion.div
             className="grid grid-cols-2 md:grid-cols-5 gap-12"
@@ -126,6 +121,14 @@ const Footer: React.FC = () => {
               <FooterLink to="/features">Features</FooterLink>
               <FooterLink to="/contactus">Contact</FooterLink>
               <FooterLink to="/transporter-login">Transporter Login</FooterLink>
+              <a
+                href="https://docs.google.com/forms/d/e/1FAIpQLSe7UpRbS03kxdU6UUBOWU0OJFlmEtqaDXqe6XFUiGqaNlZETw/viewform?usp=header"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-slate-400 hover:text-white hover:pl-1 transition-all duration-200 block"
+              >
+                Feedback
+              </a>
             </div>
           </motion.div>
 

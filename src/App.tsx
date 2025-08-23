@@ -23,6 +23,7 @@ import AddVendor from './pages/AddVendor';
 import AddPrices from './pages/AddPrices';
 import UserSelect from './pages/UserSelect';
 import BiddingPage from './pages/BiddingPage';
+import VehicleInfoPage from './pages/VehicleInfoPage';
 
 
 export const PrivateRoute: React.FC<React.PropsWithChildren> = ({ children }) => {
@@ -142,6 +143,7 @@ function App() {
           <Route path='/about' element={<MainLayout><AboutUsPage /></MainLayout>} />
           
           <Route path='/pricing' element={<MainLayout><PricingPage /></MainLayout>} />
+          <Route path='/vehicle-info' element={<MainLayout><VehicleInfoPage /></MainLayout>} />
           
           {/* --- CATCH-ALL 404 ROUTE (MUST BE LAST) --- */}
           <Route 

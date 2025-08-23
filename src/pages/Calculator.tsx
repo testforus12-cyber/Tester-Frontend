@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom'; // NEW: Import Link
-import { BoxDetails as BoxDetailsType, ShipmentOverview as ShipmentOverviewType, VendorQuote } from '../types';
+import { BoxDetails as BoxDetailsType, ShipmentOverviewType, VendorQuote } from '../types';
 import ShipmentOverview from '../components/ShipmentOverview';
 import BoxDetails from '../components/BoxDetails';
 import FreightOptions from '../components/FreightOptions';
@@ -13,7 +13,6 @@ import { Truck, Calculator as CalculatorIcon, Package, LogIn } from 'lucide-reac
 const Calculator = () => {
   // State for shipment overview
   const [shipment, setShipment] = useState<ShipmentOverviewType>({
-    invoiceNumber: '',
     date: new Date().toISOString().split('T')[0],
     shipperLocation: '',
     destination: '',
@@ -31,7 +30,7 @@ const Calculator = () => {
   const [isFragileShipment, setIsFragileShipment] = useState(false);
   
   // State for vendor quotes
-  const [vendorQuotes, setVendorQuotes] = useState<VendorQuote[]>([]);
+  const [vendorQuotes, setVendorQuotes] = useState<any[]>([]);
   const [isCalculating, setIsCalculating] = useState(false);
   const [showResults, setShowResults] = useState(false);
   
@@ -172,7 +171,7 @@ const Calculator = () => {
               </div>
             </div>
             
-            <VendorComparison quotes={vendorQuotes} isLoading={isCalculating} />
+            <VendorComparison quotes={vendorQuotes as any} />
           </div>
         )}
       </main>

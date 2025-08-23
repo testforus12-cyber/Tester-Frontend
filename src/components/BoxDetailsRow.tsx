@@ -13,7 +13,21 @@ interface BoxDetailsRowProps {
 const BoxDetailsRow: React.FC<BoxDetailsRowProps> = ({ box, updateBox, removeBox, mode }) => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    const numValue = name !== 'description' && name !== 'uom' ? parseFloat(value) || 0 : value;
+    
+    let numValue: number | string;
+    
+    if (name === 'numberOfBoxes' || name === 'qtyPerBox') {
+      // For numberOfBoxes and qtyPerBox, ensure they're integers >= 1
+      const intValue = parseInt(value);
+      if (isNaN(intValue) || intValue < 1) {
+        return; // Don't update if invalid
+      }
+      numValue = intValue;
+    } else if (name !== 'description' && name !== 'uom') {
+      numValue = parseFloat(value) || 0;
+    } else {
+      numValue = value;
+    }
     
     let updates: Partial<BoxDetails> = { [name]: numValue };
     
@@ -62,6 +76,7 @@ const BoxDetailsRow: React.FC<BoxDetailsRowProps> = ({ box, updateBox, removeBox
           onChange={handleChange}
           className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
           min="1"
+          step="1"
           placeholder="Qty"
         />
       </div>
@@ -74,6 +89,7 @@ const BoxDetailsRow: React.FC<BoxDetailsRowProps> = ({ box, updateBox, removeBox
           onChange={handleChange}
           className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
           min="1"
+          step="1"
           placeholder="Per box"
         />
       </div>

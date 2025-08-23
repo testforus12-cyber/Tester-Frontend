@@ -76,7 +76,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // ACTUAL API LOGIN
     try {
-      const response = await axios.post("https://backend-bcxr.onrender.com/api/auth/login", {
+      const response = await axios.post("http://localhost:8000/api/auth/login", {
         email: lowerEmail,
         password: pass,
       });
