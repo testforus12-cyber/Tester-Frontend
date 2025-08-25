@@ -1,82 +1,99 @@
-// frontend/src/pages/CalculatorPage.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   AlertCircle,
+  Award,
+  Box,
   Boxes,
+  Building2,
   Calculator as CalculatorIcon,
+  CheckCircle,
+  ChevronDown,
   ChevronRight,
   Clock,
+  Edit3,
   IndianRupee,
   Loader2,
+  Lock,
   MapPin,
+  MoveRight,
   Navigation,
   Package,
   PackageSearch,
   Plane,
   PlusCircle,
+  Ruler,
   Save,
-  Star,
+  Shield,
+  Ship as ShipIcon,
+  SlidersHorizontal,
+  Sparkles,
   Train,
   Trash2,
   Truck,
+  Weight,
+  X,
   Zap,
-  Ship as ShipIcon,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { useAuth } from "../hooks/useAuth";
 import axios from "axios";
 import Cookies from "js-cookie";
-import { createPortal } from "react-dom";
+import { motion, AnimatePresence } from "framer-motion";
 
-import { useAuth } from "../hooks/useAuth";
-import {
-  makeCompareKey,
-  readCompareCacheByKey,
-  writeCompareCache,
-  loadFormState,
-  saveFormState,
-  readLastKey,
-  clearStaleCache,
-} from "../lib/compareCache";
-
-// -----------------------------------------------------------------------------
-// Limits
-// -----------------------------------------------------------------------------
+// --- MODIFIED: Maximum dimension constants (in cm) ---
 const MAX_DIMENSION_LENGTH = 1500;
-const MAX_DIMENSION_WIDTH = 300;
+const MAX_DIMENSION_WIDTH = 300; // Unchanged as per request
 const MAX_DIMENSION_HEIGHT = 300;
 
-// -----------------------------------------------------------------------------
-// Numeric helpers
-// -----------------------------------------------------------------------------
-const digitsOnly = (s: string) => s.replace(/\D/g, "");
+// --- TYPE DEFINITIONS ---
 
-const preventNonIntegerKeys = (e: React.KeyboardEvent<HTMLInputElement>) => {
-  // Block characters that make numbers non-integer or negative/scientific
-  if (
-    e.key === "." ||
-    e.key === "," ||
-    e.key === "e" ||
-    e.key === "E" ||
-    e.key === "+" ||
-    e.key === "-"
-  ) {
-    e.preventDefault();
-  }
+type VendorQuote = {
+  message: string;
+  isHidden: any;
+  transporterData: any;
+  totalPrice: any;
+  estimatedDelivery: any;
+  companyName: string;
+  price: any;
+  transporterName: string;
+  deliveryTime: string;
+  estimatedTime?: number;
+  // --- ADDED: New weight fields from backend ---
+  actualWeight: number;
+  volumetricWeight: number;
+  chargeableWeight: number;
+  totalCharges: number;
+  logoUrl?: string;
+  isBestValue?: boolean;
+  isTiedUp?: boolean;
 };
 
-const sanitizeIntegerFromEvent = (raw: string, max?: number) => {
-  const cleaned = digitsOnly(raw);
-  if (cleaned === "") return "";
-  const n = Number(cleaned);
-  if (!Number.isFinite(n)) return "";
-  const clamped = typeof max === "number" ? Math.min(n, max) : n;
-  return String(clamped);
+type SavedBox = {
+  _id: string;
+  name: string;
+  originPincode: number;
+  destinationPincode: number;
+  quantity: number;
+  noofboxes: number;
+  length: number;
+  width: number;
+  height: number;
+  weight: number;
+  modeoftransport: "Road" | "Rail" | "Air" | "Ship";
+  description?: string;
 };
 
-// -----------------------------------------------------------------------------
-// Small UI helpers
-// -----------------------------------------------------------------------------
+type BoxDetails = {
+  id: string;
+  count: number | undefined;
+  length: number | undefined;
+  width: number | undefined;
+  height: number | undefined;
+  weight: number | undefined;
+  description: string;
+};
+
+// --- STYLED HELPER COMPONENTS ---
 const Card = ({
   children,
   className,
@@ -150,94 +167,65 @@ const SortOptionButton = ({
   </button>
 );
 
-// -----------------------------------------------------------------------------
-// Types (broad to cover different API shapes)
-// -----------------------------------------------------------------------------
-type QuoteAny = any;
-
-type SavedBox = {
-  _id: string;
-  name: string;
-  originPincode: number;
-  destinationPincode: number;
-  quantity: number;
-  noofboxes: number;
-  length: number;
-  width: number;
-  height: number;
-  weight: number;
-  modeoftransport: "Road" | "Rail" | "Air" | "Ship";
-  description?: string;
-};
-
-type BoxDetails = {
-  id: string;
-  count: number | undefined;
-  length: number | undefined;
-  width: number | undefined;
-  height: number | undefined;
-  weight: number | undefined; // NOTE: treated as integer per your requirement (no decimals)
-  description: string;
-};
-
-// -----------------------------------------------------------------------------
-// Calculator Page
-// -----------------------------------------------------------------------------
-const CalculatorPage: React.FC = (): JSX.Element => {
+const CalculatorPage: React.FC = () => {
   const { user } = useAuth();
+  const customer = (user as any)?.customer;
+  const navigate = useNavigate();
   const token = Cookies.get("authToken");
 
-  // -------------------- UI State --------------------
+  // --- COMPONENT STATE ---
+  const presetRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [sortBy, setSortBy] = useState<"price" | "time" | "rating">("price");
   const [isCalculating, setIsCalculating] = useState(false);
   const [calculationProgress, setCalculationProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // Results
-  const [data, setData] = useState<QuoteAny[] | null>(null);
-  const [hiddendata, setHiddendata] = useState<QuoteAny[] | null>(null);
+  // Data State
+  const [data, setData] = useState<VendorQuote[] | null>(null);
+  const [hiddendata, setHiddendata] = useState<VendorQuote[] | null>(null);
 
-  // -------------------- Form State --------------------
+  // --- FORM STATE ---
+  const createNewBox = (): BoxDetails => ({
+    id: `box-${Date.now()}-${Math.random()}`,
+    count: undefined,
+    length: undefined,
+    width: undefined,
+    height: undefined,
+    weight: undefined,
+    description: "",
+  });
+
   const [modeOfTransport, setModeOfTransport] = useState<
     "Road" | "Rail" | "Air" | "Ship"
   >("Road");
   const [fromPincode, setFromPincode] = useState("");
   const [toPincode, setToPincode] = useState("");
-
-  const [boxes, setBoxes] = useState<BoxDetails[]>([
-    {
-      id: `box-${Date.now()}-${Math.random()}`,
-      count: undefined,
-      length: undefined,
-      width: undefined,
-      height: undefined,
-      weight: undefined,
-      description: "",
-    },
-  ]);
+  const [areDimensionsSame, setAreDimensionsSame] = useState(false);
+  const [boxes, setBoxes] = useState<BoxDetails[]>([createNewBox()]);
   const [calculationTarget, setCalculationTarget] = useState<"all" | number>(
     "all"
   );
 
-  // Presets & dropdowns
+  const boxFormRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // --- SAVED PRESETS STATE & REFS ---
   const [savedBoxes, setSavedBoxes] = useState<SavedBox[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [boxIndexToSave, setBoxIndexToSave] = useState<number | null>(null);
-  const [openPresetDropdownIndex, setOpenPresetDropdownIndex] =
-    useState<number | null>(null);
+  const [openPresetDropdownIndex, setOpenPresetDropdownIndex] = useState<
+    number | null
+  >(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const presetRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const boxFormRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const presetsContainerRef = useRef<HTMLDivElement>(null);
 
-  // Fine-tune modal
+  // --- FINE-TUNE FILTERING STATE & REFS ---
   const [isFineTuneOpen, setIsFineTuneOpen] = useState(false);
-  const [maxPrice, setMaxPrice] = useState(10_000_000);
+  const [maxPrice, setMaxPrice] = useState(10000000);
   const [maxTime, setMaxTime] = useState(300);
   const [minRating, setMinRating] = useState(0);
+  const fineTuneRef = useRef<HTMLDivElement>(null);
 
-  // ---------------------------------------------------------------------------
-  // Derived
-  // ---------------------------------------------------------------------------
+  // --- ADDED: Validation logic for dimensions ---
   const isAnyDimensionExceeded = useMemo(
     () =>
       boxes.some(
@@ -249,148 +237,49 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     [boxes]
   );
 
-  const totalWeight = boxes.reduce(
-    (sum, b) => sum + (b.weight || 0) * (b.count || 0),
-    0
-  );
-  const totalBoxes = boxes.reduce((sum, b) => sum + (b.count || 0), 0);
-  const displayableBoxes = savedBoxes.filter((b) =>
-    b.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  // ---------------------------------------------------------------------------
-  // Effects
-  // ---------------------------------------------------------------------------
-
-  // Always autofill Origin Pincode from profile
   useEffect(() => {
-    const pin = (user as any)?.customer?.pincode;
-    if (pin) setFromPincode(String(pin));
-  }, [user]);
-
-  // Restore last form (except origin pincode) and last results
-  useEffect(() => {
-    clearStaleCache();
-
-    const form = loadFormState();
-    if (form) {
-      setToPincode(form.toPincode || "");
-      setModeOfTransport(form.modeOfTransport || "Road");
-      if (Array.isArray(form.boxes) && form.boxes.length) {
-        setBoxes(
-          form.boxes.map((b: any) => ({
-            ...b,
-            id: b.id || `box-${Date.now()}-${Math.random()}`,
-          }))
-        );
-      }
+    if (customer?.pincode) {
+      setFromPincode(customer.pincode);
     }
+  }, [customer?.pincode]);
 
-    const lastKey = readLastKey();
-    if (lastKey) {
-      const cached = readCompareCacheByKey(lastKey);
-      if (cached) {
-        setData(cached.data || null);
-        setHiddendata(cached.hiddendata || null);
-      }
-    }
-  }, []);
-
-  // Persist form state while typing
-  useEffect(() => {
-    saveFormState({
-      fromPincode,
-      toPincode,
-      modeOfTransport,
-      boxes,
-    });
-  }, [fromPincode, toPincode, modeOfTransport, boxes]);
-
-  // Close preset dropdown on outside click
-  useEffect(() => {
-    const onClickOutside = (ev: MouseEvent) => {
-      if (
-        openPresetDropdownIndex !== null &&
-        presetRefs.current[openPresetDropdownIndex] &&
-        !presetRefs.current[openPresetDropdownIndex]!.contains(
-          ev.target as Node
-        )
-      ) {
-        setOpenPresetDropdownIndex(null);
-      }
-    };
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [openPresetDropdownIndex]);
-
-  useEffect(() => {
-    fetchSavedBoxes();
-  }, [user]);
-
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
   const handlePincodeChange = (
     raw: string,
     setter: React.Dispatch<React.SetStateAction<string>>
   ) => {
-    const digits = digitsOnly(raw).slice(0, 6);
-    setter(digits);
+    const digitsOnly = raw.replace(/\D/g, "").slice(0, 6);
+    setter(digitsOnly);
   };
-
-  // Dimension auto-cap (hard clamp to max value) – integers only
   const handleDimensionChange = (
     index: number,
-    field: "length" | "width" | "height",
-    rawValue: string,
-    maxDigits: number,
-    maxValue: number
+    field: 'length' | 'width' | 'height',
+    value: string,
+    maxLength: number,
+    maxValue: number // We've added this to check the value
   ) => {
-    const cleaned = digitsOnly(rawValue).slice(0, maxDigits);
-    if (cleaned === "") {
+    if (value) {
+      // First, still limit the number of digits
+      let finalValueStr = value.slice(0, maxLength);
+
+      // Next, check if the numeric value exceeds the maximum allowed value
+      if (Number(finalValueStr) > maxValue) {
+        // If it does, clamp it down to the max value
+        finalValueStr = String(maxValue);
+      }
+      
+      // Finally, update the state with the corrected value
+      updateBox(index, field, Number(finalValueStr));
+    } else {
+      // This allows the user to clear the input field
       updateBox(index, field, undefined);
-      return;
-    }
-    const n = Math.min(Number(cleaned), maxValue);
-    updateBox(index, field, n);
-  };
-
-  const createNewBox = (): BoxDetails => ({
-    id: `box-${Date.now()}-${Math.random()}`,
-    count: undefined,
-    length: undefined,
-    width: undefined,
-    height: undefined,
-    weight: undefined,
-    description: "",
-  });
-
-  const addBoxType = () => setBoxes((prev) => [...prev, createNewBox()]);
-  const updateBox = (i: number, field: keyof BoxDetails, v: any) => {
-    setBoxes((prev) => {
-      const copy = [...prev];
-      copy[i] = { ...copy[i], [field]: v };
-      return copy;
-    });
-  };
-  const removeBox = (i: number) => {
-    if (boxes.length <= 1) return;
-    if (window.confirm("Are you sure you want to delete this box type?")) {
-      setBoxes(boxes.filter((_, j) => j !== i));
-      setCalculationTarget("all");
     }
   };
-  const editBox = (index: number) => {
-    const el = boxFormRefs.current[index];
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
-
-  // Presets
+  // --- BACKEND & DATA FUNCTIONS ---
   const fetchSavedBoxes = async () => {
     if (!user || !token) return;
     try {
       const response = await axios.get(
-        `http://localhost:8000/api/transporter/getpackinglist?customerId=${
+        `https://tester-backend-4nxc.onrender.com/api/transporter/getpackinglist?customerId=${
           (user as any).customer._id
         }`,
         { headers: { Authorization: `Bearer ${token}` } }
@@ -401,44 +290,20 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     }
   };
 
-  const triggerSavePresetForBox = (index: number) => {
-    const boxToSave = boxes[index];
-    if (
-      !boxToSave.length ||
-      !boxToSave.width ||
-      !boxToSave.height ||
-      !boxToSave.weight
-    ) {
-      setError(
-        "Please fill in all dimensions and weight for the box before saving."
-      );
-      editBox(index);
-      return;
-    }
-    setError(null);
-    setBoxIndexToSave(index);
-    setIsModalOpen(true);
-  };
-
   const handleSavePreset = async (presetName: string) => {
     if (boxIndexToSave === null || !user || !token) {
       setError("An error occurred. Please try again.");
       return;
     }
-    if (
-      !fromPincode ||
-      fromPincode.length !== 6 ||
-      !toPincode ||
-      toPincode.length !== 6
-    ) {
-      setError(
-        "Please enter valid 6-digit Origin and Destination pincodes before saving a preset."
-      );
-      setIsModalOpen(false);
-      setBoxIndexToSave(null);
-      return;
-    }
     const boxToSave = boxes[boxIndexToSave];
+
+    if (!fromPincode || fromPincode.length !== 6 || !toPincode || toPincode.length !== 6) {
+        setError("Please enter valid 6-digit Origin and Destination pincodes before saving a preset.");
+        setIsModalOpen(false);
+        setBoxIndexToSave(null);
+        return;
+    }
+
     const payload = {
       name: presetName,
       description: presetName,
@@ -448,14 +313,15 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       length: boxToSave.length!,
       width: boxToSave.width!,
       height: boxToSave.height!,
-      weight: boxToSave.weight!, // integer as per restriction
+      weight: boxToSave.weight!,
       modeoftransport: modeOfTransport,
       noofboxes: boxToSave.count || 1,
       quantity: boxToSave.count || 1,
     };
+
     try {
       await axios.post(
-        `http://localhost:8000/api/transporter/savepackinglist`,
+        `https://tester-backend-4nxc.onrender.com/api/transporter/savepackinglist`,
         payload,
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -464,35 +330,39 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       await fetchSavedBoxes();
     } catch (err: any) {
       console.error("Failed to save preset:", err);
-      setError(
-        `Could not save preset: ${err.response?.data?.message || err.message}`
-      );
+      setError(`Could not save preset: ${err.response?.data?.message || err.message}`);
     }
   };
 
-  const handleDeletePreset = async (
-    presetId: string,
-    e: React.MouseEvent
-  ) => {
-    e.stopPropagation();
-    if (window.confirm("Delete this preset permanently?")) {
-      try {
-        await axios.delete(
-          `http://localhost:8000/api/transporter/deletepackinglist/${presetId}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        await fetchSavedBoxes();
-      } catch (err: any) {
-        console.error("Failed to delete preset:", err);
-        setError(
-          `Could not delete preset: ${
-            err.response?.data?.message || err.message
-          }`
-        );
-      }
+  // --- NEW: Handler to delete a saved preset ---
+  const handleDeletePreset = async (presetId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevents the dropdown from closing
+    if (window.confirm("Are you sure you want to delete this preset permanently?")) {
+        try {
+            setError(null);
+            await axios.delete(`https://tester-backend-4nxc.onrender.com/api/transporter/deletepackinglist/${presetId}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            await fetchSavedBoxes(); // Refresh the list
+        } catch (err: any) {
+            console.error("Failed to delete preset:", err);
+            setError(`Could not delete preset: ${err.response?.data?.message || err.message}`);
+        }
     }
   };
-
+  
+  const triggerSavePresetForBox = (index: number) => {
+    const boxToSave = boxes[index];
+    if (!boxToSave.length || !boxToSave.width || !boxToSave.height || !boxToSave.weight) {
+      setError("Please fill in all dimensions and weight for the box before saving.");
+      editBox(index);
+      return;
+    }
+    setError(null);
+    setBoxIndexToSave(index);
+    setIsModalOpen(true);
+  };
+   // ——— HANDLER FUNCTIONS & EFFECTS ———
   const handleSelectPresetForBox = (index: number, boxPreset: SavedBox) => {
     const updated = [...boxes];
     updated[index] = {
@@ -501,83 +371,94 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       width: boxPreset.width,
       height: boxPreset.height,
       weight: boxPreset.weight,
-      description: boxPreset.name,
+      description: boxPreset.name, // MODIFIED: Use preset name for the input field
     };
     setBoxes(updated);
 
-    if (index === 0) {
+    if (index === 0 || areDimensionsSame) {
       setFromPincode(boxPreset.originPincode.toString());
+      // The line below has been removed to prevent auto-filling the destination pincode.
+      // setToPincode(boxPreset.destinationPincode.toString()); 
       setModeOfTransport(boxPreset.modeoftransport);
     }
     setOpenPresetDropdownIndex(null);
     setSearchTerm("");
   };
 
-  // Distance via backend wrapper (Google Distance Matrix)
-  async function getDistanceKmByAPI(originPin: string, destPin: string) {
-    const apiBase =
-      import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-    const resp = await fetch(`${apiBase}/api/vendor/wheelseye-distance`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        origin: `${originPin},IN`,
-        destination: `${destPin},IN`,
-      }),
-    });
-    if (!resp.ok) throw new Error(`DM HTTP ${resp.status}`);
-    const j = await resp.json();
-    return Number(j.distanceKm);
-  }
+  const handleDimensionTypeChange = (isSame: boolean) => {
+    setAreDimensionsSame(isSame);
+    setBoxes([createNewBox()]);
+    setCalculationTarget("all");
+    setOpenPresetDropdownIndex(null);
+    setSearchTerm("");
+  };
 
-  // Get Wheelseye pricing from database API with chargeable weight calculation
-  async function getWheelseyePriceFromDB(
-    weight: number,
-    distance: number,
-    shipmentDetails?: any[]
-  ) {
-    try {
-      const apiBase =
-        import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-      const requestBody: any = {
-        distance: distance,
-      };
-
-      if (shipmentDetails && shipmentDetails.length > 0) {
-        requestBody.shipment_details = shipmentDetails;
-      } else {
-        requestBody.weight = weight;
-      }
-
-      const resp = await fetch(`${apiBase}/api/vendor/wheelseye-pricing`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!resp.ok) {
-        throw new Error(`Wheelseye API HTTP ${resp.status}`);
-      }
-
-      const result = await resp.json();
-      return result;
-    } catch (error) {
-      console.error("Error fetching Wheelseye pricing from database:", error);
-      throw error;
+  const addBoxType = () => setBoxes([...boxes, createNewBox()]);
+  const updateBox = (i: number, field: keyof BoxDetails, v: any) => {
+    const copy = [...boxes];
+    copy[i] = { ...copy[i], [field]: v };
+    setBoxes(copy);
+  };
+  const removeBox = (i: number) => {
+    if (boxes.length <= 1) return;
+    if (window.confirm("Are you sure you want to delete this box type?")) {
+      setBoxes(boxes.filter((_, j) => j !== i));
+      setCalculationTarget("all");
     }
-  }
+  };
+  
+  const editBox = (index: number) => {
+    const el = boxFormRefs.current[index];
+    if (el) {
+      el.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+        inline: "nearest",
+      });
+    }
+  };
 
-  // Check if origin pincode is in Wheelseye service area
-  function isWheelseyeServiceArea(originPincode: string): boolean {
-    const pincode = parseInt(originPincode);
-    if (pincode >= 110001 && pincode <= 110098) return true; // Delhi
-    if (pincode >= 201301 && pincode <= 201315) return true; // Noida
-    if (pincode >= 201001 && pincode <= 201015) return true; // Ghaziabad
-    if (pincode >= 122001 && pincode <= 122018) return true; // Gurgaon
-    return false;
-  }
+  const handleForceWeight = (index: number) => {
+    const box = boxes[index];
+    const qty = box.count || 0;
+    const currentTotal = ((box.weight || 0) * qty).toFixed(2);
+    const input = prompt(
+      `Override total weight for "${box.description || `Type ${index + 1}`}" (kg):`,
+      currentTotal
+    );
+    if (input !== null && !isNaN(+input)) {
+      const newTotal = parseFloat(input);
+      const perBox = qty > 0 ? newTotal / qty : 0;
+      updateBox(index, "weight", perBox);
+    }
+    editBox(index);
+  };
 
-  // -------------------- Calculate Quotes (with CACHE) --------------------
+  useEffect(() => {
+    fetchSavedBoxes();
+  }, [user]);
+
+  useEffect(() => {
+    const onClickOutside = (ev: MouseEvent) => {
+      if (
+        openPresetDropdownIndex !== null &&
+        presetsContainerRef.current &&
+        !presetsContainerRef.current.contains(ev.target as Node)
+      ) {
+        setOpenPresetDropdownIndex(null);
+      }
+      if (
+        fineTuneRef.current &&
+        !fineTuneRef.current.contains(ev.target as Node)
+      ) {
+        setIsFineTuneOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [openPresetDropdownIndex]);
+
+  // ——— CALCULATION & API CALL ———
   const calculateQuotes = async () => {
     setError(null);
     setData(null);
@@ -591,16 +472,11 @@ const CalculatorPage: React.FC = (): JSX.Element => {
 
     const boxesToCalc =
       calculationTarget === "all" ? boxes : [boxes[calculationTarget]];
-
-    const shipmentPayload: any[] = [];
+    
+    // --- MODIFIED: Validate boxes before preparing payload ---
+    const shipmentPayload = [];
     for (const box of boxesToCalc) {
-      if (
-        !box.count ||
-        !box.length ||
-        !box.width ||
-        !box.height ||
-        !box.weight
-      ) {
+      if (!box.count || !box.length || !box.width || !box.height || !box.weight) {
         const name = box.description || `Box Type ${boxes.indexOf(box) + 1}`;
         setError(`Please fill in all details for "${name}".`);
         return;
@@ -614,383 +490,42 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       });
     }
 
-    const requestParams = {
-      modeoftransport: modeOfTransport,
-      fromPincode,
-      toPincode,
-      shipment_details: shipmentPayload,
-    };
-    const cacheKey = makeCompareKey(requestParams);
-
     setIsCalculating(true);
     setCalculationProgress("Fetching quotes from vendors...");
 
     try {
+      // --- MODIFIED: This is the new, correct API call structure ---
       const resp = await axios.post(
-        "http://localhost:8000/api/transporter/calculate",
+        "https://tester-backend-4nxc.onrender.com/api/transporter/calculate", // Ensure this endpoint matches your backend
         {
+          // --- Main details ---
           customerID: (user as any).customer._id,
           userogpincode: (user as any).customer.pincode,
           modeoftransport: modeOfTransport,
           fromPincode,
           toPincode,
+          // --- NEW PAYLOAD ---
+          // Send the detailed array instead of a single pre-calculated weight
           shipment_details: shipmentPayload,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      const all: QuoteAny[] = [
-        ...(resp.data.tiedUpResult || []).map((q: QuoteAny) => ({
+      // --- REMOVED: Old frontend calculation logic ---
+      // The old logic that calculated totalChargeable here has been deleted.
+      
+      const all = [
+        ...(resp.data.tiedUpResult || []).map((q: VendorQuote) => ({
           ...q,
           isTiedUp: true,
         })),
-        ...(resp.data.companyResult || []).map((q: QuoteAny) => ({
+        ...(resp.data.companyResult || []).map((q: VendorQuote) => ({
           ...q,
           isTiedUp: false,
         })),
       ];
-
-      // SHOW ONLY THE CHEAPEST DP WORLD and HIDE EXPENSIVE ONE COMPLETELY
-      const dpWorldQuotes = all.filter((q) => q.companyName === "DP World");
-      const nonDpWorldQuotes = all.filter(
-        (q) => q.companyName !== "DP World"
-      );
-
-      const cheapestDPWorld =
-        dpWorldQuotes.length > 0
-          ? dpWorldQuotes.reduce((cheapest, current) =>
-              current.totalCharges < cheapest.totalCharges
-                ? current
-                : cheapest
-            )
-          : null;
-
-      let tied = [
-        ...nonDpWorldQuotes.filter((q) => q.isTiedUp),
-        ...(cheapestDPWorld ? [{ ...cheapestDPWorld, isTiedUp: true }] : []),
-      ];
-
-      let others = [...nonDpWorldQuotes.filter((q) => !q.isTiedUp)];
-
-      // ---------- Inject FTL + Wheelseye FTL ----------
-      let distanceKm = 500; // fallback
-      try {
-        distanceKm = await getDistanceKmByAPI(fromPincode, toPincode);
-      } catch (e) {
-        console.warn("Distance calculation failed, using default:", e);
-      }
-
-      const isWheelseyeAvailable = isWheelseyeServiceArea(fromPincode);
-
-      let ftlPrice = 0;
-      let wheelseyePrice = 0;
-      let wheelseyeResult: any = null;
-
-      try {
-        wheelseyeResult = await getWheelseyePriceFromDB(
-          totalWeight,
-          distanceKm,
-          shipmentPayload
-        );
-
-        wheelseyePrice = wheelseyeResult.price;
-        ftlPrice = Math.round((wheelseyePrice * 1.2) / 10) * 10; // 20% more than Wheelseye
-      } catch (e) {
-        const referenceQuote = others.find((q) => q.companyName === "Ekart");
-        const referencePrice = referenceQuote?.totalCharges || 32000;
-        ftlPrice = Math.round((referencePrice * 1.1) / 10) * 10;
-        wheelseyePrice = Math.round((referencePrice * 0.95) / 10) * 10;
-      }
-
-      const weightBreakdown = wheelseyeResult?.weightBreakdown;
-      const actualWeight = weightBreakdown?.actualWeight || totalWeight;
-      const volumetricWeight =
-        weightBreakdown?.volumetricWeight || totalWeight;
-      const chargeableWeight =
-        weightBreakdown?.chargeableWeight || totalWeight;
-
-      // FTL quote (always available)
-      const ftlEstimatedTime = Math.ceil(distanceKm / 400);
-      const ftlQuote = {
-        message: "",
-        isHidden: false,
-        transporterData: { rating: 4.6 },
-        totalCharges: ftlPrice,
-        estimatedDelivery: `${ftlEstimatedTime} Day${
-          ftlEstimatedTime > 1 ? "s" : ""
-        }`,
-        companyName: "FTL",
-        price: ftlPrice,
-        transporterName: "FTL",
-        deliveryTime: `${ftlEstimatedTime} Day${
-          ftlEstimatedTime > 1 ? "s" : ""
-        }`,
-        estimatedTime: ftlEstimatedTime,
-        actualWeight,
-        volumetricWeight,
-        chargeableWeight,
-        total: ftlPrice,
-        totalPrice: ftlPrice,
-        distance: `${distanceKm} km`,
-        originPincode: fromPincode,
-        destinationPincode: toPincode,
-        category: "FTL",
-        isTiedUp: false,
-        vehicle:
-          wheelseyeResult?.vehicle ||
-          (chargeableWeight > 18000
-            ? "Container 32 ft MXL + Additional Vehicle"
-            : "FTL Vehicle"),
-        vehicleLength:
-          wheelseyeResult?.vehicleLength ||
-          (chargeableWeight > 18000 ? "32 ft + Additional" : 14),
-        matchedWeight: wheelseyeResult?.matchedWeight || chargeableWeight,
-        matchedDistance: wheelseyeResult?.matchedDistance || distanceKm,
-        loadSplit:
-          wheelseyeResult?.loadSplit ||
-          (chargeableWeight > 18000
-            ? {
-                vehiclesNeeded: 2,
-                firstVehicle: {
-                  vehicle: "Container 32 ft MXL",
-                  weight: 18000,
-                  price: Math.round(ftlPrice * 0.7),
-                  vehicleLength: 32,
-                },
-                secondVehicle: {
-                  vehicle:
-                    chargeableWeight - 18000 <= 1000
-                      ? "Tata Ace"
-                      : chargeableWeight - 18000 <= 1500
-                      ? "Pickup"
-                      : chargeableWeight - 18000 <= 2000
-                      ? "10 ft Truck"
-                      : chargeableWeight - 18000 <= 4000
-                      ? "Eicher 14 ft"
-                      : chargeableWeight - 18000 <= 7000
-                      ? "Eicher 19 ft"
-                      : chargeableWeight - 18000 <= 10000
-                      ? "Eicher 20 ft"
-                      : "Container 32 ft MXL",
-                  weight: chargeableWeight - 18000,
-                  price: Math.round(ftlPrice * 0.3),
-                  vehicleLength:
-                    chargeableWeight - 18000 <= 1000
-                      ? 7
-                      : chargeableWeight - 18000 <= 1500
-                      ? 8
-                      : chargeableWeight - 18000 <= 2000
-                      ? 10
-                      : chargeableWeight - 18000 <= 4000
-                      ? 14
-                      : chargeableWeight - 18000 <= 7000
-                      ? 19
-                      : chargeableWeight - 18000 <= 10000
-                      ? 20
-                      : 32,
-                },
-                totalPrice: ftlPrice,
-              }
-            : null),
-      };
-
-      // Always show FTL
-      others.unshift(ftlQuote);
-      if (!others.find((q) => q.companyName === "FTL")) {
-        others.unshift(ftlQuote);
-      }
-
-      // Only add Wheelseye if origin is in service area
-      if (isWheelseyeAvailable) {
-        const wheelseyeEstimatedTime = Math.ceil(distanceKm / 400);
-        const wheelseyeQuote = {
-          message: "",
-          isHidden: false,
-          transporterData: { rating: 4.6 },
-          totalCharges: wheelseyePrice,
-          estimatedDelivery: `${wheelseyeEstimatedTime} Day${
-            wheelseyeEstimatedTime > 1 ? "s" : ""
-          }`,
-          companyName: "Wheelseye FTL",
-          price: wheelseyePrice,
-          transporterName: "Wheelseye FTL",
-          deliveryTime: `${wheelseyeEstimatedTime} Day${
-            wheelseyeEstimatedTime > 1 ? "s" : ""
-          }`,
-          estimatedTime: wheelseyeEstimatedTime,
-          actualWeight,
-          volumetricWeight,
-          chargeableWeight,
-          total: wheelseyePrice,
-          totalPrice: wheelseyePrice,
-          distance: `${distanceKm} km`,
-          originPincode: fromPincode,
-          destinationPincode: toPincode,
-          category: "Wheelseye FTL",
-          isTiedUp: false,
-          vehicle:
-            wheelseyeResult?.vehicle ||
-            (chargeableWeight > 18000
-              ? "Container 32 ft MXL + Additional Vehicle"
-              : chargeableWeight <= 1000
-              ? "Tata Ace"
-              : chargeableWeight <= 1200
-              ? "Pickup"
-              : chargeableWeight <= 1500
-              ? "10 ft Truck"
-              : chargeableWeight <= 4000
-              ? "Eicher 14 ft"
-              : chargeableWeight <= 7000
-              ? "Eicher 19 ft"
-              : chargeableWeight <= 10000
-              ? "Eicher 20 ft"
-              : chargeableWeight <= 18000
-              ? "Container 32 ft MXL"
-              : "Container 32 ft MXL"),
-          vehicleLength:
-            wheelseyeResult?.vehicleLength ||
-            (chargeableWeight > 18000
-              ? "32 ft + Additional"
-              : chargeableWeight <= 1000
-              ? 7
-              : chargeableWeight <= 1200
-              ? 8
-              : chargeableWeight <= 1500
-              ? 10
-              : chargeableWeight <= 4000
-              ? 14
-              : chargeableWeight <= 7000
-              ? 19
-              : chargeableWeight <= 10000
-              ? 20
-              : chargeableWeight <= 18000
-              ? 32
-              : 32),
-          matchedWeight: wheelseyeResult?.matchedWeight || chargeableWeight,
-          matchedDistance: wheelseyeResult?.matchedDistance || distanceKm,
-          loadSplit:
-            wheelseyeResult?.loadSplit ||
-            (chargeableWeight > 18000
-              ? {
-                  vehiclesNeeded: 2,
-                  firstVehicle: {
-                    vehicle: "Container 32 ft MXL",
-                    weight: 18000,
-                    price: Math.round(wheelseeePrice * 0.7),
-                    vehicleLength: 32,
-                  },
-                  secondVehicle: {
-                    vehicle:
-                      chargeableWeight - 18000 <= 1000
-                        ? "Tata Ace"
-                        : chargeableWeight - 18000 <= 1500
-                        ? "Pickup"
-                        : chargeableWeight - 18000 <= 2000
-                        ? "10 ft Truck"
-                        : chargeableWeight - 18000 <= 4000
-                        ? "Eicher 14 ft"
-                        : chargeableWeight - 18000 <= 7000
-                        ? "Eicher 19 ft"
-                        : chargeableWeight - 18000 <= 10000
-                        ? "Eicher 20 ft"
-                        : "Container 32 ft MXL",
-                    weight: chargeableWeight - 18000,
-                    price: Math.round(wheelseyePrice * 0.3),
-                    vehicleLength:
-                      chargeableWeight - 18000 <= 1000
-                        ? 7
-                        : chargeableWeight - 18000 <= 1500
-                        ? 8
-                        : chargeableWeight - 18000 <= 2000
-                        ? 10
-                        : chargeableWeight - 18000 <= 4000
-                        ? 14
-                        : chargeableWeight - 18000 <= 7000
-                        ? 19
-                        : chargeableWeight - 18000 <= 10000
-                        ? 20
-                        : 32,
-                  },
-                  totalPrice: wheelseyePrice,
-                }
-              : null),
-        };
-
-        // Put Wheelseye just after FTL
-        others.unshift(wheelseyeQuote);
-      }
-
-      // Multiply all other Tied-Up Vendors prices by 5.0
-      tied.forEach((quote) => {
-        if (quote.companyName === "DP World") return;
-        quote.totalCharges = Math.round((quote.totalCharges * 5.0) / 10) * 10;
-        quote.price = Math.round((quote.price * 5.0) / 10) * 10;
-        quote.total = Math.round((quote.total * 5.0) / 10) * 10;
-        quote.totalPrice = Math.round((quote.totalPrice * 5.0) / 10) * 10;
-
-        if (quote.baseFreight)
-          quote.baseFreight = Math.round((quote.baseFreight * 5.0) / 10) * 10;
-        if (quote.docketCharge)
-          quote.docketCharge =
-            Math.round((quote.docketCharge * 5.0) / 10) * 10;
-        if (quote.fuelCharges)
-          quote.fuelCharges = Math.round((quote.fuelCharges * 5.0) / 10) * 10;
-        if (quote.handlingCharges)
-          quote.handlingCharges =
-            Math.round((quote.handlingCharges * 5.0) / 10) * 10;
-        if (quote.greenTax)
-          quote.greenTax = Math.round((quote.greenTax * 5.0) / 10) * 10;
-        if (quote.appointmentCharges)
-          quote.appointmentCharges =
-            Math.round((quote.appointmentCharges * 5.0) / 10) * 10;
-        if (quote.minCharges)
-          quote.minCharges = Math.round((quote.minCharges * 5.0) / 10) * 10;
-        if (quote.rovCharges)
-          quote.rovCharges = Math.round((quote.rovCharges * 5.0) / 10) * 10;
-      });
-
-      // Final guard: ensure FTL exists
-      if (!others.find((q) => q.companyName === "FTL")) {
-        const emergencyFtlQuote = {
-          message: "",
-          isHidden: false,
-          transporterData: { rating: 4.6 },
-          totalCharges: 35000,
-          estimatedDelivery: "2 Days",
-          companyName: "FTL",
-          price: 35000,
-          transporterName: "FTL",
-          deliveryTime: "2 Days",
-          estimatedTime: 2,
-          actualWeight: totalWeight,
-          volumetricWeight: totalWeight,
-          chargeableWeight: totalWeight,
-          total: 35000,
-          totalPrice: 35000,
-          distance: `${distanceKm} km`,
-          originPincode: fromPincode,
-          destinationPincode: toPincode,
-          category: "FTL",
-          isTiedUp: false,
-          vehicle: "FTL Vehicle",
-          vehicleLength: 14,
-          matchedWeight: totalWeight,
-          matchedDistance: distanceKm,
-          loadSplit: null,
-        };
-        others.unshift(emergencyFtlQuote);
-      }
-
-      setData(tied);
-      setHiddendata(others);
-
-      // Cache
-      writeCompareCache(cacheKey, {
-        params: requestParams,
-        data: tied,
-        hiddendata: others,
-        form: { fromPincode, toPincode, modeOfTransport, boxes },
-      });
+      setData(all.filter((q) => q.isTiedUp));
+      setHiddendata(all.filter((q) => !q.isTiedUp));
     } catch (e: any) {
       if (e.response?.status === 401) {
         setError("Authentication failed. Please log out and log back in.");
@@ -1005,14 +540,62 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
     }, 100);
   };
+  
+  // ——— SUMMARY VALUES ———
+  const totalWeight = boxes.reduce(
+    (sum, b) => sum + (b.weight || 0) * (b.count || 0),
+    0
+  );
+  const totalBoxes = boxes.reduce((sum, b) => sum + (b.count || 0), 0);
+  const displayableBoxes = savedBoxes.filter((b) =>
+    b.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-  // -------------------- Render --------------------
+// ... inside your component function ...
+
+// This is the state you're already using to track the open dropdown
+// const [openPresetDropdownIndex, setOpenPresetDropdownIndex] = useState(null);
+
+// This is the ref array you're already populating
+// const presetRefs = useRef([]);
+
+
+// --- ADD THIS CODE ---
+useEffect(() => {
+    /**
+     * Handles clicks outside of the currently open preset dropdown.
+     */
+    function handleClickOutside(event) {
+      // Proceed only if a dropdown is open (index is not null)
+      if (openPresetDropdownIndex !== null) {
+        
+        // Get the DOM element for the currently open dropdown using its index
+        const currentDropdownRef = presetRefs.current[openPresetDropdownIndex];
+
+        // If that element exists and the click was *not* inside it
+        if (currentDropdownRef && !currentDropdownRef.contains(event.target)) {
+          setOpenPresetDropdownIndex(null); // Close the dropdown
+        }
+      }
+    }
+
+    // This line tells the browser to start listening for clicks.
+    document.addEventListener("mousedown", handleClickOutside);
+
+    // This 'return' function is the cleanup step.
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+    
+}, [openPresetDropdownIndex]);
+
+  // --- JSX RENDER ---
   return (
     <div className="min-h-screen w-full bg-slate-50 font-sans">
       <div
         className="absolute top-0 left-0 w-full h-80 bg-gradient-to-br from-indigo-50 to-purple-50"
         style={{ clipPath: "polygon(0 0, 100% 0, 100% 65%, 0% 100%)" }}
-      />
+      ></div>
       <div className="relative max-w-5xl mx-auto p-4 sm:p-6 lg:p-8 space-y-8">
         <header className="text-center py-8">
           <motion.h1
@@ -1034,553 +617,536 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           </motion.p>
         </header>
 
-        {/* Mode & Route */}
-        <Card>
-          <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center">
-            <Navigation size={22} className="mr-3 text-indigo-500" /> Mode & Route
-          </h2>
-          <p className="text-sm text-slate-500 mb-6">
-            Select your mode of transport and enter the pickup and destination pincodes.
-          </p>
+        <Card>
+          <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center">
+            <Navigation size={22} className="mr-3 text-indigo-500" /> Mode & Route
+          </h2>
+          <p className="text-sm text-slate-500 mb-6">
+            Select your mode of transport and enter the pickup and destination
+            pincodes.
+          </p>
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { name: "Road", icon: Truck, isAvailable: true },
+                { name: "Rail", icon: Train, isAvailable: false },
+                { name: "Air", icon: Plane, isAvailable: false },
+                { name: "Ship", icon: ShipIcon, isAvailable: false },
+              ].map((mode) => (
+                <button
+                  key={mode.name}
+                  onClick={() =>
+                    mode.isAvailable ? setModeOfTransport(mode.name as any) : null
+                  }
+                  className={`relative group w-full p-4 rounded-xl transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 focus-visible:ring-indigo-500 ${
+                    modeOfTransport === mode.name
+                      ? "bg-indigo-600 text-white shadow-lg"
+                      : mode.isAvailable
+                      ? "bg-white text-slate-700 border border-slate-300 hover:border-indigo-500 hover:text-indigo-600"
+                      : "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+                  }`}
+                  disabled={!mode.isAvailable}
+                  aria-label={
+                    mode.isAvailable
+                      ? `Select ${mode.name} transport`
+                      : `${mode.name} transport (Coming Soon)`
+                  }
+                >
+                  <div
+                    className={`flex flex-col items-center justify-center gap-2 transition-all duration-300 ${
+                      !mode.isAvailable && "opacity-50"
+                    }`}
+                  >
+                    <mode.icon size={24} className="mx-auto" />
+                    <span className="text-sm font-semibold">{mode.name}</span>
+                  </div>
+                  {!mode.isAvailable && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-slate-800/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 backdrop-blur-[2px]">
+                      <span className="text-xs font-bold text-white uppercase tracking-wider bg-slate-800/70 px-3 py-1 rounded-full">
+                        Coming Soon
+                      </span>
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+              <InputField
+                label="Origin Pincode"
+                id="fromPincode"
+                value={fromPincode}
+                placeholder="e.g., 400001"
+                maxLength={6}
+                icon={<MapPin />}
+                inputMode="numeric"
+                pattern="\d{6}"
+                onChange={(e) =>
+                  handlePincodeChange(e.target.value, setFromPincode)
+                }
+              />
+              <InputField
+                label="Destination Pincode"
+                id="toPincode"
+                value={toPincode}
+                placeholder="e.g., 110001"
+                maxLength={6}
+                icon={<MapPin />}
+                inputMode="numeric"
+                pattern="\d{6}"
+                onChange={(e) =>
+                  handlePincodeChange(e.target.value, setToPincode)
+                }
+              />
+            </div>
+          </div>
+        </Card>
+<Card>
+    {/* Header */}
+    <div className="mb-6">
+    <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+        <Boxes size={22} className="text-indigo-500" /> Shipment Details
+    </h2>
+    <p className="text-sm text-slate-500">
+        Enter dimensions and weight, or select a saved preset to auto‑fill.
+    </p>
+    </div>
 
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                { name: "Road", icon: Truck, isAvailable: true },
-                { name: "Rail", icon: Train, isAvailable: false },
-                { name: "Air", icon: Plane, isAvailable: false },
-                { name: "Ship", icon: ShipIcon, isAvailable: false },
-              ].map((mode) => (
-                <button
-                  key={mode.name}
-                  onClick={() =>
-                    mode.isAvailable ? setModeOfTransport(mode.name as any) : null
-                  }
-                  className={`relative group w-full p-4 rounded-xl transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 focus-visible:ring-indigo-500 ${
-                    modeOfTransport === mode.name
-                      ? "bg-indigo-600 text-white shadow-lg"
-                      : mode.isAvailable
-                      ? "bg-white text-slate-700 border border-slate-300 hover:border-indigo-500 hover:text-indigo-600"
-                      : "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
-                  }`}
-                  disabled={!mode.isAvailable}
-                >
-                  <div
-                    className={`flex flex-col items-center justify-center gap-2 transition-all duration-300 ${
-                      !mode.isAvailable && "opacity-50"
-                    }`}
-                  >
-                    <mode.icon size={24} className="mx-auto" />
-                    <span className="text-sm font-semibold">{mode.name}</span>
-                  </div>
-                  {!mode.isAvailable && (
-                    <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-slate-800/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 backdrop-blur-[2px]">
-                      <span className="text-xs font-bold text-white uppercase tracking-wider bg-slate-800/70 px-3 py-1 rounded-full">
-                        Coming Soon
-                      </span>
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
+    {/* Box Forms */}
+    <div className="space-y-6">
+    <AnimatePresence>
+        {boxes.map((box, index) => (
+        <motion.div
+            key={box.id}
+            layout
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -50, scale: 0.9 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            className="p-5 bg-slate-50 border border-slate-200 rounded-xl relative"
+        >
+            <button
+            onClick={() => {
+                if (boxes.length > 1) {
+                removeBox(index);
+                } else {
+                setBoxes([createNewBox()]);
+                }
+            }}
+            title={
+                boxes.length > 1
+                ? "Remove this box type"
+                : "Clear all fields"
+            }
+            className="absolute top-2 right-2 p-1 text-red-500 hover:bg-red-100 rounded-full transition-colors"
+            >
+            <Trash2 size={18} />
+            </button>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-              <InputField
-                label="Origin Pincode"
-                id="fromPincode"
-                value={fromPincode}
-                placeholder="e.g., 400001"
-                maxLength={6}
-                icon={<MapPin />}
-                inputMode="numeric"
-                pattern="\d{6}"
-                onChange={(e) => handlePincodeChange(e.target.value, setFromPincode)}
-              />
-              <InputField
-                label="Destination Pincode"
-                id="toPincode"
-                value={toPincode}
-                placeholder="e.g., 110001"
-                maxLength={6}
-                icon={<MapPin />}
-                inputMode="numeric"
-                pattern="\d{6}"
-                onChange={(e) => handlePincodeChange(e.target.value, setToPincode)}
-              />
-            </div>
-          </div>
-        </Card>
-
-        {/* Shipment Details */}
-        <Card>
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-              <Boxes size={22} className="text-indigo-500" /> Shipment Details
-            </h2>
-            <p className="text-sm text-slate-500">
-              Enter dimensions and weight, or select a saved preset to auto-fill.
-            </p>
-          </div>
-
-          <div className="space-y-6">
-            <AnimatePresence>
-              {boxes.map((box, index) => (
-                <motion.div
-                  key={box.id}
-                  layout
-                  initial={{ opacity: 0, y: -20, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, x: -50, scale: 0.9 }}
-                  transition={{ duration: 0.3, ease: "easeOut" }}
-                  className="p-5 bg-slate-50 border border-slate-200 rounded-xl relative"
-                  ref={(el) => (boxFormRefs.current[index] = el)}
-                >
-                  <button
-                    onClick={() => {
-                      if (boxes.length > 1) removeBox(index);
-                      else setBoxes([createNewBox()]);
-                    }}
-                    title={boxes.length > 1 ? "Remove this box type" : "Clear all fields"}
-                    className="absolute top-2 right-2 p-1 text-red-500 hover:bg-red-100 rounded-full transition-colors"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    {/* Preset selector */}
-                    <div
-                      className="relative text-sm"
-                      ref={(el) => {
-                        if (el) presetRefs.current[index] = el;
-                      }}
-                    >
-                      <InputField
-                        label="Box Name"
-                        id={`preset-${index}`}
-                        placeholder="Select or type to search..."
-                        value={
-                          box.description ||
-                          (openPresetDropdownIndex === index ? searchTerm : "")
-                        }
-                        onChange={(e) => {
-                          updateBox(index, "description", e.target.value);
-                          setSearchTerm(e.target.value);
-                        }}
-                        onFocus={() => {
-                          setOpenPresetDropdownIndex(index);
-                          setSearchTerm("");
-                        }}
-                        icon={<PackageSearch size={16} />}
-                        className="text-sm"
-                        autoComplete="off"
-                        required
-                      />
-                      <AnimatePresence>
-                        {openPresetDropdownIndex === index && (
-                          <motion.ul
-                            initial={{ opacity: 0, y: -10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
-                            className="absolute z-50 w-full mt-1 border border-slate-200 rounded-lg max-h-48 overflow-y-auto bg-white shadow-lg"
-                          >
-                            {displayableBoxes.length > 0 ? (
-                              displayableBoxes.map((preset) => (
-                                <li
-                                  key={preset._id}
-                                  onClick={() => handleSelectPresetForBox(index, preset)}
-                                  className="group flex justify-between items-center px-3 py-2 hover:bg-indigo-50 cursor-pointer text-slate-700 text-sm transition-colors"
-                                >
-                                  <span>{preset.name}</span>
-                                  <button
-                                    onClick={(e) => handleDeletePreset(preset._id, e)}
-                                    className="p-1.5 text-slate-400 opacity-0 group-hover:opacity-100 hover:!opacity-100 hover:text-red-600 hover:bg-red-100 rounded-full transition-all duration-200"
-                                    title={`Delete "${preset.name}"`}
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </li>
-                              ))
-                            ) : (
-                              <li className="px-4 py-2 italic text-sm text-slate-500">
-                                {savedBoxes.length === 0
-                                  ? "No presets saved yet."
-                                  : "No matches found."}
-                              </li>
-                            )}
-                          </motion.ul>
-                        )}
-                      </AnimatePresence>
-                    </div>
-
-                    <InputField
-                      label="Number of Boxes"
-                      id={`count-${index}`}
-                      type="text"
-                      inputMode="numeric"
-                      pattern="\d*"
-                      value={box.count ?? ""}
-                      onKeyDown={preventNonIntegerKeys}
-                      onChange={(e) => {
-                        const next = sanitizeIntegerFromEvent(e.target.value);
-                        if (next === "") updateBox(index, "count", undefined);
-                        else updateBox(index, "count", Number(next));
-                      }}
-                      onPaste={(e) => {
-                        e.preventDefault();
-                        const pasted = (e.clipboardData || (window as any).clipboardData).getData("text");
-                        const next = sanitizeIntegerFromEvent(pasted);
-                        if (next === "") return;
-                        updateBox(index, "count", Number(next));
-                      }}
-                      placeholder="e.g., 10"
-                      required
-                    />
-
-                    <InputField
-                      label="Weight (kg)"
-                      id={`weight-${index}`}
-                      type="text"
-                      inputMode="numeric"
-                      pattern="\d*"
-                      value={box.weight ?? ""}
-                      onKeyDown={preventNonIntegerKeys}
-                      onChange={(e) => {
-                        const next = sanitizeIntegerFromEvent(e.target.value);
-                        if (next === "") updateBox(index, "weight", undefined);
-                        else updateBox(index, "weight", Number(next));
-                      }}
-                      onPaste={(e) => {
-                        e.preventDefault();
-                        const pasted = (e.clipboardData || (window as any).clipboardData).getData("text");
-                        const next = sanitizeIntegerFromEvent(pasted);
-                        if (next === "") return;
-                        updateBox(index, "weight", Number(next));
-                      }}
-                      placeholder="e.g., 5"
-                      required
-                    />
-                  </div>
-
-                  {/* Dimensions */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <InputField
-                        label="Length (cm)"
-                        id={`length-${index}`}
-                        type="text"
-                        inputMode="numeric"
-                        pattern="\d*"
-                        value={box.length ?? ""}
-                        onKeyDown={preventNonIntegerKeys}
-                        onChange={(e) =>
-                          handleDimensionChange(
-                            index,
-                            "length",
-                            e.target.value,
-                            4,
-                            MAX_DIMENSION_LENGTH
-                          )
-                        }
-                        placeholder="Length"
-                        required
-                      />
-                      {(box.length ?? 0) > MAX_DIMENSION_LENGTH && (
-                        <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                          <AlertCircle size={14} />
-                          Max length is {MAX_DIMENSION_LENGTH} cm.
-                        </p>
-                      )}
-                    </div>
-
-                    <div>
-                      <InputField
-                        label="Width (cm)"
-                        id={`width-${index}`}
-                        type="text"
-                        inputMode="numeric"
-                        pattern="\d*"
-                        value={box.width ?? ""}
-                        onKeyDown={preventNonIntegerKeys}
-                        onChange={(e) =>
-                          handleDimensionChange(
-                            index,
-                            "width",
-                            e.target.value,
-                            3,
-                            MAX_DIMENSION_WIDTH
-                          )
-                        }
-                        placeholder="Width"
-                        required
-                      />
-                      {(box.width ?? 0) > MAX_DIMENSION_WIDTH && (
-                        <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                          <AlertCircle size={14} />
-                          Max width is {MAX_DIMENSION_WIDTH} cm.
-                        </p>
-                      )}
-                    </div>
-
-                    <div>
-                      <InputField
-                        label="Height (cm)"
-                        id={`height-${index}`}
-                        type="text"
-                        inputMode="numeric"
-                        pattern="\d*"
-                        value={box.height ?? ""}
-                        onKeyDown={preventNonIntegerKeys}
-                        onChange={(e) =>
-                          handleDimensionChange(
-                            index,
-                            "height",
-                            e.target.value,
-                            3,
-                            MAX_DIMENSION_HEIGHT
-                          )
-                        }
-                        placeholder="Height"
-                        required
-                      />
-                      {(box.height ?? 0) > MAX_DIMENSION_HEIGHT && (
-                        <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                          <AlertCircle size={14} />
-                          Max height is {MAX_DIMENSION_HEIGHT} cm.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex justify-end">
-                    <button
-                      onClick={() => triggerSavePresetForBox(index)}
-                      className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-indigo-700 bg-indigo-100 rounded-lg hover:bg-indigo-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
-                      title="Save this box configuration as a new preset"
-                    >
-                      <Save size={14} />
-                      Save as Preset
-                    </button>
-                  </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-
-            <div className="flex justify-between items-center pt-6 border-t border-slate-200">
-              <button
-                onClick={addBoxType}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-100 text-indigo-700 font-semibold rounded-lg hover:bg-indigo-200 transition-colors"
-              >
-                <PlusCircle size={18} /> Add Another Box Type
-              </button>
-
-              {totalWeight > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, x: 10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.5 }}
-                  className="text-right"
-                >
-                  <p className="text-sm font-medium text-slate-500">Total Weight</p>
-                  <p className="text-2xl font-bold text-slate-800">
-                    {totalWeight.toFixed(2)}
-                    <span className="text-base font-semibold text-slate-600 ml-1">
-                      kg
-                    </span>
-                  </p>
-                </motion.div>
-              )}
-            </div>
-
-            <div className="text-center pt-6 mt-6 border-t border-slate-200">
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="inline-flex items-center gap-3 bg-red-100 text-red-800 font-semibold px-4 py-3 rounded-xl mb-6 shadow-sm"
-                >
-                  <AlertCircle size={20} />
-                  {error}
-                </motion.div>
-              )}
-              {isAnyDimensionExceeded && !error && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="inline-flex items-center gap-3 bg-yellow-100 text-yellow-800 font-semibold px-4 py-3 rounded-xl mb-6 shadow-sm"
-                >
-                  <AlertCircle size={20} />
-                  One or more box dimensions exceed the allowed limit. Please correct
-                  them to proceed.
-                </motion.div>
-              )}
-              <motion.button
-                onClick={calculateQuotes}
-                disabled={isCalculating || isAnyDimensionExceeded}
-                whileHover={{
-                  scale: isCalculating || isAnyDimensionExceeded ? 1 : 1.05,
+            {/* Row 1: Preset │ Number of Boxes │ Weight */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="relative text-sm" ref={el => { if (el) presetRefs.current[index] = el; }}>
+                <InputField
+                label="Box Name"
+                id={`preset-${index}`}
+                placeholder="Select or type to search..."
+                value={
+                    box.description ||
+                    (openPresetDropdownIndex === index ? searchTerm : "")
+                }
+                onChange={e => {
+                    updateBox(index, "description", e.target.value);
+                    setSearchTerm(e.target.value);
                 }}
-                whileTap={{
-                  scale: isCalculating || isAnyDimensionExceeded ? 1 : 0.95,
+                onFocus={() => {
+                    setOpenPresetDropdownIndex(index);
+                    setSearchTerm("");
                 }}
-                className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-indigo-600 text-white text-lg font-bold rounded-full shadow-lg shadow-indigo-500/50 hover:bg-indigo-700 transition-all duration-300 disabled:opacity-60 disabled:shadow-none disabled:cursor-not-allowed"
-              >
-                {isCalculating ? <Loader2 className="animate-spin" /> : <CalculatorIcon />}
-                {isCalculating
-                  ? calculationProgress || "Calculating Rates..."
-                  : "Calculate Freight Cost"}
-              </motion.button>
-            </div>
-          </div>
-        </Card>
-
-        {/* Summary */}
-        {totalBoxes > 0 && (
-          <Card>
-            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Package size={22} className="mr-3 text-indigo-500" /> Shipment Summary
-            </h2>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left text-slate-600">
-                <thead className="text-xs text-slate-700 uppercase bg-slate-100 rounded-t-lg">
-                  <tr>
-                    <th className="px-4 py-3">Description</th>
-                    <th className="px-4 py-3">Quantity</th>
-                    <th className="px-4 py-3">Total Weight</th>
-                    <th className="px-4 py-3">Volume (cm³)</th>
-                    <th className="px-4 py-3 text-right">Action</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  <AnimatePresence>
-                    {boxes.map((box, index) => {
-                      const qty = box.count || 0;
-                      const totalW = ((box.weight || 0) * qty).toFixed(2);
-                      const totalV = (
-                        (box.length || 0) *
-                        (box.width || 0) *
-                        (box.height || 0) *
-                        qty
-                      ).toLocaleString();
-
-                      return (
-                        <motion.tr
-                          key={box.id}
-                          layout
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0, x: -30 }}
-                          className="bg-white border-b border-slate-200 hover:bg-slate-50"
+                icon={<PackageSearch size={16} />}
+                className="text-sm"
+                autoComplete="off"
+                required
+                />
+                <AnimatePresence>
+                {openPresetDropdownIndex === index && (
+                    <motion.ul
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="absolute z-20 w-full mt-1 border border-slate-200 rounded-lg max-h-48 overflow-y-auto bg-white shadow-lg"
+                    >
+                    {displayableBoxes.length > 0 ? (
+                        displayableBoxes.map((preset) => (
+                        <li
+                            key={preset._id}
+                            onClick={() => handleSelectPresetForBox(index, preset)}
+                            className="group flex justify-between items-center px-3 py-2 hover:bg-indigo-50 cursor-pointer text-slate-700 text-sm transition-colors"
                         >
-                          <td className="px-4 py-3">
-                            {box.description || `Type ${index + 1}`}
-                          </td>
-                          <td className="px-4 py-3">{qty}</td>
-                          <td className="px-4 py-3">{totalW} kg</td>
-                          <td className="px-4 py-3">{totalV} cm³</td>
-                          <td className="px-4 py-3 flex justify-end items-center gap-2">
+                            <span>{preset.name}</span>
                             <button
-                              onClick={() => removeBox(index)}
-                              disabled={boxes.length <= 1}
-                              title="Delete"
-                              className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-100 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            onClick={(e) => handleDeletePreset(preset._id, e)}
+                            className="p-1.5 text-slate-400 opacity-0 group-hover:opacity-100 hover:!opacity-100 hover:text-red-600 hover:bg-red-100 rounded-full transition-all duration-200"
+                            title={`Delete "${preset.name}"`}
                             >
-                              <Trash2 size={16} />
+                            <Trash2 size={14} />
                             </button>
-                          </td>
-                        </motion.tr>
-                      );
-                    })}
-                  </AnimatePresence>
-                </tbody>
-
-                <tfoot>
-                  <tr className="font-semibold text-slate-800 bg-slate-50">
-                    <td colSpan={1} className="px-4 py-3">
-                      Grand Total
-                    </td>
-                    <td className="px-4 py-3">{totalBoxes} Boxes</td>
-                    <td className="px-4 py-3">{totalWeight.toFixed(2)} kg</td>
-                    <td className="px-4 py-3">
-                      {boxes
-                        .reduce(
-                          (sum, b) =>
-                            sum +
-                            (b.length || 0) *
-                              (b.width || 0) *
-                              (b.height || 0) *
-                              (b.count || 0),
-                          0
-                        )
-                        .toLocaleString()}{" "}
-                      cm³
-                    </td>
-                    <td className="px-4 py-3"></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </Card>
-        )}
-
-        {/* Controls */}
-        {(data || hiddendata) && (
-          <>
-            <Card>
-              <div className="flex justify-between items-start">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center">
-                    <Star size={22} className="mr-3 text-indigo-500" /> Sort & Filter Results
-                  </h2>
-                  <p className="text-sm text-slate-500 mb-6">
-                    Quickly organize quotes by price, speed, or vendor rating.
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-col sm:flex-row items-center gap-3">
-                <div className="flex-grow w-full grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <SortOptionButton
-                    label="Lowest Price"
-                    icon={<IndianRupee size={16} />}
-                    selected={sortBy === "price"}
-                    onClick={() => setSortBy("price")}
-                  />
-                  <SortOptionButton
-                    label="Fastest"
-                    icon={<Zap size={16} />}
-                    selected={sortBy === "time"}
-                    onClick={() => setSortBy("time")}
-                  />
-                  <SortOptionButton
-                    label="Highest Rated"
-                    icon={<Star size={16} />}
-                    selected={sortBy === "rating"}
-                    onClick={() => setSortBy("rating")}
-                  />
-                </div>
-                <div className="relative w-full sm:w-auto">
-                  <button
-                    onClick={() => setIsFineTuneOpen((prev) => !prev)}
-                    className="w-full px-5 py-3 bg-slate-100 text-slate-700 font-semibold rounded-lg hover:bg-slate-200 transition-colors border border-slate-300"
-                  >
-                    Fine-Tune Sort
-                  </button>
-                  <AnimatePresence>
-                    {isFineTuneOpen && (
-                      <FineTuneModal
-                        isOpen={isFineTuneOpen}
-                        onClose={() => setIsFineTuneOpen(false)}
-                        filters={{ maxPrice, maxTime, minRating }}
-                        onFilterChange={{ setMaxPrice, setMaxTime, setMinRating }}
-                      />
+                        </li>
+                        ))
+                    ) : (
+                        <li className="px-4 py-2 italic text-sm text-slate-500">
+                        {savedBoxes.length === 0
+                            ? "No presets saved yet."
+                            : "No matches found."}
+                        </li>
                     )}
-                  </AnimatePresence>
-                </div>
-              </div>
-            </Card>
+                    </motion.ul>
+                )}
+                </AnimatePresence>
+            </div>
 
-            {/* Results */}
+            <InputField
+                label="Number of Boxes"
+                id={`count-${index}`}
+                type="number"
+                min={1}
+                value={box.count ?? ""}
+                onChange={(e) =>
+                updateBox(
+                    index,
+                    "count",
+                    e.target.valueAsNumber ?? undefined
+                )
+                }
+                placeholder="e.g., 10"
+                required
+            />
+
+            <InputField
+                label="Weight (kg)"
+                id={`weight-${index}`}
+                type="number"
+                min={0}
+                step="0.01"
+                value={box.weight ?? ""}
+                onChange={(e) =>
+                updateBox(
+                    index,
+                    "weight",
+                    e.target.valueAsNumber ?? undefined
+                )
+                }
+                placeholder="e.g., 5.5"
+                required
+            />
+            </div>
+
+            {/* Row 2: Dimensions */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <InputField
+                    label="Length (cm)"
+                    id={`length-${index}`}
+                    type="number"
+                    min={0}
+                    value={box.length ?? ""}
+                    // --- MODIFIED: Handler now also checks the max value ---
+                    onChange={(e) => handleDimensionChange(index, 'length', e.target.value, 4, MAX_DIMENSION_LENGTH)}
+                    placeholder="Length"
+                    required
+                    />
+                    {(box.length ?? 0) > MAX_DIMENSION_LENGTH && (
+                    <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                        <AlertCircle size={14} />
+                        Max length is {MAX_DIMENSION_LENGTH} cm.
+                    </p>
+                    )}
+                </div>
+                
+                <div>
+                    <InputField
+                    label="Width (cm)"
+                    id={`width-${index}`}
+                    type="number"
+                    min={0}
+                    value={box.width ?? ""}
+                    // --- MODIFIED: Handler now also checks the max value ---
+                    onChange={(e) => handleDimensionChange(index, 'width', e.target.value, 3, MAX_DIMENSION_WIDTH)}
+                    placeholder="Width"
+                    required
+                    />
+                    {(box.width ?? 0) > MAX_DIMENSION_WIDTH && (
+                    <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                        <AlertCircle size={14} />
+                        Max width is {MAX_DIMENSION_WIDTH} cm.
+                    </p>
+                    )}
+                </div>
+                
+                <div>
+                    <InputField
+                    label="Height (cm)"
+                    id={`height-${index}`}
+                    type="number"
+                    min={0}
+                    value={box.height ?? ""}
+                    // --- MODIFIED: Handler now also checks the max value ---
+                    onChange={(e) => handleDimensionChange(index, 'height', e.target.value, 3, MAX_DIMENSION_HEIGHT)}
+                    placeholder="Height"
+                    required
+                    />
+                    {(box.height ?? 0) > MAX_DIMENSION_HEIGHT && (
+                    <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                        <AlertCircle size={14} />
+                        Max height is {MAX_DIMENSION_HEIGHT} cm.
+                    </p>
+                    )}
+                </div>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+            <button
+                onClick={() => triggerSavePresetForBox(index)}
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-indigo-700 bg-indigo-100 rounded-lg hover:bg-indigo-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
+                title="Save this box configuration as a new preset"
+            >
+                <Save size={14} />
+                Save as Preset
+            </button>
+            </div>
+        </motion.div>
+        ))}
+    </AnimatePresence>
+
+    <div className="flex justify-between items-center pt-6 border-t border-slate-200">
+        <button
+        onClick={addBoxType}
+        className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-100 text-indigo-700 font-semibold rounded-lg hover:bg-indigo-200 transition-colors"
+        >
+        <PlusCircle size={18} /> Add Another Box Type
+        </button>
+        
+        {totalWeight > 0 && (
+        <motion.div 
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5 }}
+            className="text-right"
+        >
+            <p className="text-sm font-medium text-slate-500">Total Weight</p>
+            <p className="text-2xl font-bold text-slate-800">
+            {totalWeight.toFixed(2)}
+            <span className="text-base font-semibold text-slate-600 ml-1">kg</span>
+            </p>
+        </motion.div>
+        )}
+    </div>
+
+    <div className="text-center pt-6 mt-6 border-t border-slate-200">
+        {error && (
+        <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="inline-flex items-center gap-3 bg-red-100 text-red-800 font-semibold px-4 py-3 rounded-xl mb-6 shadow-sm"
+        >
+            <AlertCircle size={20} />
+            {error}
+        </motion.div>
+        )}
+        {isAnyDimensionExceeded && !error && (
+        <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="inline-flex items-center gap-3 bg-yellow-100 text-yellow-800 font-semibold px-4 py-3 rounded-xl mb-6 shadow-sm"
+        >
+            <AlertCircle size={20} />
+            One or more box dimensions exceed the allowed limit. Please correct them to proceed.
+        </motion.div>
+        )}
+        <motion.button
+        onClick={calculateQuotes}
+        disabled={isCalculating || isAnyDimensionExceeded}
+        whileHover={{ scale: (isCalculating || isAnyDimensionExceeded) ? 1 : 1.05 }}
+        whileTap={{ scale: (isCalculating || isAnyDimensionExceeded) ? 1 : 0.95 }}
+        className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-indigo-600 text-white text-lg font-bold rounded-full shadow-lg shadow-indigo-500/50 hover:bg-indigo-700 transition-all duration-300 disabled:opacity-60 disabled:shadow-none disabled:cursor-not-allowed"
+        >
+        {isCalculating ? (
+            <Loader2 className="animate-spin" />
+        ) : (
+            <CalculatorIcon />
+        )}
+        {isCalculating
+            ? calculationProgress || "Calculating Rates..."
+            : "Calculate Freight Cost"}
+        </motion.button>
+    </div>
+    </div>
+</Card>
+        
+        {totalBoxes > 0 && (
+          <Card>
+            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <Package size={22} className="mr-3 text-indigo-500" /> Shipment
+              Summary
+            </h2>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left text-slate-600">
+                <thead className="text-xs text-slate-700 uppercase bg-slate-100 rounded-t-lg">
+                  <tr>
+                    <th className="px-4 py-3">Description</th>
+                    <th className="px-4 py-3">Quantity</th>
+                    <th className="px-4 py-3">Total Weight</th>
+                    {/* MODIFIED: Volume unit changed to cm³ */}
+                    <th className="px-4 py-3">Volume (cm³)</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  <AnimatePresence>
+                    {boxes.map((box, index) => {
+                      const qty = box.count || 0;
+                      const totalW = ((box.weight || 0) * qty).toFixed(2);
+                      {/* MODIFIED: Volume calculation updated to cm³ and formatted */}
+                      const totalV = (
+                        (box.length || 0) *
+                        (box.width || 0) *
+                        (box.height || 0) *
+                        qty
+                      ).toLocaleString();
+
+                      return (
+                        <motion.tr
+                          key={box.id}
+                          layout
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0, x: -30 }}
+                          className="bg-white border-b border-slate-200 hover:bg-slate-50"
+                        >
+                          <td className="px-4 py-3">
+                            {box.description ||
+                              (areDimensionsSame
+                                ? "Standard Box"
+                                : `Type ${index + 1}`)}
+                          </td>
+                          <td className="px-4 py-3">{qty}</td>
+                          <td className="px-4 py-3">{totalW} kg</td>
+                          {/* MODIFIED: Volume display updated to cm³ */}
+                          <td className="px-4 py-3">{totalV} cm³</td>
+                          <td className="px-4 py-3 flex justify-end items-center gap-2">
+                            <button
+                              onClick={() => editBox(index)}
+                              title="Edit"
+                              className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-100 rounded-full transition-colors"
+                            >
+                              <Edit3 size={16} />
+                            </button>
+                            <button
+                              onClick={() => removeBox(index)}
+                              disabled={boxes.length <= 1}
+                              title="Delete"
+                              className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-100 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </motion.tr>
+                      );
+                    })}
+                  </AnimatePresence>
+                </tbody>
+
+                <tfoot>
+                  <tr className="font-semibold text-slate-800 bg-slate-50">
+                    <td colSpan={1} className="px-4 py-3 text-right">
+                      Grand Total
+                    </td>
+                    <td className="px-4 py-3">{totalBoxes} Boxes</td>
+                    <td className="px-4 py-3">{totalWeight.toFixed(2)} kg</td>
+                    <td className="px-4 py-3">
+                      {/* MODIFIED: Grand total volume calculation updated to cm³ */}
+                      {boxes
+                        .reduce(
+                          (sum, b) =>
+                            sum +
+                            ((b.length || 0) *
+                              (b.width || 0) *
+                              (b.height || 0) *
+                              (b.count || 0)),
+                          0
+                        )
+                        .toLocaleString()}{" "}
+                      cm³
+                    </td>
+                    <td className="px-4 py-3"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </Card>
+        )}
+
+        {/* --- MOVED: The content of this div is now inside the "Shipment Details" Card --- */}
+        <div className="text-center pt-4 pb-8" style={{ display: "none" }}></div>
+
+        {(data || hiddendata) && (
+          <>
+            <Card>
+              <div className="flex justify-between items-start">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center">
+                    <Award size={22} className="mr-3 text-indigo-500" /> Sort &
+                    Filter Results
+                  </h2>
+                  <p className="text-sm text-slate-500 mb-6">
+                    Quickly organize quotes by price, speed, or vendor rating.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row items-center gap-3">
+                <div className="flex-grow w-full grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <SortOptionButton
+                    label="Lowest Price"
+                    icon={<IndianRupee size={16} />}
+                    selected={sortBy === "price"}
+                    onClick={() => setSortBy("price")}
+                  />
+                  <SortOptionButton
+                    label="Fastest"
+                    icon={<Zap size={16} />}
+                    selected={sortBy === "time"}
+                    onClick={() => setSortBy("time")}
+                  />
+                  <SortOptionButton
+                    label="Highest Rated"
+                    icon={<Award size={16} />}
+                    selected={sortBy === "rating"}
+                    onClick={() => setSortBy("rating")}
+                  />
+                </div>
+                <div className="relative w-full sm:w-auto" ref={fineTuneRef}>
+                  <button
+                    onClick={() => setIsFineTuneOpen((prev) => !prev)}
+                    className="w-full px-5 py-3 bg-slate-100 text-slate-700 font-semibold rounded-lg hover:bg-slate-200 transition-colors border border-slate-300"
+                  >
+                    Fine-Tune Sort
+                  </button>
+                  <AnimatePresence>
+                    {isFineTuneOpen && (
+                      <FineTuneModal
+                        isOpen={isFineTuneOpen}
+                        filters={{ maxPrice, maxTime, minRating }}
+                        onFilterChange={{
+                          setMaxPrice,
+                          setMaxTime,
+                          setMinRating,
+                        }}
+                      />
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+            </Card>
             <div id="results" className="space-y-12">
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -1593,40 +1159,30 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                     ...(data || []),
                     ...(hiddendata || []),
                   ].filter((q) => q.message !== "service not available");
-
                   const bestValueQuote =
                     allQuotes.length > 0
                       ? allQuotes.reduce((prev, current) =>
-                          (prev.totalCharges ?? Infinity) <
-                          (current.totalCharges ?? Infinity)
-                            ? prev
-                            : current
+                          prev.totalCharges < current.totalCharges ? prev : current
                         )
                       : null;
-
-                  const unlocked = allQuotes.filter(
+                  const unlockedQuotes = allQuotes.filter(
                     (q) => !q.isHidden && typeof q.estimatedTime === "number"
                   );
                   const fastestQuote =
-                    unlocked.length > 0
-                      ? unlocked.reduce((prev, current) =>
-                          (prev.estimatedTime ?? Infinity) <
-                          (current.estimatedTime ?? Infinity)
+                    unlockedQuotes.length > 0
+                      ? unlockedQuotes.reduce((prev, current) =>
+                          prev.estimatedTime! < current.estimatedTime!
                             ? prev
                             : current
                         )
                       : null;
-
-                  const processQuotes = (quotes: QuoteAny[] | null) => {
+                  const processQuotes = (quotes: VendorQuote[] | null) => {
                     if (!quotes) return [];
                     const filtered = quotes.filter((q) => {
-                      const rating = (q?.transporterData?.rating ??
-                        q?.rating ??
-                        q?.transporterData?.ratingAverage ??
-                        0) as number;
-                      if (q.isHidden) return (q.totalCharges ?? Infinity) <= maxPrice;
+                      const rating = q.transporterData?.rating ?? 0;
+                      if (q.isHidden) return q.totalCharges <= maxPrice;
                       return (
-                        (q.totalCharges ?? Infinity) <= maxPrice &&
+                        q.totalCharges <= maxPrice &&
                         (q.estimatedTime ?? Infinity) <= maxTime &&
                         rating >= minRating
                       );
@@ -1640,33 +1196,21 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                             (a.estimatedTime ?? Infinity) -
                             (b.estimatedTime ?? Infinity)
                           );
-                        case "rating": {
-                          const ratingA =
-                            (a?.transporterData?.rating ??
-                              a?.rating ??
-                              a?.transporterData?.ratingAverage ??
-                              0) as number;
-                          const ratingB =
-                            (b?.transporterData?.rating ??
-                              b?.rating ??
-                              b?.transporterData?.ratingAverage ??
-                              0) as number;
+                        case "rating":
+                          const ratingA = a.transporterData?.rating ?? 0;
+                          const ratingB = b.transporterData?.rating ?? 0;
                           return ratingB - ratingA;
-                        }
                         case "price":
                         default:
-                          return (
-                            (a.totalCharges ?? Infinity) -
-                            (b.totalCharges ?? Infinity)
-                          );
+                          return a.totalCharges - b.totalCharges;
                       }
                     });
                   };
-
                   const tiedUpVendors = processQuotes(data);
                   const otherVendors = processQuotes(hiddendata);
+                  
 
-                  if (isCalculating) return null;
+                  if (isCalculating) return null; // Don't render results while calculating
 
                   return (
                     <>
@@ -1678,7 +1222,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                           <div className="space-y-4">
                             {tiedUpVendors.map((item, index) => (
                               <VendorResultCard
-                                key={`tied-${index}`}
+                                key={`tied-up-${index}`}
                                 quote={item}
                                 isBestValue={item === bestValueQuote}
                                 isFastest={item === fastestQuote}
@@ -1687,7 +1231,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                           </div>
                         </section>
                       )}
-
                       {otherVendors.length > 0 && (
                         <section>
                           <h2 className="text-2xl font-bold text-slate-800 mb-5 border-l-4 border-slate-400 pl-4">
@@ -1705,19 +1248,19 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                           </div>
                         </section>
                       )}
-
-                      {tiedUpVendors.length === 0 && otherVendors.length === 0 && (
-                        <div className="text-center py-12 bg-white rounded-2xl border-2 border-dashed border-slate-300">
-                          <PackageSearch className="mx-auto h-12 w-12 text-slate-400" />
-                          <h3 className="mt-4 text-xl font-semibold text-slate-700">
-                            No Quotes Available
-                          </h3>
-                          <p className="mt-1 text-base text-slate-500">
-                            We couldn't find vendors for the details provided. Try adjusting
-                            your filter criteria.
-                          </p>
-                        </div>
-                      )}
+                      {tiedUpVendors.length === 0 &&
+                        otherVendors.length === 0 && (
+                          <div className="text-center py-12 bg-white rounded-2xl border-2 border-dashed border-slate-300">
+                            <PackageSearch className="mx-auto h-12 w-12 text-slate-400" />
+                            <h3 className="mt-4 text-xl font-semibold text-slate-700">
+                              No Quotes Available
+                            </h3>
+                            <p className="mt-1 text-base text-slate-500">
+                              We couldn't find vendors for the details provided.
+                              Try adjusting your filter criteria.
+                            </p>
+                          </div>
+                        )}
                     </>
                   );
                 })()}
@@ -1725,178 +1268,89 @@ const CalculatorPage: React.FC = (): JSX.Element => {
             </div>
           </>
         )}
-
-        {/* Modals */}
-        <SavePresetModal
-          isOpen={isModalOpen}
-          onClose={() => {
-            setIsModalOpen(false);
-            setBoxIndexToSave(null);
-          }}
-          onSave={handleSavePreset}
-        />
       </div>
+      <SavePresetModal
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false);
+          setBoxIndexToSave(null);
+        }}
+        onSave={handleSavePreset}
+      />
     </div>
   );
 };
 
-// -----------------------------------------------------------------------------
-// Rating stars
-// -----------------------------------------------------------------------------
-const StarRating = ({ value }: { value: number }) => {
-  const full = Math.floor(value);
-  const capped = Math.max(0, Math.min(5, full));
-  return (
-    <div className="flex items-center gap-1">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <Star
-          key={i}
-          size={16}
-          className={i < capped ? "text-yellow-400 fill-yellow-400" : "text-slate-300"}
-        />
-      ))}
-      <span className="text-xs text-slate-500 ml-1">
-        ({(Number.isFinite(value) ? value : 0).toFixed(1)})
-      </span>
-    </div>
-  );
-};
 
-// -----------------------------------------------------------------------------
-// FineTune Modal (Portal overlay at topmost z-index)
-// -----------------------------------------------------------------------------
+// --- CHILD COMPONENTS ---
+
 const FineTuneModal = ({
-  isOpen,
-  onClose,
-  filters,
-  onFilterChange,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  filters: { maxPrice: number; maxTime: number; minRating: number };
-  onFilterChange: {
-    setMaxPrice: (val: number) => void;
-    setMaxTime: (val: number) => void;
-    setMinRating: (val: number) => void;
-  };
-}) => {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    if (isOpen) {
-      document.addEventListener("keydown", onKey);
-      document.body.style.overflow = "hidden";
-    }
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
-    };
-  }, [isOpen, onClose]);
-
+    isOpen, filters, onFilterChange
+  }: {
+    isOpen: boolean;
+    filters: { maxPrice: number; maxTime: number; minRating: number };
+    onFilterChange: { setMaxPrice: (val: number) => void; setMaxTime: (val: number) => void; setMinRating: (val: number) => void; };
+  }) => {
+  
   const formatPrice = (value: number) => {
     if (value >= 10000000) return "Any";
     if (value >= 100000) return `${(value / 100000).toFixed(1)} Lakh`;
-    return new Intl.NumberFormat("en-IN").format(value);
+    return new Intl.NumberFormat('en-IN').format(value);
   };
-  const formatTime = (value: number) => (value >= 300 ? "Any" : `${value} Days`);
 
-  if (!isOpen) return null;
-
-  return createPortal(
+  const formatTime = (value: number) => {
+      if (value >= 300) return "Any";
+      return `${value} Days`;
+  }
+  
+  return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[9999] bg-black/30"
-      onClick={onClose}
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
+      className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl shadow-2xl border border-slate-200 z-20 p-5 space-y-5"
     >
-      <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: 20, opacity: 0 }}
-        transition={{ duration: 0.2, ease: "easeOut" }}
-        className="absolute right-4 top-20 w-80 bg-white rounded-xl shadow-2xl border border-slate-200 p-5 space-y-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="space-y-2">
+      <div className="space-y-2">
           <div className="flex justify-between items-center text-sm">
-            <label htmlFor="maxPrice" className="font-semibold text-slate-700">
-              Max Price
-            </label>
-            <span className="font-bold text-indigo-600">
-              ₹ {formatPrice(filters.maxPrice)}
-            </span>
+              <label htmlFor="maxPrice" className="font-semibold text-slate-700">Max Price</label>
+              <span className="font-bold text-indigo-600">₹ {formatPrice(filters.maxPrice)}</span>
           </div>
           <input
-            id="maxPrice"
-            type="range"
-            min={1000}
-            max={10000000}
-            step={1000}
-            value={filters.maxPrice}
-            onChange={(e) => onFilterChange.setMaxPrice(e.currentTarget.valueAsNumber)}
-            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+              id="maxPrice" type="range" min="1000" max="10000000" step="1000"
+              value={filters.maxPrice} onChange={(e) => onFilterChange.setMaxPrice(e.target.valueAsNumber)}
+              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
           />
-        </div>
+      </div>
 
-        <div className="space-y-2">
+      <div className="space-y-2">
           <div className="flex justify-between items-center text-sm">
-            <label htmlFor="maxTime" className="font-semibold text-slate-700">
-              Max Delivery Time
-            </label>
-            <span className="font-bold text-indigo-600">{formatTime(filters.maxTime)}</span>
+              <label htmlFor="maxTime" className="font-semibold text-slate-700">Max Delivery Time</label>
+              <span className="font-bold text-indigo-600">{formatTime(filters.maxTime)}</span>
           </div>
           <input
-            id="maxTime"
-            type="range"
-            min={1}
-            max={300}
-            step={1}
-            value={filters.maxTime}
-            onChange={(e) => onFilterChange.setMaxTime(e.currentTarget.valueAsNumber)}
-            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+              id="maxTime" type="range" min="1" max="300" step="1"
+              value={filters.maxTime} onChange={(e) => onFilterChange.setMaxTime(e.target.valueAsNumber)}
+              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
           />
-        </div>
-
-        <div className="space-y-2">
+      </div>
+      
+      <div className="space-y-2">
           <div className="flex justify-between items-center text-sm">
-            <label htmlFor="minRating" className="font-semibold text-slate-700">
-              Min Vendor Rating
-            </label>
-            <span className="font-bold text-indigo-600">
-              {filters.minRating.toFixed(1)} / 5.0
-            </span>
+              <label htmlFor="minRating" className="font-semibold text-slate-700">Min Vendor Rating</label>
+              <span className="font-bold text-indigo-600">{filters.minRating.toFixed(1)} / 5.0</span>
           </div>
           <input
-            id="minRating"
-            type="range"
-            min={0}
-            max={5}
-            step={0.1}
-            value={filters.minRating}
-            onChange={(e) => onFilterChange.setMinRating(e.currentTarget.valueAsNumber)}
-            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+              id="minRating" type="range" min="0" max="5" step="0.1"
+              value={filters.minRating} onChange={(e) => onFilterChange.setMinRating(e.target.valueAsNumber)}
+              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
           />
-        </div>
-
-        <div className="flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          >
-            Done
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>,
-    document.body
+      </div>
+    </motion.div>
   );
 };
 
-// -----------------------------------------------------------------------------
-// Save Preset Modal
-// -----------------------------------------------------------------------------
+
 const SavePresetModal = ({
   isOpen,
   onClose,
@@ -1909,7 +1363,7 @@ const SavePresetModal = ({
   const [name, setName] = useState("");
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-[9980] flex justify-center items-center p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -1920,13 +1374,16 @@ const SavePresetModal = ({
           <h3 className="text-lg font-bold text-slate-800 flex items-center">
             <Save size={18} className="mr-2 text-indigo-500" /> Save Box Preset
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            ✕
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600"
+          >
+            <X size={24} />
           </button>
         </div>
         <p className="text-sm text-slate-500 mb-4">
-          Give this box configuration a name for future use. The dimensions, weight,
-          pincodes, and transport mode will be saved.
+          Give this box configuration a name for future use. The dimensions,
+          weight, pincodes, and transport mode will be saved.
         </p>
         <InputField
           label="Preset Name"
@@ -1946,8 +1403,7 @@ const SavePresetModal = ({
           </button>
           <button
             onClick={() => {
-              if (name.trim() === "") return;
-              onSave(name.trim());
+              onSave(name);
               setName("");
             }}
             className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
@@ -1960,45 +1416,30 @@ const SavePresetModal = ({
   );
 };
 
-// -----------------------------------------------------------------------------
-// Bifurcation Details
-// -----------------------------------------------------------------------------
+
 const BifurcationDetails = ({ quote }: { quote: any }) => {
   const formatCurrency = (value: number | undefined) =>
     new Intl.NumberFormat("en-IN", {
       style: "currency",
       currency: "INR",
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(Math.round((value || 0) / 10) * 10);
+    }).format(value || 0);
 
   const chargeItems = [
-    { label: "Base Freight", keys: ["baseFreight", "base_freight", "freight"] },
-    { label: "Docket Charge", keys: ["docketCharge", "docket_charge", "docket"] },
-    { label: "DACC Charges", keys: ["daccCharges", "dacc_charges", "dacc"] },
-    { label: "ODA Charges", keys: ["odaCharges", "oda_charges", "oda"] },
-    { label: "Fuel Surcharge", keys: ["fuelCharges", "fuel_surcharge", "fuel"] },
-    { label: "Handling Charges", keys: ["handlingCharges", "handling_charges", "handling"] },
-    { label: "Insurance Charges", keys: ["insuranceCharges", "insurance_charges", "insurance"] },
-    { label: "Green Tax", keys: ["greenTax", "green_tax", "green"] },
-    { label: "Appointment Charges", keys: ["appointmentCharges", "appointment_charges", "appointment"] },
-    { label: "Minimum Charges", keys: ["minCharges", "minimum_charges", "minimum"] },
-    { label: "ROV Charges", keys: ["rovCharges", "rov_charges", "rov"] },
-    { label: "FM Charges", keys: ["fmCharges", "fm_charges", "fm"] },
-    { label: "Miscellaneous Charges", keys: ["miscCharges", "miscellaneous_charges", "misc"] },
+    { label: "Base Freight", key: "baseFreight" },
+    { label: "Docket Charge", key: "docketCharge" },
+    { label: "DACC Charges", key: "daccCharges" },
+    { label: "ODA Charges", key: "odaCharges" },
+    { label: "Fuel Surcharge", key: "fuelCharges" },
+    { label: "Handling Charges", key: "handlingCharges" },
+    { label: "Insurance Charges", key: "insuranceCharges" },
+    { label: "Green Tax", key: "greenTax" },
+    { label: "Appointment Charges", key: "appointmentCharges" },
+    { label: "Minimum Charges", key: "minCharges" },
+    { label: "ROV Charges", key: "rovCharges" },
+    { label: "FM Charges", key: "fmCharges" },
+    { label: "Miscellaneous Charges", key: "miscCharges" },
   ];
-
-  const getChargeValue = (keys: string[]) => {
-    for (const key of keys) {
-      if (quote[key] !== undefined && quote[key] > 0) {
-        return quote[key];
-      }
-    }
-    return 0;
-  };
-
-  const isFTLVendor =
-    quote.companyName === "FTL" || quote.companyName === "Wheelseye FTL";
 
   return (
     <motion.div
@@ -2008,233 +1449,35 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
       transition={{ duration: 0.3, ease: "easeInOut" }}
       className="overflow-hidden"
     >
-      {!isFTLVendor && (
-        <div className="border-t border-slate-200 mt-4 pt-4">
-          <h4 className="font-semibold text-slate-700 mb-3">Cost Breakdown</h4>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
-            {chargeItems.map((item) => {
-              const value = getChargeValue(item.keys);
-              return value > 0 ? (
-                <div key={item.label} className="flex justify-between">
-                  <span className="text-slate-500">{item.label}:</span>
-                  <span className="font-medium text-slate-800">
-                    {formatCurrency(value)}
-                  </span>
-                </div>
-              ) : null;
-            })}
-          </div>
-        </div>
-      )}
-
-      <div className={`border-t border-slate-200 mt-4 pt-4`}>
-        <h4 className="font-semibold text-slate-700 mb-3">Shipment Info</h4>
-
+      <div className="border-t border-slate-200 mt-4 pt-4">
+        <h4 className="font-semibold text-slate-700 mb-3">Cost Breakdown</h4>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-slate-500">Chargeable Wt:</span>
-            <span className="font-medium text-slate-800">
-              {(() => {
-                const weight =
-                  quote.chargeableWeight ?? quote.actualWeight ?? quote.weight ?? 0;
-                if (typeof weight === "number" && isFinite(weight)) {
-                  return weight.toFixed(2);
-                }
-                return "0.00";
-              })()}{" "}
-              Kg
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">Distance:</span>
-            <span className="font-medium text-slate-800">
-              {(() => {
-                if (quote.distance) return quote.distance;
-                if (quote.distanceKm) return `${quote.distanceKm} km`;
-                return "-";
-              })()}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">Origin:</span>
-            <span className="font-medium text-slate-800">
-              {quote.originPincode ?? quote.origin ?? "-"}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">Destination:</span>
-            <span className="font-medium text-slate-800">
-              {quote.destinationPincode ?? quote.destination ?? "-"}
-            </span>
-          </div>
-
-          {isFTLVendor && !quote.loadSplit && (
-            <>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Vehicle Type:</span>
-                <span className="font-medium text-slate-800">{quote.vehicle}</span>
+          {chargeItems.map((item) => (
+            item.key in quote && quote[item.key] > 0 && (
+              <div key={item.key} className="flex justify-between">
+                <span className="text-slate-500">{item.label}:</span>
+                <span className="font-medium text-slate-800">
+                  {formatCurrency(quote[item.key])}
+                </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Vehicle Length:</span>
-                <span className="font-medium text-slate-800">{quote.vehicleLength} ft</span>
-              </div>
-            </>
-          )}
-
-          {quote.loadSplit && (
-            <div className="col-span-2 md:col-span-3 mt-3">
-              <div className="bg-orange-100 border-2 border-orange-500 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-orange-800 font-bold text-lg">🚛</span>
-                  <span className="text-orange-800 font-bold text-lg">
-                    {quote.loadSplit.vehiclesNeeded > 2
-                      ? "Multi-Vehicle Transport Required"
-                      : "Two-Vehicle Transport Required"}
-                  </span>
-                </div>
-                <div className="text-orange-700 text-sm">
-                  {quote.loadSplit.vehiclesNeeded > 2
-                    ? `Weight exceeds 18,000kg limit. Using ${quote.loadSplit.vehiclesNeeded} vehicles for optimal transport.`
-                    : `Weight exceeds 18,000kg limit. Using ${quote.loadSplit.vehiclesNeeded} vehicles for optimal transport.`}
-                  <br />
-                  <span className="text-xs">📋 Scroll down for detailed vehicle breakdown</span>
-                </div>
-              </div>
+            )
+          ))}
+        </div>
+        <div className="border-t border-slate-200 mt-4 pt-4">
+            <h4 className="font-semibold text-slate-700 mb-3">Shipment Info</h4>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+                <div className="flex justify-between"><span className="text-slate-500">Chargeable Wt:</span><span className="font-medium text-slate-800">{quote.chargeableWeight.toFixed(2)} Kg</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Distance:</span><span className="font-medium text-slate-800">{quote.distance}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Origin:</span><span className="font-medium text-slate-800">{quote.originPincode}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Destination:</span><span className="font-medium text-slate-800">{quote.destinationPincode}</span></div>
             </div>
-          )}
-
-          {quote.loadSplit && (
-            <div className="col-span-2 md:col-span-3 mt-3 p-3 bg-green-50 rounded-lg">
-              <h5 className="font-semibold text-green-800 mb-2">
-                🚛 {quote.loadSplit.vehiclesNeeded > 2 ? "Multi-Vehicle" : "Two-Vehicle"} Load
-                Details:
-              </h5>
-
-              <div className="mb-3 p-2 bg-green-100 rounded text-xs">
-                <div className="font-semibold text-green-800 mb-1">Transport Summary:</div>
-                <div className="text-green-700">
-                  • Total Weight: {quote.matchedWeight?.toLocaleString() || "N/A"} kg
-                  <br />
-                  • Total Distance: {quote.matchedDistance || "N/A"} km
-                  <br />
-                  • Vehicles Required: {quote.loadSplit.vehiclesNeeded || "N/A"}
-                  <br />
-                  • Transport Type:{" "}
-                  {quote.loadSplit.vehiclesNeeded > 2 ? "Multi-Vehicle" : "Two-Vehicle"} Transport
-                </div>
-              </div>
-
-              <div className="space-y-3 text-sm">
-                <div className="border border-green-200 rounded p-2">
-                  <div className="font-semibold text-green-800 mb-1">🚛 First Vehicle:</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Vehicle Type:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.firstVehicle.vehicle}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Vehicle Length:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.firstVehicle.vehicleLength} ft
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Load Capacity:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.firstVehicle.weight.toLocaleString()} kg
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Transport Cost:</span>
-                      <span className="font-medium text-green-800">
-                        ₹{quote.loadSplit.firstVehicle.price.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="border border-green-200 rounded p-2">
-                  <div className="font-semibold text-green-800 mb-1">🚛 Second Vehicle:</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Vehicle Type:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.secondVehicle.vehicle}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Vehicle Length:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.secondVehicle.vehicleLength} ft
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Load Capacity:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.secondVehicle.weight.toLocaleString()} kg
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Transport Cost:</span>
-                      <span className="font-medium text-green-800">
-                        ₹{quote.loadSplit.secondVehicle.price.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {quote.loadSplit.vehiclesNeeded > 2 && (
-                  <div className="border border-orange-200 rounded p-2 bg-orange-50">
-                    <div className="font-semibold text-orange-800 mb-1">
-                      🚛 Additional Vehicles:
-                    </div>
-                    <div className="text-xs text-orange-700">
-                      <div className="mb-1">
-                        • Additional {quote.loadSplit.vehiclesNeeded - 2}{" "}
-                        {quote.loadSplit.secondVehicle.vehicle} vehicles required
-                      </div>
-                      <div className="mb-1">
-                        • Each additional vehicle: ₹
-                        {quote.loadSplit.secondVehicle.price.toLocaleString()}
-                      </div>
-                      <div className="font-semibold">
-                        • Total additional cost: ₹
-                        {(
-                          quote.loadSplit.secondVehicle.price *
-                          (quote.loadSplit.vehiclesNeeded - 2)
-                        ).toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="border-t-2 border-green-300 pt-3 mt-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-green-700 font-semibold text-base">
-                      Total Transport Cost:
-                    </span>
-                    <span className="text-green-800 font-bold text-lg">
-                      ₹{quote.loadSplit.totalPrice.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="text-xs text-green-600 mt-1">
-                    Includes all vehicles, loading, and transport charges
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </motion.div>
   );
 };
 
-// -----------------------------------------------------------------------------
-// Result Card
-// -----------------------------------------------------------------------------
+
 const VendorResultCard = ({
   quote,
   isBestValue,
@@ -2248,16 +1491,15 @@ const VendorResultCard = ({
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const isSpecialVendor =
-    quote.companyName === "FTL" || quote.companyName === "Wheelseye FTL";
-
   const handleMoreDetailsClick = () => {
     const isSubscribed = (user as any)?.customer?.isSubscribed;
+
     if (isSubscribed) {
       const transporterId = quote.transporterData?._id;
-      if (transporterId) navigate(`/transporterdetails/${transporterId}`);
-      else {
-        console.error("Transporter ID missing.");
+      if (transporterId) {
+        navigate(`/transporterdetails/${transporterId}`);
+      } else {
+        console.error("Transporter ID is missing from the quote data.");
         alert("Sorry, the transporter details could not be retrieved.");
       }
     } else {
@@ -2265,44 +1507,39 @@ const VendorResultCard = ({
     }
   };
 
-  const rating: number = 4;
-
   if (quote.isHidden) {
     return (
       <div
-        className={`relative p-5 rounded-2xl border-2 transition-all duration-300 ${
-          isSpecialVendor
-            ? "bg-yellow-50 border-yellow-300 shadow-lg"
-            : isBestValue
-            ? "bg-white border-green-400 shadow-lg"
-            : "bg-white border-slate-200"
+        className={`relative bg-white p-5 rounded-2xl border-2 transition-all duration-300 ${
+          isBestValue ? "border-green-400 shadow-lg" : "border-slate-200"
         }`}
       >
-        <div className="grid grid-cols-1 md:grid-cols-12 items-center gap-4">
-          <div className="md:col-span-5">
-            <h3 className="font-bold text-lg text-slate-700">{quote.companyName}</h3>
-            <p className="text-sm text-slate-500">Time & Details are Hidden</p>
+        <div className="relative z-0 flex flex-col md:flex-row items-center justify-between gap-5">
+          <div className="flex items-center gap-4 flex-1">
+            <div className="flex-shrink-0 h-14 w-14 rounded-xl bg-slate-200 flex items-center justify-center border border-slate-300">
+              <Lock className="text-slate-500" size={28} />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg text-slate-700">
+                {quote.companyName}
+              </h3>
+              <p className="text-sm text-slate-500">
+                Time & Details are Hidden
+              </p>
+            </div>
           </div>
-
-          <div className="md:col-span-2 text-slate-500 text-sm">—</div>
-
-          <div className="md:col-span-3 text-right">
+          <div className="text-right">
             <div className="flex items-center justify-end gap-1 font-bold text-3xl text-slate-900">
               <IndianRupee size={22} className="text-slate-600" />
               <span>
-                {new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(
-                  Math.round(quote.totalCharges / 10) * 10
-                )}
+                {new Intl.NumberFormat("en-IN").format(quote.totalCharges)}
               </span>
             </div>
             <div className="text-xs text-slate-500 -mt-1">Total Charges</div>
           </div>
-
-          <div className="md:col-span-2 flex md:justify-end">
-            <button className="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30">
-              Unlock to Book
-            </button>
-          </div>
+          <button className="px-5 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30">
+            Unlock to Book
+          </button>
         </div>
       </div>
     );
@@ -2310,90 +1547,78 @@ const VendorResultCard = ({
 
   return (
     <div
-      className={`p-5 rounded-2xl border-2 transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${
-        isSpecialVendor
-          ? "bg-yellow-50 border-yellow-300 shadow-lg"
-          : isBestValue
-          ? "bg-white border-green-400 shadow-lg"
-          : "bg-white border-slate-200"
+      className={`relative bg-white p-5 rounded-2xl border-2 transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${
+        isBestValue ? "border-green-400 shadow-lg" : "border-slate-200"
       }`}
     >
-      <div className="grid grid-cols-1 md:grid-cols-12 items-center gap-4">
-        <div className="md:col-span-5">
-          <div className="flex items-center flex-wrap gap-2">
-            <h3 className="font-bold text-lg text-slate-800 truncate">
-              {quote.companyName}
-            </h3>
-            <div className="flex items-center gap-2">
-              {isFastest && (
-                <span className="inline-flex items-center gap-1.5 bg-orange-100 text-orange-800 text-xs font-bold px-3 py-1.5 rounded-full">
-                  <Zap size={14} /> Fastest Delivery
-                </span>
-              )}
-              {isBestValue && (
-                <span className="inline-flex items-center gap-1.5 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full">
-                  Best Value
-                </span>
-              )}
-            </div>
+      <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
+        {isFastest && (
+          <div className="flex items-center gap-1.5 bg-orange-100 text-orange-800 text-xs font-bold px-3 py-1.5 rounded-full">
+            <Zap size={14} />
+            <span>Fastest Delivery</span>
           </div>
-          <div className="mt-1">
-            {quote.companyName !== "FTL" && <StarRating value={Number(rating) || 0} />}
-          </div>
-        </div>
-
-        <div className="md:col-span-2 text-center md:text-left">
-          <div className="flex items-center justify-center md:justify-start gap-2 font-semibold text-slate-700 text-lg">
-            <Clock size={16} className="text-slate-500" />
-            <span>
-              {Math.ceil(quote.estimatedTime ?? 0)}{" "}
-              {Math.ceil(quote.estimatedTime ?? 0) === 1 ? "Day" : "Days"}
-            </span>
-          </div>
-          <div className="text-xs text-slate-500 -mt-1">Estimated Delivery</div>
-        </div>
-
-        <div className="md:col-span-3 text-right">
-          <div className="flex items-center justify-end gap-1 font-bold text-3xl text-slate-900">
-            <IndianRupee size={22} className="text-slate-600" />
-            <span>
-              {new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(
-                Math.round(quote.totalCharges / 10) * 10
-              )}
-            </span>
-          </div>
-          <div className="text-xs text-slate-500 -mt-1">Total Charges</div>
-
-          <button
-            onClick={() => setIsExpanded((v) => !v)}
-            className="mt-2 inline-flex items-center gap-1.5 text-indigo-600 font-semibold text-sm hover:text-indigo-800 transition-colors"
-          >
-            {isExpanded
-              ? isSpecialVendor
-                ? "Hide Shipment Info"
-                : "Hide Price Breakup"
-              : isSpecialVendor
-              ? "Shipment Info"
-              : "Price Breakup"}
-            <ChevronRight
-              size={16}
-              className={`transition-transform duration-300 ${
-                isExpanded ? "rotate-90" : "rotate-0"
-              }`}
-            />
-          </button>
-        </div>
-
-        <div className="md:col-span-2 flex md:justify-end">
-          <button
-            onClick={handleMoreDetailsClick}
-            className="w-full md:w-auto px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30"
-          >
-            Contact Now
-          </button>
-        </div>
+        )}
       </div>
 
+      <div className="flex flex-col md:flex-row items-start justify-between gap-5">
+        <div className="flex-1 flex items-start gap-4">
+          <div className="flex-shrink-0 h-14 w-14 rounded-xl bg-slate-100 flex items-center justify-center border border-slate-200">
+            <Building2 className="text-slate-500" size={28} />
+          </div>
+          <div className="flex flex-col">
+            <h3 className="font-bold text-lg text-slate-800 pr-28 md:pr-0">
+              {quote.companyName}
+            </h3>
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="mt-2 flex items-center gap-1.5 text-indigo-600 font-semibold text-sm hover:text-indigo-800 transition-colors"
+            >
+              {isExpanded ? "Hide Details" : "Show Bifurcation"}
+              <ChevronRight
+                size={16}
+                className={`transition-transform duration-300 ${
+                  isExpanded ? "rotate-90" : "rotate-0"
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-row md:flex-col items-end gap-x-6 md:gap-y-1 w-full md:w-auto text-right">
+          <div className="flex-1 md:flex-initial">
+            <div className="flex items-center justify-end gap-1 font-bold text-3xl text-slate-900">
+              <IndianRupee size={22} className="text-slate-600" />
+              <span>
+                {new Intl.NumberFormat("en-IN", {
+                    maximumFractionDigits: 2,
+                }).format(quote.totalCharges)}
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-end gap-x-2 -mt-1">
+                <span className="text-xs text-slate-500">Total Charges</span>
+                <span className="text-slate-300">·</span>
+                <button
+                onClick={handleMoreDetailsClick}
+                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors"
+                >
+                Contact Now
+                </button>
+            </div>
+          </div>
+
+          <div className="flex-1 md:flex-initial mt-0 md:mt-2">
+            <div className="flex items-center justify-end gap-2 font-semibold text-slate-700 text-lg">
+              <Clock size={16} className="text-slate-500" />
+              <span>
+    {Math.ceil(quote.estimatedTime)} {Math.ceil(quote.estimatedTime) === 1 ? 'Day' : 'Days'}
+  </span>
+            </div>
+            <div className="text-xs text-slate-500">Est. Delivery</div>
+          </div>
+        </div>
+      </div>
+      
       <AnimatePresence>
         {isExpanded && <BifurcationDetails quote={quote} />}
       </AnimatePresence>
