@@ -390,7 +390,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     if (!user || !token) return;
     try {
       const response = await axios.get(
-        `http://localhost:8000/api/transporter/getpackinglist?customerId=${
+        `http://tester-backend-4nxc.onrender.com/api/transporter/getpackinglist?customerId=${
           (user as any).customer._id
         }`,
         { headers: { Authorization: `Bearer ${token}` } }
@@ -455,7 +455,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     };
     try {
       await axios.post(
-        `http://localhost:8000/api/transporter/savepackinglist`,
+        `http://tester-backend-4nxc.onrender.com/api/transporter/savepackinglist`,
         payload,
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -478,7 +478,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     if (window.confirm("Delete this preset permanently?")) {
       try {
         await axios.delete(
-          `http://localhost:8000/api/transporter/deletepackinglist/${presetId}`,
+          `http://tester-backend-4nxc.onrender.com/api/transporter/deletepackinglist/${presetId}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         await fetchSavedBoxes();
@@ -516,7 +516,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   // Distance via backend wrapper (Google Distance Matrix)
   async function getDistanceKmByAPI(originPin: string, destPin: string) {
     const apiBase =
-      import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      import.meta.env.VITE_API_BASE_URL || "http://tester-backend-4nxc.onrender.com";
     const resp = await fetch(`${apiBase}/api/vendor/wheelseye-distance`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -538,7 +538,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   ) {
     try {
       const apiBase =
-        import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+        import.meta.env.VITE_API_BASE_URL || "http://tester-backend-4nxc.onrender.com";
       const requestBody: any = {
         distance: distance,
       };
@@ -627,7 +627,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
 
     try {
       const resp = await axios.post(
-        "http://localhost:8000/api/transporter/calculate",
+        "http://tester-backend-4nxc.onrender.com/api/transporter/calculate",
         {
           customerID: (user as any).customer._id,
           userogpincode: (user as any).customer.pincode,

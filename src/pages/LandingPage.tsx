@@ -298,7 +298,7 @@ const LandingPage: React.FC = () => {
 
     try {
       // Use backend API for accurate distance calculation
-      const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const apiBase = import.meta.env.VITE_API_BASE_URL || "http://tester-backend-4nxc.onrender.com";
       const distanceResponse = await fetch(`${apiBase}/api/vendor/wheelseye-distance`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
