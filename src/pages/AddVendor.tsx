@@ -92,7 +92,7 @@ const AddTiedUpCompany = () => {
 
   const fetchCompanySuggestions = (query: string) => {
     axios
-      .get(`http://localhost:8000/api/transporter/gettransporter?search=${encodeURIComponent(query)}`)
+      .get(`http://tester-backend-4nxc.onrender.com/api/transporter/gettransporter?search=${encodeURIComponent(query)}`)
       .then(res => setSuggestions(res.data))
       .catch(() => setSuggestions([]));
   };
@@ -180,7 +180,7 @@ const AddTiedUpCompany = () => {
     const toastId = toast.loading("Submitting form...");
     try {
       const payload = { ...form, vendorPhone: Number(form.vendorPhone), pincode: Number(form.pincode), rating: Number(form.rating), priceRate, priceChart };
-      const res = await axios.post("http://localhost:8000/api/transporter/add-tied-up", payload, {headers: {Authorization: `Bearer ${token}`}});
+      const res = await axios.post("http://tester-backend-4nxc.onrender.com/api/transporter/add-tied-up", payload, {headers: {Authorization: `Bearer ${token}`}});
 
       if (res.data.success) {
         toast.success(res.data.message, { id: toastId, duration: 4000 });
