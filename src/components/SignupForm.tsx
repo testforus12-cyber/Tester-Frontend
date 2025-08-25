@@ -272,7 +272,7 @@ const SignupForm: React.FC = () => {
         toast.loading("Sending verification codes...");
         try {
             const values = getValues()
-            await axios.post("http://localhost:8000/api/auth/signup/initiate", values);
+            await axios.post("https://tester-backend-4nxc.onrender.com/api/auth/signup/initiate", values);
             toast.dismiss();
             toast.success("Verification codes sent!");
             // --- MODIFIED --- Move to final verification step (index 4)
@@ -292,7 +292,7 @@ const SignupForm: React.FC = () => {
         setLoading(true);
         try {
             const { email, emailOtp, contactNoOtp } = getValues();
-            const { data } = await axios.post("http://localhost:8000/api/auth/signup/verify", {
+            const { data } = await axios.post("https://tester-backend-4nxc.onrender.com/api/auth/signup/verify", {
                 email,
                 emailOtp,
                 phoneOtp: contactNoOtp

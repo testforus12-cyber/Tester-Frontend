@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, FormEvent, useRef } from "react";
+import React, { useState, useEffect, useCallback, FormEvent, ReactNode, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
@@ -29,94 +29,19 @@ import FedExLogo from "../assets/logos/fedex.svg";
 
 // --- Types, Helpers, and Data (Unchanged from your perfect version) ---
 type LatLng = { lat: number; lng: number };
-
-// Local pincode coordinates cache for common pincodes
-const PINCODE_COORDINATES: Record<string, LatLng> = {
-  '110001': { lat: 28.6139, lng: 77.2090 },
-  '122001': { lat: 28.4595, lng: 77.0266 },
-  '140603': { lat: 30.7333, lng: 76.7794 },
-  '201301': { lat: 28.5355, lng: 77.3910 },
-  '226001': { lat: 26.8467, lng: 80.9462 },
-  '302001': { lat: 26.9124, lng: 75.7873 },
-  '380001': { lat: 23.0225, lng: 72.5714 },
-  '400001': { lat: 19.0760, lng: 72.8777 },
-  '411001': { lat: 18.5204, lng: 73.8567 },
-  '500001': { lat: 17.3850, lng: 78.4867 },
-  '560001': { lat: 12.9716, lng: 77.5946 },
-  '600001': { lat: 13.0827, lng: 80.2707 },
-  '682001': { lat: 9.9312, lng: 76.2673 },
-  '700001': { lat: 22.5726, lng: 88.3639 },
-  '781001': { lat: 26.1445, lng: 91.7362 },
-  '345022': { lat: 27.462234603456377, lng: 70.19574854516242 }, // Add the specific pincode
-};
-
-// Fallback mappings for pincode prefixes
 const PINCODE_PREFIX_LOCATIONS: Record<string, LatLng> = {
-  '1100': { lat: 28.6139, lng: 77.2090 }, 
-  '1220': { lat: 28.4595, lng: 77.0266 }, 
-  '1406': { lat: 30.7333, lng: 76.7794 }, 
-  '2013': { lat: 28.5355, lng: 77.3910 }, 
-  '2260': { lat: 26.8467, lng: 80.9462 }, 
-  '3020': { lat: 26.9124, lng: 75.7873 }, 
-  '3800': { lat: 23.0225, lng: 72.5714 }, 
-  '4000': { lat: 19.0760, lng: 72.8777 }, 
-  '4110': { lat: 18.5204, lng: 73.8567 }, 
-  '5000': { lat: 17.3850, lng: 78.4867 }, 
-  '5600': { lat: 12.9716, lng: 77.5946 }, 
-  '6000': { lat: 13.0827, lng: 80.2707 }, 
-  '6820': { lat: 9.9312, lng: 76.2673 },  
-  '7000': { lat: 22.5726, lng: 88.3639 }, 
-  '7810': { lat: 26.1445, lng: 91.7362 },
-  '3450': { lat: 27.462234603456377, lng: 70.19574854516242 }, // Add prefix for 345022
+  '1100': { lat: 28.6139, lng: 77.2090 }, '1220': { lat: 28.4595, lng: 77.0266 }, '1406': { lat: 30.7333, lng: 76.7794 }, '2013': { lat: 28.5355, lng: 77.3910 }, '2260': { lat: 26.8467, lng: 80.9462 }, '3020': { lat: 26.9124, lng: 75.7873 }, '3800': { lat: 23.0225, lng: 72.5714 }, '4000': { lat: 19.0760, lng: 72.8777 }, '4110': { lat: 18.5204, lng: 73.8567 }, '5000': { lat: 17.3850, lng: 78.4867 }, '5600': { lat: 12.9716, lng: 77.5946 }, '6000': { lat: 13.0827, lng: 80.2707 }, '6820': { lat: 9.9312, lng: 76.2673 },  '7000': { lat: 22.5726, lng: 88.3639 }, '7810': { lat: 26.1445, lng: 91.7362 },
 };
-
 const REGION_CENTERS: Record<string, LatLng> = {
-  '1': { lat: 28.61, lng: 77.21 }, 
-  '2': { lat: 26.85, lng: 80.95 }, 
-  '3': { lat: 26.91, lng: 75.79 }, 
-  '4': { lat: 19.07, lng: 72.87 }, 
-  '5': { lat: 17.38, lng: 78.48 }, 
-  '6': { lat: 13.08, lng: 80.27 }, 
-  '7': { lat: 22.57, lng: 88.36 }, 
-  '8': { lat: 25.61, lng: 85.13 },
+  '1': { lat: 28.61, lng: 77.21 }, '2': { lat: 26.85, lng: 80.95 }, '3': { lat: 26.91, lng: 75.79 }, '4': { lat: 19.07, lng: 72.87 }, '5': { lat: 17.38, lng: 78.48 }, '6': { lat: 13.08, lng: 80.27 }, '7': { lat: 22.57, lng: 88.36 }, '8': { lat: 25.61, lng: 85.13 },
 };
-
 const INDIA_CENTER: LatLng = { lat: 22.0, lng: 79.0 };
-
 const toRad = (deg: number) => (deg * Math.PI) / 180;
-
 const haversine = (a: LatLng, b: LatLng): number => {
-  const R = 6371; 
-  const dLat = toRad(b.lat - a.lat); 
-  const dLon = toRad(b.lng - a.lng); 
-  const φ1 = toRad(a.lat), φ2 = toRad(b.lat); 
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dLon / 2) ** 2; 
-  return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  const R = 6371; const dLat = toRad(b.lat - a.lat); const dLon = toRad(b.lng - a.lng); const φ1 = toRad(a.lat), φ2 = toRad(b.lat); const h = Math.sin(dLat / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dLon / 2) ** 2; return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 };
-
-// Enhanced getCentroid function with better fallback logic
 const getCentroid = (pin: string): LatLng => {
-  if (pin.length < 4) return INDIA_CENTER;
-  
-  // First try exact pincode match
-  if (PINCODE_COORDINATES[pin]) {
-    return PINCODE_COORDINATES[pin];
-  }
-  
-  // Then try 4-digit prefix
-  const prefix4 = pin.substring(0, 4);
-  if (PINCODE_PREFIX_LOCATIONS[prefix4]) {
-    return PINCODE_PREFIX_LOCATIONS[prefix4];
-  }
-  
-  // Then try 1-digit region
-  const prefix1 = pin[0];
-  if (REGION_CENTERS[prefix1]) {
-    return REGION_CENTERS[prefix1];
-  }
-  
-  // Final fallback
-  return INDIA_CENTER;
+  if (pin.length < 4) return INDIA_CENTER; const prefix4 = pin.substring(0, 4); const prefix1 = pin[0]; return PINCODE_PREFIX_LOCATIONS[prefix4] || REGION_CENTERS[prefix1] || INDIA_CENTER;
 };
 
 // =======================================================================================================
@@ -124,14 +49,7 @@ const getCentroid = (pin: string): LatLng => {
 // =======================================================================================================
 
 const staggerContainer = { hidden: {}, show: { transition: { staggerChildren: 0.1, delayChildren: 0.2 } }, };
-const itemFadeInUp = { 
-  hidden: { opacity: 0, y: 30 }, 
-  show: { 
-    opacity: 1, 
-    y: 0, 
-    transition: { duration: 0.5, ease: "easeOut" as const } 
-  } 
-};
+const itemFadeInUp = { hidden: { opacity: 0, y: 30 }, show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" } } };
 
 const AnimatedNumber = ({ value }: { value: number }) => {
     const motionValue = useMotionValue(0);
@@ -183,9 +101,7 @@ const useMagnetic = (ref: React.RefObject<HTMLElement>) => {
         el.addEventListener("mouseleave", onMouseLeave);
         return () => { el.removeEventListener("mousemove", onMouseMove); el.removeEventListener("mouseleave", onMouseLeave); };
     }, [ref]);
-    const springX = useSpring(pos.x, { stiffness: 120, damping: 15, mass: 0.1 });
-    const springY = useSpring(pos.y, { stiffness: 120, damping: 15, mass: 0.1 });
-    return { x: springX, y: springY };
+    return useSpring({ x: pos.x, y: pos.y }, { stiffness: 120, damping: 15, mass: 0.1 });
 };
 
 const FinalCTA = () => {
@@ -202,9 +118,9 @@ const FinalCTA = () => {
                 <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-white">
                     <motion.h2 variants={itemFadeInUp} className="text-4xl md:text-5xl font-extrabold mb-4">Ready to Optimize Your Shipping Costs?</motion.h2>
                     <motion.p variants={itemFadeInUp} className="text-lg md:text-xl mb-12 max-w-2xl mx-auto text-blue-100">Join thousands of businesses already saving time and money. Get started for free today!</motion.p>
-                    <motion.div variants={itemFadeInUp} className="inline-block" style={{x: magneticProps.x.get(), y: magneticProps.y.get()}}>
+                    <motion.div variants={itemFadeInUp} className="inline-block" style={{x: magneticProps.x, y: magneticProps.y}}>
                         <Link to="/userselect" ref={buttonRef} className="inline-block bg-yellow-400 text-slate-900 font-bold px-10 py-4 rounded-lg text-lg shadow-2xl transition-transform duration-200 ease-out hover:scale-110">
-                            <motion.span className="inline-block" style={{x: magneticProps.x.get(), y: magneticProps.y.get()}}>Create Your Free Account <ArrowRight className="inline w-6 h-6 ml-2 -mt-1" /></motion.span>
+                            <motion.span className="inline-block" style={{x: magneticProps.x, y: magneticProps.y}}>Create Your Free Account <ArrowRight className="inline w-6 h-6 ml-2 -mt-1" /></motion.span>
                         </Link>
                     </motion.div>
                 </div>
@@ -281,7 +197,7 @@ const LandingPage: React.FC = () => {
   };
   
   // --- Core Calculation Logic ---
-  const handleCalculate = useCallback(async (e: FormEvent) => {
+  const handleCalculate = useCallback((e: FormEvent) => {
     e.preventDefault(); 
     setError(null); 
     setResults([]);
@@ -296,68 +212,42 @@ const LandingPage: React.FC = () => {
         return; 
     }
 
-    try {
-      // Use backend API for accurate distance calculation
-      const apiBase = import.meta.env.VITE_API_BASE_URL || "http://tester-backend-4nxc.onrender.com";
-      const distanceResponse = await fetch(`${apiBase}/api/vendor/wheelseye-distance`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          origin: fromPincode,
-          destination: toPincode
-        }),
-      });
+    const origin = getCentroid(fromPincode); 
+    const dest = getCentroid(toPincode); 
+    const dist = haversine(origin, dest);
 
-      let dist = 500; // Default fallback distance
-      
-      if (distanceResponse.ok) {
-        const distanceData = await distanceResponse.json();
-        dist = distanceData.distanceKm;
-      } else {
-        console.warn("Distance API failed, using fallback calculation");
-        // Fallback to haversine calculation
-        const origin = getCentroid(fromPincode); 
-        const dest = getCentroid(toPincode); 
-        dist = haversine(origin, dest);
-      }
+    // Simulate getting fresh, dynamic rates from carriers for this specific search
+    const dynamicQuotes = QUOTE_PROFILES.map(profile => {
+        const dynamicBaseCost = applyVariance(profile.baseCost.base, profile.baseCost.variance);
+        const dynamicKmRate = applyVariance(profile.kmRate.base, profile.kmRate.variance);
+        const dynamicKgRate = applyVariance(profile.kgRate.base, profile.kgRate.variance);
 
-      // Simulate getting fresh, dynamic rates from carriers for this specific search
-      const dynamicQuotes = QUOTE_PROFILES.map(profile => {
-          const dynamicBaseCost = applyVariance(profile.baseCost.base, profile.baseCost.variance);
-          const dynamicKmRate = applyVariance(profile.kmRate.base, profile.kmRate.variance);
-          const dynamicKgRate = applyVariance(profile.kgRate.base, profile.kgRate.variance);
+        const calculatedPrice = Math.round(dynamicBaseCost + (dist * dynamicKmRate) + (w * dynamicKgRate));
+        const calculatedEta = Math.ceil((dist / 500) * profile.speedFactor) + 1;
+        
+        return {
+            ...profile,
+            price: calculatedPrice,
+            eta: calculatedEta,
+        };
+    });
 
-          const calculatedPrice = Math.round(dynamicBaseCost + (dist * dynamicKmRate) + (w * dynamicKgRate));
-          const calculatedEta = Math.ceil((dist / 500) * profile.speedFactor) + 1;
-          
-          return {
-              ...profile,
-              price: calculatedPrice,
-              eta: calculatedEta,
-          };
-      });
+    // Find the carrier with the absolute lowest price in this specific batch of quotes
+    const bestQuote = dynamicQuotes.reduce(
+        (cheapest, current) => (current.price < cheapest.price ? current : cheapest), 
+        dynamicQuotes[0]
+    );
+    
+    // Set results for rendering, marking the cheapest one as "Best Value"
+    setResults(
+        dynamicQuotes
+            .map(q => ({...q, isBest: q.carrier === bestQuote.carrier}))
+            .sort((a,b) => a.price - b.price)
+    );
 
-      // Find the carrier with the absolute lowest price in this specific batch of quotes
-      const bestQuote = dynamicQuotes.reduce(
-          (cheapest, current) => (current.price < cheapest.price ? current : cheapest), 
-          dynamicQuotes[0]
-      );
-      
-      // Set results for rendering, marking the cheapest one as "Best Value"
-      setResults(
-          dynamicQuotes
-              .map(q => ({...q, isBest: q.carrier === bestQuote.carrier}))
-              .sort((a,b) => a.price - b.price)
-      );
-
-      setTimeout(() => {
-          document.getElementById("results-section")?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }, 100);
-
-    } catch (error) {
-      console.error("Error calculating quotes:", error);
-      setError("Failed to calculate quotes. Please try again.");
-    }
+    setTimeout(() => {
+        document.getElementById("results-section")?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100);
 
   }, [fromPincode, toPincode, weight]); // QUOTE_PROFILES is static, no need to include
 

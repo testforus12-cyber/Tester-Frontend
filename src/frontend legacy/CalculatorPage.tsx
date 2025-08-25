@@ -279,7 +279,7 @@ const CalculatorPage: React.FC = () => {
     if (!user || !token) return;
     try {
       const response = await axios.get(
-        `http://localhost:8000/api/transporter/getpackinglist?customerId=${
+        `https://tester-backend-4nxc.onrender.com/api/transporter/getpackinglist?customerId=${
           (user as any).customer._id
         }`,
         { headers: { Authorization: `Bearer ${token}` } }
@@ -321,7 +321,7 @@ const CalculatorPage: React.FC = () => {
 
     try {
       await axios.post(
-        `http://localhost:8000/api/transporter/savepackinglist`,
+        `https://tester-backend-4nxc.onrender.com/api/transporter/savepackinglist`,
         payload,
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -340,7 +340,7 @@ const CalculatorPage: React.FC = () => {
     if (window.confirm("Are you sure you want to delete this preset permanently?")) {
         try {
             setError(null);
-            await axios.delete(`http://localhost:8000/api/transporter/deletepackinglist/${presetId}`, {
+            await axios.delete(`https://tester-backend-4nxc.onrender.com/api/transporter/deletepackinglist/${presetId}`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
             await fetchSavedBoxes(); // Refresh the list
@@ -496,7 +496,7 @@ const CalculatorPage: React.FC = () => {
     try {
       // --- MODIFIED: This is the new, correct API call structure ---
       const resp = await axios.post(
-        "http://localhost:8000/api/transporter/calculate", // Ensure this endpoint matches your backend
+        "https://tester-backend-4nxc.onrender.com/api/transporter/calculate", // Ensure this endpoint matches your backend
         {
           // --- Main details ---
           customerID: (user as any).customer._id,
