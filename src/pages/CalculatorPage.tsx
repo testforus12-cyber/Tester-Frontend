@@ -26,6 +26,7 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import axios from "axios";
 import Cookies from "js-cookie";
+import { createPortal } from "react-dom";
 
 import { useAuth } from "../hooks/useAuth";
 import {
@@ -44,6 +45,34 @@ import {
 const MAX_DIMENSION_LENGTH = 1500;
 const MAX_DIMENSION_WIDTH = 300;
 const MAX_DIMENSION_HEIGHT = 300;
+
+// -----------------------------------------------------------------------------
+// Numeric helpers
+// -----------------------------------------------------------------------------
+const digitsOnly = (s: string) => s.replace(/\D/g, "");
+
+const preventNonIntegerKeys = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Block characters that make numbers non-integer or negative/scientific
+  if (
+    e.key === "." ||
+    e.key === "," ||
+    e.key === "e" ||
+    e.key === "E" ||
+    e.key === "+" ||
+    e.key === "-"
+  ) {
+    e.preventDefault();
+  }
+};
+
+const sanitizeIntegerFromEvent = (raw: string, max?: number) => {
+  const cleaned = digitsOnly(raw);
+  if (cleaned === "") return "";
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return "";
+  const clamped = typeof max === "number" ? Math.min(n, max) : n;
+  return String(clamped);
+};
 
 // -----------------------------------------------------------------------------
 // Small UI helpers
@@ -147,7 +176,7 @@ type BoxDetails = {
   length: number | undefined;
   width: number | undefined;
   height: number | undefined;
-  weight: number | undefined;
+  weight: number | undefined; // NOTE: treated as integer per your requirement (no decimals)
   description: string;
 };
 
@@ -202,10 +231,9 @@ const CalculatorPage: React.FC = (): JSX.Element => {
 
   // Fine-tune modal
   const [isFineTuneOpen, setIsFineTuneOpen] = useState(false);
-  const [maxPrice, setMaxPrice] = useState(10000000);
+  const [maxPrice, setMaxPrice] = useState(10_000_000);
   const [maxTime, setMaxTime] = useState(300);
   const [minRating, setMinRating] = useState(0);
-  const fineTuneRef = useRef<HTMLDivElement>(null);
 
   // ---------------------------------------------------------------------------
   // Derived
@@ -234,20 +262,18 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   // Effects
   // ---------------------------------------------------------------------------
 
-  // 1) ALWAYS autofill Origin Pincode from the user profile (original desired behavior).
-  //    We do this FIRST and we do NOT let cache override it later.
+  // Always autofill Origin Pincode from profile
   useEffect(() => {
     const pin = (user as any)?.customer?.pincode;
     if (pin) setFromPincode(String(pin));
   }, [user]);
 
-  // 2) Restore last form (EXCEPT origin pincode) + last results from cache on mount
+  // Restore last form (except origin pincode) and last results
   useEffect(() => {
     clearStaleCache();
 
     const form = loadFormState();
     if (form) {
-      // DO NOT override origin pincode — keep the value from profile/autofill
       setToPincode(form.toPincode || "");
       setModeOfTransport(form.modeOfTransport || "Road");
       if (Array.isArray(form.boxes) && form.boxes.length) {
@@ -270,17 +296,17 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     }
   }, []);
 
-  // Persist form state while typing (so it survives leaving page)
+  // Persist form state while typing
   useEffect(() => {
     saveFormState({
-      fromPincode, // harmless to store; we just don't load it back over profile
+      fromPincode,
       toPincode,
       modeOfTransport,
       boxes,
     });
   }, [fromPincode, toPincode, modeOfTransport, boxes]);
 
-  // Dropdown/fine-tune outside click
+  // Close preset dropdown on outside click
   useEffect(() => {
     const onClickOutside = (ev: MouseEvent) => {
       if (
@@ -291,12 +317,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         )
       ) {
         setOpenPresetDropdownIndex(null);
-      }
-      if (
-        fineTuneRef.current &&
-        !fineTuneRef.current.contains(ev.target as Node)
-      ) {
-        setIsFineTuneOpen(false);
       }
     };
     document.addEventListener("mousedown", onClickOutside);
@@ -314,25 +334,25 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     raw: string,
     setter: React.Dispatch<React.SetStateAction<string>>
   ) => {
-    const digitsOnly = raw.replace(/\D/g, "").slice(0, 6);
-    setter(digitsOnly);
+    const digits = digitsOnly(raw).slice(0, 6);
+    setter(digits);
   };
 
-  // Dimension auto-cap (hard clamp to max value)
+  // Dimension auto-cap (hard clamp to max value) – integers only
   const handleDimensionChange = (
     index: number,
     field: "length" | "width" | "height",
-    value: string,
-    maxLength: number,
+    rawValue: string,
+    maxDigits: number,
     maxValue: number
   ) => {
-    if (value) {
-      let finalValueStr = value.slice(0, maxLength);
-      if (Number(finalValueStr) > maxValue) finalValueStr = String(maxValue);
-      updateBox(index, field, Number(finalValueStr));
-    } else {
+    const cleaned = digitsOnly(rawValue).slice(0, maxDigits);
+    if (cleaned === "") {
       updateBox(index, field, undefined);
+      return;
     }
+    const n = Math.min(Number(cleaned), maxValue);
+    updateBox(index, field, n);
   };
 
   const createNewBox = (): BoxDetails => ({
@@ -428,7 +448,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       length: boxToSave.length!,
       width: boxToSave.width!,
       height: boxToSave.height!,
-      weight: boxToSave.weight!,
+      weight: boxToSave.weight!, // integer as per restriction
       modeoftransport: modeOfTransport,
       noofboxes: boxToSave.count || 1,
       quantity: boxToSave.count || 1,
@@ -523,7 +543,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         distance: distance,
       };
 
-      // Send shipment details if available for backend chargeable weight calculation
       if (shipmentDetails && shipmentDetails.length > 0) {
         requestBody.shipment_details = shipmentDetails;
       } else {
@@ -551,14 +570,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   // Check if origin pincode is in Wheelseye service area
   function isWheelseyeServiceArea(originPincode: string): boolean {
     const pincode = parseInt(originPincode);
-    // Delhi: 110001-110098
-    if (pincode >= 110001 && pincode <= 110098) return true;
-    // Noida: 201301-201315
-    if (pincode >= 201301 && pincode <= 201315) return true;
-    // Ghaziabad: 201001-201015
-    if (pincode >= 201001 && pincode <= 201015) return true;
-    // Gurgaon: 122001-122018
-    if (pincode >= 122001 && pincode <= 122018) return true;
+    if (pincode >= 110001 && pincode <= 110098) return true; // Delhi
+    if (pincode >= 201301 && pincode <= 201315) return true; // Noida
+    if (pincode >= 201001 && pincode <= 201015) return true; // Ghaziabad
+    if (pincode >= 122001 && pincode <= 122018) return true; // Gurgaon
     return false;
   }
 
@@ -599,7 +614,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       });
     }
 
-    // >>>>>>>>>>>>> CACHE: check by params (currently not short-circuiting network)
     const requestParams = {
       modeoftransport: modeOfTransport,
       fromPincode,
@@ -659,7 +673,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       let others = [...nonDpWorldQuotes.filter((q) => !q.isTiedUp)];
 
       // ---------- Inject FTL + Wheelseye FTL ----------
-      let distanceKm = 500; // default fallback
+      let distanceKm = 500; // fallback
       try {
         distanceKm = await getDistanceKmByAPI(fromPincode, toPincode);
       } catch (e) {
@@ -862,7 +876,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                   firstVehicle: {
                     vehicle: "Container 32 ft MXL",
                     weight: 18000,
-                    price: Math.round(wheelseyePrice * 0.7),
+                    price: Math.round(wheelseeePrice * 0.7),
                     vehicleLength: 32,
                   },
                   secondVehicle: {
@@ -906,7 +920,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         others.unshift(wheelseyeQuote);
       }
 
-      // Multiply all other Tied-Up Vendors prices by 5.0 to make them most expensive
+      // Multiply all other Tied-Up Vendors prices by 5.0
       tied.forEach((quote) => {
         if (quote.companyName === "DP World") return;
         quote.totalCharges = Math.round((quote.totalCharges * 5.0) / 10) * 10;
@@ -970,7 +984,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       setData(tied);
       setHiddendata(others);
 
-      // >>> CACHE: store final rendered arrays
+      // Cache
       writeCompareCache(cacheKey, {
         params: requestParams,
         data: tied,
@@ -1167,7 +1181,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                             initial={{ opacity: 0, y: -10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -10 }}
-                            className="absolute z-20 w-full mt-1 border border-slate-200 rounded-lg max-h-48 overflow-y-auto bg-white shadow-lg"
+                            className="absolute z-50 w-full mt-1 border border-slate-200 rounded-lg max-h-48 overflow-y-auto bg-white shadow-lg"
                           >
                             {displayableBoxes.length > 0 ? (
                               displayableBoxes.map((preset) => (
@@ -1201,32 +1215,22 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                     <InputField
                       label="Number of Boxes"
                       id={`count-${index}`}
-                      type="number"
-                      min={1}
-                      step={1}
+                      type="text"
+                      inputMode="numeric"
+                      pattern="\d*"
                       value={box.count ?? ""}
+                      onKeyDown={preventNonIntegerKeys}
                       onChange={(e) => {
-                        const value = e.target.value;
-                        if (value === "") {
-                          updateBox(index, "count", undefined);
-                          return;
-                        }
-                        if (!/^\d+$/.test(value)) return;
-                        const intValue = parseInt(value);
-                        if (intValue >= 1) {
-                          updateBox(index, "count", intValue);
-                        }
+                        const next = sanitizeIntegerFromEvent(e.target.value);
+                        if (next === "") updateBox(index, "count", undefined);
+                        else updateBox(index, "count", Number(next));
                       }}
-                      onKeyDown={(e) => {
-                        if (
-                          e.key === "." ||
-                          e.key === "e" ||
-                          e.key === "E" ||
-                          e.key === "+" ||
-                          e.key === "-"
-                        ) {
-                          e.preventDefault();
-                        }
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const pasted = (e.clipboardData || (window as any).clipboardData).getData("text");
+                        const next = sanitizeIntegerFromEvent(pasted);
+                        if (next === "") return;
+                        updateBox(index, "count", Number(next));
                       }}
                       placeholder="e.g., 10"
                       required
@@ -1235,14 +1239,24 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                     <InputField
                       label="Weight (kg)"
                       id={`weight-${index}`}
-                      type="number"
-                      min={0}
-                      step="0.01"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="\d*"
                       value={box.weight ?? ""}
-                      onChange={(e) =>
-                        updateBox(index, "weight", e.target.valueAsNumber ?? undefined)
-                      }
-                      placeholder="e.g., 5.5"
+                      onKeyDown={preventNonIntegerKeys}
+                      onChange={(e) => {
+                        const next = sanitizeIntegerFromEvent(e.target.value);
+                        if (next === "") updateBox(index, "weight", undefined);
+                        else updateBox(index, "weight", Number(next));
+                      }}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const pasted = (e.clipboardData || (window as any).clipboardData).getData("text");
+                        const next = sanitizeIntegerFromEvent(pasted);
+                        if (next === "") return;
+                        updateBox(index, "weight", Number(next));
+                      }}
+                      placeholder="e.g., 5"
                       required
                     />
                   </div>
@@ -1253,9 +1267,11 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                       <InputField
                         label="Length (cm)"
                         id={`length-${index}`}
-                        type="number"
-                        min={0}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\d*"
                         value={box.length ?? ""}
+                        onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
                           handleDimensionChange(
                             index,
@@ -1280,9 +1296,11 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                       <InputField
                         label="Width (cm)"
                         id={`width-${index}`}
-                        type="number"
-                        min={0}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\d*"
                         value={box.width ?? ""}
+                        onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
                           handleDimensionChange(
                             index,
@@ -1307,9 +1325,11 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                       <InputField
                         label="Height (cm)"
                         id={`height-${index}`}
-                        type="number"
-                        min={0}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\d*"
                         value={box.height ?? ""}
+                        onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
                           handleDimensionChange(
                             index,
@@ -1539,7 +1559,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                     onClick={() => setSortBy("rating")}
                   />
                 </div>
-                <div className="relative w-full sm:w-auto" ref={fineTuneRef}>
+                <div className="relative w-full sm:w-auto">
                   <button
                     onClick={() => setIsFineTuneOpen((prev) => !prev)}
                     className="w-full px-5 py-3 bg-slate-100 text-slate-700 font-semibold rounded-lg hover:bg-slate-200 transition-colors border border-slate-300"
@@ -1550,6 +1570,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                     {isFineTuneOpen && (
                       <FineTuneModal
                         isOpen={isFineTuneOpen}
+                        onClose={() => setIsFineTuneOpen(false)}
                         filters={{ maxPrice, maxTime, minRating }}
                         onFilterChange={{ setMaxPrice, setMaxTime, setMinRating }}
                       />
@@ -1635,7 +1656,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                         case "price":
                         default:
                           return (
-                            (a.totalCharges ?? Infinity) - (b.totalCharges ?? Infinity)
+                            (a.totalCharges ?? Infinity) -
+                            (b.totalCharges ?? Infinity)
                           );
                       }
                     });
@@ -1741,14 +1763,16 @@ const StarRating = ({ value }: { value: number }) => {
 };
 
 // -----------------------------------------------------------------------------
-// FineTune Modal
+// FineTune Modal (Portal overlay at topmost z-index)
 // -----------------------------------------------------------------------------
 const FineTuneModal = ({
   isOpen,
+  onClose,
   filters,
   onFilterChange,
 }: {
   isOpen: boolean;
+  onClose: () => void;
   filters: { maxPrice: number; maxTime: number; minRating: number };
   onFilterChange: {
     setMaxPrice: (val: number) => void;
@@ -1756,6 +1780,20 @@ const FineTuneModal = ({
     setMinRating: (val: number) => void;
   };
 }) => {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    if (isOpen) {
+      document.addEventListener("keydown", onKey);
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [isOpen, onClose]);
+
   const formatPrice = (value: number) => {
     if (value >= 10000000) return "Any";
     if (value >= 100000) return `${(value / 100000).toFixed(1)} Lakh`;
@@ -1764,75 +1802,95 @@ const FineTuneModal = ({
   const formatTime = (value: number) => (value >= 300 ? "Any" : `${value} Days`);
 
   if (!isOpen) return null;
-  return (
+
+  return createPortal(
     <motion.div
-      initial={{ opacity: 0, y: -10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.2, ease: "easeOut" }}
-      className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl shadow-2xl border border-slate-200 z-20 p-5 space-y-5"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[9999] bg-black/30"
+      onClick={onClose}
     >
-      <div className="space-y-2">
-        <div className="flex justify-between items-center text-sm">
-          <label htmlFor="maxPrice" className="font-semibold text-slate-700">
-            Max Price
-          </label>
-          <span className="font-bold text-indigo-600">
-            ₹ {formatPrice(filters.maxPrice)}
-          </span>
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 20, opacity: 0 }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
+        className="absolute right-4 top-20 w-80 bg-white rounded-xl shadow-2xl border border-slate-200 p-5 space-y-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="space-y-2">
+          <div className="flex justify-between items-center text-sm">
+            <label htmlFor="maxPrice" className="font-semibold text-slate-700">
+              Max Price
+            </label>
+            <span className="font-bold text-indigo-600">
+              ₹ {formatPrice(filters.maxPrice)}
+            </span>
+          </div>
+          <input
+            id="maxPrice"
+            type="range"
+            min={1000}
+            max={10000000}
+            step={1000}
+            value={filters.maxPrice}
+            onChange={(e) => onFilterChange.setMaxPrice(e.currentTarget.valueAsNumber)}
+            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+          />
         </div>
-        <input
-          id="maxPrice"
-          type="range"
-          min="1000"
-          max="10000000"
-          step="1000"
-          value={filters.maxPrice}
-          onChange={(e) => onFilterChange.setMaxPrice(e.target.valueAsNumber)}
-          className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-        />
-      </div>
 
-      <div className="space-y-2">
-        <div className="flex justify-between items-center text-sm">
-          <label htmlFor="maxTime" className="font-semibold text-slate-700">
-            Max Delivery Time
-          </label>
-          <span className="font-bold text-indigo-600">{formatTime(filters.maxTime)}</span>
+        <div className="space-y-2">
+          <div className="flex justify-between items-center text-sm">
+            <label htmlFor="maxTime" className="font-semibold text-slate-700">
+              Max Delivery Time
+            </label>
+            <span className="font-bold text-indigo-600">{formatTime(filters.maxTime)}</span>
+          </div>
+          <input
+            id="maxTime"
+            type="range"
+            min={1}
+            max={300}
+            step={1}
+            value={filters.maxTime}
+            onChange={(e) => onFilterChange.setMaxTime(e.currentTarget.valueAsNumber)}
+            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+          />
         </div>
-        <input
-          id="maxTime"
-          type="range"
-          min="1"
-          max="300"
-          step="1"
-          value={filters.maxTime}
-          onChange={(e) => onFilterChange.setMaxTime(e.target.valueAsNumber)}
-          className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-        />
-      </div>
 
-      <div className="space-y-2">
-        <div className="flex justify-between items-center text-sm">
-          <label htmlFor="minRating" className="font-semibold text-slate-700">
-            Min Vendor Rating
-          </label>
-          <span className="font-bold text-indigo-600">
-            {filters.minRating.toFixed(1)} / 5.0
-          </span>
+        <div className="space-y-2">
+          <div className="flex justify-between items-center text-sm">
+            <label htmlFor="minRating" className="font-semibold text-slate-700">
+              Min Vendor Rating
+            </label>
+            <span className="font-bold text-indigo-600">
+              {filters.minRating.toFixed(1)} / 5.0
+            </span>
+          </div>
+          <input
+            id="minRating"
+            type="range"
+            min={0}
+            max={5}
+            step={0.1}
+            value={filters.minRating}
+            onChange={(e) => onFilterChange.setMinRating(e.currentTarget.valueAsNumber)}
+            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+          />
         </div>
-        <input
-          id="minRating"
-          type="range"
-          min="0"
-          max="5"
-          step="0.1"
-          value={filters.minRating}
-          onChange={(e) => onFilterChange.setMinRating(e.target.valueAsNumber)}
-          className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-        />
-      </div>
-    </motion.div>
+
+        <div className="flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
+            Done
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>,
+    document.body
   );
 };
 
@@ -1851,7 +1909,7 @@ const SavePresetModal = ({
   const [name, setName] = useState("");
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-[9980] flex justify-center items-center p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -1888,7 +1946,8 @@ const SavePresetModal = ({
           </button>
           <button
             onClick={() => {
-              onSave(name);
+              if (name.trim() === "") return;
+              onSave(name.trim());
               setName("");
             }}
             className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
@@ -2291,7 +2350,7 @@ const VendorResultCard = ({
               {Math.ceil(quote.estimatedTime ?? 0) === 1 ? "Day" : "Days"}
             </span>
           </div>
-          <div className="text-xs text-slate-500">Estimated Delivery</div>
+          <div className="text-xs text-slate-500 -mt-1">Estimated Delivery</div>
         </div>
 
         <div className="md:col-span-3 text-right">
