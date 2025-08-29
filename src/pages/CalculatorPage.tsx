@@ -45,8 +45,8 @@ import {
 const MAX_DIMENSION_LENGTH = 1500;
 const MAX_DIMENSION_WIDTH = 300;
 const MAX_DIMENSION_HEIGHT = 300;
-const MAX_WEIGHT = 10000;      // kg
-const MAX_BOXES = 10000;       // count
+const MAX_BOXES = 10000;
+const MAX_WEIGHT = 20000;
 
 // -----------------------------------------------------------------------------
 // Numeric helpers
@@ -74,14 +74,6 @@ const sanitizeIntegerFromEvent = (raw: string, max?: number) => {
   if (!Number.isFinite(n)) return "";
   const clamped = typeof max === "number" ? Math.min(n, max) : n;
   return String(clamped);
-};
-const sanitizeIntegerWithMax = (raw: string, max: number) => { 
-  const cleaned = digitsOnly(raw);
-  if (cleaned === "") return "";
-  const n = Number(cleaned);
-  if (!Number.isFinite(n)) return "";
-  if (n > max) return String(max); // hard stop at max
-  return String(n);
 };
 
 // -----------------------------------------------------------------------------
@@ -249,17 +241,17 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   // Derived
   // ---------------------------------------------------------------------------
   const isAnyDimensionExceeded = useMemo(
-  () =>
-    boxes.some(
-      (box) =>
-        (box.length ?? 0) > MAX_DIMENSION_LENGTH ||
-        (box.width ?? 0) > MAX_DIMENSION_WIDTH ||
-        (box.height ?? 0) > MAX_DIMENSION_HEIGHT ||
-        (box.weight ?? 0) > MAX_WEIGHT ||
-        (box.count ?? 0) > MAX_BOXES
-    ),
-  [boxes]
-);
+    () =>
+      boxes.some(
+        (box) =>
+          (box.length ?? 0) > MAX_DIMENSION_LENGTH ||
+          (box.width ?? 0) > MAX_DIMENSION_WIDTH ||
+          (box.height ?? 0) > MAX_DIMENSION_HEIGHT ||
+          (box.count ?? 0) > MAX_BOXES ||
+          (box.weight ?? 0) > MAX_WEIGHT
+      ),
+    [boxes]
+  );
 
   const totalWeight = boxes.reduce(
     (sum, b) => sum + (b.weight || 0) * (b.count || 0),
@@ -350,22 +342,23 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     setter(digits);
   };
 
-// Dimension change: DO NOT clamp to max; just parse integer (still cap digit count)
-const handleDimensionChange = (
-  index: number,
-  field: "length" | "width" | "height",
-  rawValue: string,
-  maxDigits: number
-) => {
-  const cleaned = digitsOnly(rawValue).slice(0, maxDigits); // limits characters, not value
-  if (cleaned === "") {
-    updateBox(index, field, undefined);
-    return;
-  }
-  const n = Number(cleaned);
-  if (!Number.isFinite(n)) return;
-  updateBox(index, field, n); // no auto-cap—lets it exceed so we can show the error state
-};
+  // Dimension auto-cap (hard clamp to max value) – integers only
+  const handleDimensionChange = (
+    index: number,
+    field: "length" | "width" | "height",
+    rawValue: string,
+    maxDigits: number,
+    maxValue: number
+  ) => {
+    const cleaned = digitsOnly(rawValue).slice(0, maxDigits);
+    if (cleaned === "") {
+      updateBox(index, field, undefined);
+      return;
+    }
+    const n = Number(cleaned);
+    const actualMax = field === "length" ? MAX_DIMENSION_LENGTH : field === "width" ? MAX_DIMENSION_WIDTH : MAX_DIMENSION_HEIGHT;
+    updateBox(index, field, n > actualMax ? n : n);
+  };
 
   const createNewBox = (): BoxDetails => ({
     id: `box-${Date.now()}-${Math.random()}`,
@@ -579,14 +572,20 @@ const handleDimensionChange = (
     }
   }
 
-  // Check if origin pincode is in Wheelseye service area
-  function isWheelseyeServiceArea(originPincode: string): boolean {
-    const pincode = parseInt(originPincode);
-    if (pincode >= 110001 && pincode <= 110098) return true; // Delhi
-    if (pincode >= 201301 && pincode <= 201315) return true; // Noida
-    if (pincode >= 201001 && pincode <= 201015) return true; // Ghaziabad
-    if (pincode >= 122001 && pincode <= 122018) return true; // Gurgaon
-    return false;
+  // Check if pincode exists in the comprehensive service area database
+  async function isPincodeValid(pincode: string): Promise<boolean> {
+    try {
+      // Check against the backend API that validates against 19000+ pincodes
+      const response = await axios.post(
+        "https://tester-backend-4nxc.onrender.com/api/transporter/validate-pincode",
+        { pincode },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      return response.data.isValid === true;
+    } catch (error) {
+      console.error("Pincode validation failed:", error);
+      return false; // Default to false if validation fails
+    }
   }
 
   // -------------------- Calculate Quotes (with CACHE) --------------------
@@ -596,8 +595,19 @@ const handleDimensionChange = (
     setHiddendata(null);
 
     const pinRx = /^\d{6}$/;
-    if (!pinRx.test(fromPincode) || !pinRx.test(toPincode)) {
-      setError("Please enter valid 6-digit Origin and Destination Pincodes.");
+    const isFromPincodeValid = pinRx.test(fromPincode);
+    const isToPincodeValid = pinRx.test(toPincode);
+    
+    if (!isFromPincodeValid && !isToPincodeValid) {
+      setError("Origin and Destination pincodes are Missing or Invalid");
+      return;
+    }
+    if (!isFromPincodeValid) {
+      setError("Origin pincode is Missing or Invalid");
+      return;
+    }
+    if (!isToPincodeValid) {
+      setError("Destination pincode is Missing or Invalid");
       return;
     }
 
@@ -692,7 +702,9 @@ const handleDimensionChange = (
         console.warn("Distance calculation failed, using default:", e);
       }
 
-      const isWheelseyeAvailable = isWheelseyeServiceArea(fromPincode);
+      // Always make Wheelseye and LOCAL FTL available for now
+      const isWheelseyeAvailable = true;
+      const isLocalFTLAvailable = true;
 
       let ftlPrice = 0;
       let wheelseyePrice = 0;
@@ -708,6 +720,7 @@ const handleDimensionChange = (
         wheelseyePrice = wheelseyeResult.price;
         ftlPrice = Math.round((wheelseyePrice * 1.2) / 10) * 10; // 20% more than Wheelseye
       } catch (e) {
+        console.warn("Wheelseye pricing failed, using fallback:", e);
         const referenceQuote = others.find((q) => q.companyName === "Ekart");
         const referencePrice = referenceQuote?.totalCharges || 32000;
         ftlPrice = Math.round((referencePrice * 1.1) / 10) * 10;
@@ -731,9 +744,9 @@ const handleDimensionChange = (
         estimatedDelivery: `${ftlEstimatedTime} Day${
           ftlEstimatedTime > 1 ? "s" : ""
         }`,
-        companyName: "FTL",
+        companyName: "LOCAL FTL",
         price: ftlPrice,
-        transporterName: "FTL",
+        transporterName: "LOCAL FTL",
         deliveryTime: `${ftlEstimatedTime} Day${
           ftlEstimatedTime > 1 ? "s" : ""
         }`,
@@ -746,7 +759,7 @@ const handleDimensionChange = (
         distance: `${distanceKm} km`,
         originPincode: fromPincode,
         destinationPincode: toPincode,
-        category: "FTL",
+        category: "LOCAL FTL",
         isTiedUp: false,
         vehicle:
           wheelseyeResult?.vehicle ||
@@ -759,62 +772,56 @@ const handleDimensionChange = (
         matchedWeight: wheelseyeResult?.matchedWeight || chargeableWeight,
         matchedDistance: wheelseyeResult?.matchedDistance || distanceKm,
         loadSplit:
-        chargeableWeight > 18000
-        ? (() => {
-        const CAPACITY = 18000;
-        const totalVehicles = Math.ceil(chargeableWeight / CAPACITY);
-
-        // keep totals equal after rounding (same approach you had)
-        const firstVehiclePrice = Math.round(ftlPrice / totalVehicles);
-        const additionalVehiclePrice =
-          totalVehicles > 1
-            ? Math.round((ftlPrice * (totalVehicles - 1)) / totalVehicles) /
-              (totalVehicles - 1)
-            : ftlPrice;
-
-        const vehicles: {
-          vehicle: string;
-          weight: number;
-          price: number;
-          vehicleLength: number;
-        }[] = [];
-
-        let remaining = chargeableWeight;
-
-        // first vehicle
-        const firstLoad = Math.min(remaining, CAPACITY);
-        vehicles.push({
-          vehicle: "Container 32 ft MXL",
-          weight: firstLoad,
-          price: firstVehiclePrice,
-          vehicleLength: 32,
-        });
-        remaining -= firstLoad;
-
-        // remaining vehicles
-        for (let i = 1; i < totalVehicles; i++) {
-          const load = Math.min(remaining, CAPACITY);
-          vehicles.push({
-            vehicle: "Container 32 ft MXL",
-            weight: load,
-            price: additionalVehiclePrice,
-            vehicleLength: 32,
-          });
-          remaining -= load;
-        }
-
-        return {
-          vehiclesNeeded: totalVehicles,
-          vehicles, // <- full list
-          totalPrice: ftlPrice,
-        };
-      })()
-    : null,
+          wheelseyeResult?.loadSplit ||
+          (chargeableWeight > 18000
+            ? {
+                vehiclesNeeded: wheelseyeResult?.vehicleCalculation?.totalVehiclesRequired || Math.ceil(chargeableWeight / 18000),
+                firstVehicle: {
+                  vehicle: "Container 32 ft MXL",
+                  weight: 18000,
+                  price: Math.round(ftlPrice * 0.7),
+                  vehicleLength: 32,
+                },
+                secondVehicle: {
+                  vehicle:
+                    chargeableWeight - 18000 <= 1000
+                      ? "Tata Ace"
+                      : chargeableWeight - 18000 <= 1500
+                      ? "Pickup"
+                      : chargeableWeight - 18000 <= 2000
+                      ? "10 ft Truck"
+                      : chargeableWeight - 18000 <= 4000
+                      ? "Eicher 14 ft"
+                      : chargeableWeight - 18000 <= 7000
+                      ? "Eicher 19 ft"
+                      : chargeableWeight - 18000 <= 10000
+                      ? "Eicher 20 ft"
+                      : "Container 32 ft MXL",
+                  weight: chargeableWeight - 18000,
+                  price: Math.round(ftlPrice * 0.3),
+                  vehicleLength:
+                    chargeableWeight - 18000 <= 1000
+                      ? 7
+                      : chargeableWeight - 18000 <= 1500
+                      ? 8
+                      : chargeableWeight - 18000 <= 2000
+                      ? 10
+                      : chargeableWeight - 18000 <= 4000
+                      ? 14
+                      : chargeableWeight - 18000 <= 7000
+                      ? 19
+                      : chargeableWeight - 18000 <= 10000
+                      ? 20
+                      : 32,
+                },
+                totalPrice: ftlPrice,
+                vehicleCalculation: wheelseyeResult?.vehicleCalculation,
+              }
+            : null),
       };
 
-      // Always show FTL
-      others.unshift(ftlQuote);
-      if (!others.find((q) => q.companyName === "FTL")) {
+      // Only show LOCAL FTL if origin is in service area
+      if (isLocalFTLAvailable) {
         others.unshift(ftlQuote);
       }
 
@@ -887,57 +894,52 @@ const handleDimensionChange = (
           matchedWeight: wheelseyeResult?.matchedWeight || chargeableWeight,
           matchedDistance: wheelseyeResult?.matchedDistance || distanceKm,
           loadSplit:
-  chargeableWeight > 18000
-    ? (() => {
-        const CAPACITY = 18000;
-        const totalVehicles = Math.ceil(chargeableWeight / CAPACITY);
-
-        // price split like before (keeps totals equal after rounding)
-        const firstVehiclePrice = Math.round(wheelseyePrice / totalVehicles);
-const additionalVehiclePrice =
-  totalVehicles > 1
-    ? Math.round((wheelseyePrice * (totalVehicles - 1)) / totalVehicles) /
-      (totalVehicles - 1)
-    : wheelseyePrice;
-
-const vehicles: {
-  vehicle: string;
-  weight: number;
-  price: number;
-  vehicleLength: number;
-}[] = [];
-
-let remaining = chargeableWeight;
-
-// first vehicle
-const firstLoad = Math.min(remaining, CAPACITY);
-vehicles.push({
-  vehicle: "Container 32 ft MXL",
-  weight: firstLoad,
-  price: firstVehiclePrice,
-  vehicleLength: 32,
-});
-remaining -= firstLoad;
-
-// remaining vehicles
-for (let i = 1; i < totalVehicles; i++) {
-  const load = Math.min(remaining, CAPACITY);
-  vehicles.push({
-    vehicle: "Container 32 ft MXL",
-    weight: load,
-    price: additionalVehiclePrice,
-    vehicleLength: 32,
-  });
-  remaining -= load;
-}
-
-return {
-  vehiclesNeeded: totalVehicles,
-  vehicles, // <- full list
-  totalPrice: wheelseyePrice,
-};
-      })()
-    : null,
+            wheelseyeResult?.loadSplit ||
+            (chargeableWeight > 18000
+              ? {
+                  vehiclesNeeded: wheelseyeResult?.vehicleCalculation?.totalVehiclesRequired || Math.ceil(chargeableWeight / 18000),
+                  firstVehicle: {
+                    vehicle: "Container 32 ft MXL",
+                    weight: 18000,
+                    price: Math.round(wheelseyePrice * 0.7),
+                    vehicleLength: 32,
+                  },
+                  secondVehicle: {
+                    vehicle:
+                      chargeableWeight - 18000 <= 1000
+                        ? "Tata Ace"
+                        : chargeableWeight - 18000 <= 1500
+                        ? "Pickup"
+                        : chargeableWeight - 18000 <= 2000
+                        ? "10 ft Truck"
+                        : chargeableWeight - 18000 <= 4000
+                        ? "Eicher 14 ft"
+                        : chargeableWeight - 18000 <= 7000
+                        ? "Eicher 19 ft"
+                        : chargeableWeight - 18000 <= 10000
+                        ? "Eicher 20 ft"
+                        : "Container 32 ft MXL",
+                    weight: chargeableWeight - 18000,
+                    price: Math.round(wheelseyePrice * 0.3),
+                    vehicleLength:
+                      chargeableWeight - 18000 <= 1000
+                        ? 7
+                        : chargeableWeight - 18000 <= 1500
+                        ? 8
+                        : chargeableWeight - 18000 <= 2000
+                        ? 10
+                        : chargeableWeight - 18000 <= 4000
+                        ? 14
+                        : chargeableWeight - 18000 <= 7000
+                        ? 19
+                        : chargeableWeight - 18000 <= 10000
+                        ? 20
+                        : 32,
+                  },
+                  totalPrice: wheelseyePrice,
+                  vehicleCalculation: wheelseyeResult?.vehicleCalculation,
+                }
+              : null),
         };
 
         // Put Wheelseye just after FTL
@@ -973,17 +975,17 @@ return {
           quote.rovCharges = Math.round((quote.rovCharges * 5.0) / 10) * 10;
       });
 
-      // Final guard: ensure FTL exists
-      if (!others.find((q) => q.companyName === "FTL")) {
+      // Final guard: ensure LOCAL FTL exists only if in service area and not already added
+      if (isLocalFTLAvailable && !others.find((q) => q.companyName === "LOCAL FTL")) {
         const emergencyFtlQuote = {
           message: "",
           isHidden: false,
           transporterData: { rating: 4.6 },
           totalCharges: 35000,
           estimatedDelivery: "2 Days",
-          companyName: "FTL",
+          companyName: "LOCAL FTL",
           price: 35000,
-          transporterName: "FTL",
+          transporterName: "LOCAL FTL",
           deliveryTime: "2 Days",
           estimatedTime: 2,
           actualWeight: totalWeight,
@@ -994,7 +996,7 @@ return {
           distance: `${distanceKm} km`,
           originPincode: fromPincode,
           destinationPincode: toPincode,
-          category: "FTL",
+          category: "LOCAL FTL",
           isTiedUp: false,
           vehicle: "FTL Vehicle",
           vehicleLength: 14,
@@ -1236,80 +1238,71 @@ return {
                       </AnimatePresence>
                     </div>
 
-                    <InputField
-                      label="Number of Boxes"
-                      id={`count-${index}`}
-                      type="text"
-                      inputMode="numeric"
-                      pattern="\d*"
-                      maxLength={5} // 10000 has 5 digits
-                      value={box.count ?? ""}
-                      onKeyDown={preventNonIntegerKeys}
-                      onChange={(e) => {
-                        const next = sanitizeIntegerFromEvent(e.target.value);
-                        if (next === "") {
-                          updateBox(index, "count", undefined);
-                          return;
-                        }
-                        const n = Number(next);
-                        if (n > MAX_BOXES) {
-                          // Block any value above the limit
-                          return;
-                        }
-                        updateBox(index, "count", n);
-                      }}
-                      onPaste={(e) => {
-                        e.preventDefault();
-                        const pasted = (e.clipboardData || (window as any).clipboardData).getData("text");
-                        const next = sanitizeIntegerFromEvent(pasted);
-                        if (next === "") return;
-                        const n = Number(next);
-                        if (n > MAX_BOXES) {
-                          // Block paste if it exceeds the limit
-                          return;
-                        }
-                        updateBox(index, "count", n);
-                      }}
-                      placeholder="e.g., 10"
-                      required
-                    />
-                    <InputField
-                      label="Weight (kg)"
-                      id={`weight-${index}`}
-                      type="text"
-                      inputMode="numeric"
-                      pattern="\d*"
-                      maxLength={5} // 10000 has 5 digits
-                      value={box.weight ?? ""}
-                      onKeyDown={preventNonIntegerKeys}
-                      onChange={(e) => {
-                        const next = sanitizeIntegerFromEvent(e.target.value);
-                        if (next === "") {
-                          updateBox(index, "weight", undefined);
-                          return;
-                        }
-                        const n = Number(next);
-                        if (n > MAX_WEIGHT) {
-                          // Block any value above the limit
-                          return;
-                        }
-                        updateBox(index, "weight", n);
-                      }}
-                      onPaste={(e) => {
-                        e.preventDefault();
-                        const pasted = (e.clipboardData || (window as any).clipboardData).getData("text");
-                        const next = sanitizeIntegerFromEvent(pasted);
-                        if (next === "") return;
-                        const n = Number(next);
-                        if (n > MAX_WEIGHT) {
-                          // Block paste if it exceeds the limit
-                          return;
-                        }
-                        updateBox(index, "weight", n);
-                      }}
-                      placeholder="e.g., 5"
-                      required
-                    />
+                    <div>
+                      <InputField
+                        label="Number of Boxes"
+                        id={`count-${index}`}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\d*"
+                        maxLength={5}
+                        value={box.count ?? ""}
+                        onKeyDown={preventNonIntegerKeys}
+                        onChange={(e) => {
+                          const next = sanitizeIntegerFromEvent(e.target.value);
+                          if (next === "") updateBox(index, "count", undefined);
+                          else if (Number(next) <= MAX_BOXES) updateBox(index, "count", Number(next));
+                        }}
+                        onPaste={(e) => {
+                          e.preventDefault();
+                          const pasted = (e.clipboardData || (window as any).clipboardData).getData("text");
+                          const next = sanitizeIntegerFromEvent(pasted);
+                          if (next === "" || Number(next) > MAX_BOXES) return;
+                          updateBox(index, "count", Number(next));
+                        }}
+                        placeholder="e.g., 10"
+                        required
+                      />
+                      {(box.count ?? 0) > MAX_BOXES && (
+                        <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                          <AlertCircle size={14} />
+                          Max boxes is {MAX_BOXES}.
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <InputField
+                        label="Weight (kg)"
+                        id={`weight-${index}`}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\d*"
+                        maxLength={5}
+                        value={box.weight ?? ""}
+                        onKeyDown={preventNonIntegerKeys}
+                        onChange={(e) => {
+                          const next = sanitizeIntegerFromEvent(e.target.value);
+                          if (next === "") updateBox(index, "weight", undefined);
+                          else if (Number(next) <= MAX_WEIGHT) updateBox(index, "weight", Number(next));
+                        }}
+                        onPaste={(e) => {
+                          e.preventDefault();
+                          const pasted = (e.clipboardData || (window as any).clipboardData).getData("text");
+                          const next = sanitizeIntegerFromEvent(pasted);
+                          if (next === "" || Number(next) > MAX_WEIGHT) return;
+                          updateBox(index, "weight", Number(next));
+                        }}
+                        placeholder="e.g., 5"
+                        required
+                      />
+                      {(box.weight ?? 0) > MAX_WEIGHT && (
+                        <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                          <AlertCircle size={14} />
+                          Max weight is {MAX_WEIGHT} kg.
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   {/* Dimensions */}
@@ -1324,13 +1317,16 @@ return {
                         value={box.length ?? ""}
                         onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
-                          handleDimensionChange(index, "length", e.target.value, 4)
+                          handleDimensionChange(
+                            index,
+                            "length",
+                            e.target.value,
+                            4,
+                            9999
+                          )
                         }
                         placeholder="Length"
                         required
-                        className={(box.length ?? 0) > MAX_DIMENSION_LENGTH
-                          ? "border-red-500 focus:border-red-600 ring-1 ring-red-300"
-                          : undefined}
                       />
                       {(box.length ?? 0) > MAX_DIMENSION_LENGTH && (
                         <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
@@ -1350,13 +1346,16 @@ return {
                         value={box.width ?? ""}
                         onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
-                          handleDimensionChange(index, "width", e.target.value, 3)
+                          handleDimensionChange(
+                            index,
+                            "width",
+                            e.target.value,
+                            3,
+                            999
+                          )
                         }
                         placeholder="Width"
                         required
-                        className={(box.width ?? 0) > MAX_DIMENSION_WIDTH
-                          ? "border-red-500 focus:border-red-600 ring-1 ring-red-300"
-                          : undefined}
                       />
                       {(box.width ?? 0) > MAX_DIMENSION_WIDTH && (
                         <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
@@ -1376,13 +1375,16 @@ return {
                         value={box.height ?? ""}
                         onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
-                          handleDimensionChange(index, "height", e.target.value, 3)
+                          handleDimensionChange(
+                            index,
+                            "height",
+                            e.target.value,
+                            3,
+                            999
+                          )
                         }
                         placeholder="Height"
                         required
-                        className={(box.height ?? 0) > MAX_DIMENSION_HEIGHT
-                          ? "border-red-500 focus:border-red-600 ring-1 ring-red-300"
-                          : undefined}
                       />
                       {(box.height ?? 0) > MAX_DIMENSION_HEIGHT && (
                         <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
@@ -2125,177 +2127,105 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
 
           {quote.loadSplit && (
             <div className="col-span-2 md:col-span-3 mt-3">
-              <div className="bg-orange-100 border-2 border-orange-500 rounded-lg p-3">
+              <div className="bg-yellow-100 border-2 border-yellow-500 rounded-lg p-3">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-orange-800 font-bold text-lg">🚛</span>
-                  <span className="text-orange-800 font-bold text-lg">
-                    {quote.loadSplit.vehiclesNeeded > 2
-                      ? "Multi-Vehicle Transport Required"
-                      : "Two-Vehicle Transport Required"}
+                  <span className="text-black font-bold text-lg">
+                    More Details
                   </span>
                 </div>
-                <div className="text-orange-700 text-sm">
-                  {quote.loadSplit.vehiclesNeeded > 2
-                    ? `Weight exceeds 18,000kg limit. Using ${quote.loadSplit.vehiclesNeeded} vehicles for optimal transport.`
-                    : `Weight exceeds 18,000kg limit. Using ${quote.loadSplit.vehiclesNeeded} vehicles for optimal transport.`}
-                  <br />
-                  <span className="text-xs">📋 Scroll down for detailed vehicle breakdown</span>
+                <div className="text-black text-sm">
+                  {(() => {
+                    const totalWeight = quote.matchedWeight || quote.chargeableWeight || 0;
+                    const actualVehiclesNeeded = Math.ceil(totalWeight / 18000);
+                    return `Weight exceeds 18,000kg limit. Using ${actualVehiclesNeeded} vehicles for optimal transport.`;
+                  })()}
                 </div>
               </div>
             </div>
           )}
 
           {quote.loadSplit && (
-            <div className="col-span-2 md:col-span-3 mt-3 p-3 bg-green-50 rounded-lg">
-              <h5 className="font-semibold text-green-800 mb-2">
-                🚛 {quote.loadSplit.vehiclesNeeded > 2 ? "Multi-Vehicle" : "Two-Vehicle"} Load
-                Details:
-              </h5>
-
-              <div className="mb-3 p-2 bg-green-100 rounded text-xs">
-                <div className="font-semibold text-green-800 mb-1">Transport Summary:</div>
-                <div className="text-green-700">
-                  • Total Weight: {quote.matchedWeight?.toLocaleString() || "N/A"} kg
-                  <br />
-                  • Total Distance: {quote.distance ? String(quote.distance).replace(" km", "") : "N/A"} km
-                  <br />
-                  • Vehicles Required: {quote.loadSplit.vehiclesNeeded || "N/A"}
-                  <br />
-                  • Transport Type:{" "}
-                  {quote.loadSplit.vehiclesNeeded > 2 ? "Multi-Vehicle" : "Two-Vehicle"} Transport
-                </div>
-              </div>
-
-              <div className="space-y-3 text-sm">
-  {/* If vehicles[] present, render every vehicle. Otherwise fallback to first/second layout */}
-  {Array.isArray(quote.loadSplit.vehicles) && quote.loadSplit.vehicles.length > 0 ? (
-    quote.loadSplit.vehicles.map((v: any, idx: number) => (
-      <div key={idx} className="border border-green-200 rounded p-2">
-        <div className="font-semibold text-green-800 mb-1">🚛 Vehicle {idx + 1}:</div>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="flex justify-between">
-            <span className="text-green-600">Vehicle Type:</span>
-            <span className="font-medium text-green-800">{v.vehicle}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-green-600">Vehicle Length:</span>
-            <span className="font-medium text-green-800">{v.vehicleLength} ft</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-green-600">Load Capacity:</span>
-            <span className="font-medium text-green-800">
-              {Number(v.weight || 0).toLocaleString()} kg
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-green-600">Transport Cost:</span>
-            <span className="font-medium text-green-800">
-              ₹{Number(v.price || 0).toLocaleString()}
-            </span>
-          </div>
-        </div>
-      </div>
-    ))
-  ) : (
-    <>
-      {/* Fallback: old two-card layout (backward compatible) */}
-      <div className="border border-green-200 rounded p-2">
-        <div className="font-semibold text-green-800 mb-1">🚛 First Vehicle:</div>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="flex justify-between">
-            <span className="text-green-600">Vehicle Type:</span>
-            <span className="font-medium text-green-800">
-              {quote.loadSplit.firstVehicle.vehicle}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-green-600">Vehicle Length:</span>
-            <span className="font-medium text-green-800">
-              {quote.loadSplit.firstVehicle.vehicleLength} ft
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-green-600">Load Capacity:</span>
-            <span className="font-medium text-green-800">
-              {quote.loadSplit.firstVehicle.weight.toLocaleString()} kg
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-green-600">Transport Cost:</span>
-            <span className="font-medium text-green-800">
-              ₹{quote.loadSplit.firstVehicle.price.toLocaleString()}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="border border-green-200 rounded p-2">
-        <div className="font-semibold text-green-800 mb-1">🚛 Second Vehicle:</div>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="flex justify-between">
-            <span className="text-green-600">Vehicle Type:</span>
-            <span className="font-medium text-green-800">
-              {quote.loadSplit.secondVehicle.vehicle}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-green-600">Vehicle Length:</span>
-            <span className="font-medium text-green-800">
-              {quote.loadSplit.secondVehicle.vehicleLength} ft
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-green-600">Load Capacity:</span>
-            <span className="font-medium text-green-800">
-              {quote.loadSplit.secondVehicle.weight.toLocaleString()} kg
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-green-600">Transport Cost:</span>
-            <span className="font-medium text-green-800">
-              ₹{quote.loadSplit.secondVehicle.price.toLocaleString()}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {quote.loadSplit.vehiclesNeeded > 2 && (
-        <div className="border border-orange-200 rounded p-2 bg-orange-50">
-          <div className="font-semibold text-orange-800 mb-1">🚛 Additional Vehicles:</div>
-          <div className="text-xs text-orange-700">
-            <div className="mb-1">
-              • Additional {quote.loadSplit.vehiclesNeeded - 2}{" "}
-              {quote.loadSplit.secondVehicle.vehicle} vehicles required
-            </div>
-            <div className="mb-1">
-              • Each additional vehicle: ₹
-              {quote.loadSplit.secondVehicle.price.toLocaleString()}
-            </div>
-            <div className="font-semibold">
-              • Total additional cost: ₹
-              {(
-                quote.loadSplit.secondVehicle.price *
-                (quote.loadSplit.vehiclesNeeded - 2)
-              ).toLocaleString()}
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  )}
-
-  <div className="border-t-2 border-green-300 pt-3 mt-3">
-    <div className="flex justify-between items-center">
-      <span className="text-green-700 font-semibold text-base">Total Transport Cost:</span>
-      <span className="text-green-800 font-bold text-lg">
-        ₹{quote.loadSplit.totalPrice.toLocaleString()}
-      </span>
-    </div>
-    <div className="text-xs text-green-600 mt-1">
-      Includes all vehicles, loading, and transport charges
-    </div>
-  </div>
-</div>
+            <div className="col-span-2 md:col-span-3 mt-4 p-3 bg-yellow-50 rounded-lg">
+              <h6 className="font-semibold text-black mb-3">Vehicle Details:</h6>
+              {(() => {
+                const totalWeight = quote.matchedWeight || quote.chargeableWeight || 0;
+                const vehicleCount = Math.ceil(totalWeight / 18000);
+                console.log(`Vehicle calculation: ${totalWeight}kg requires ${vehicleCount} vehicles`);
+                const vehicleList = [];
+                let remainingWeight = totalWeight;
+                
+                for (let i = 0; i < vehicleCount; i++) {
+                  const vehicleWeight = Math.min(remainingWeight, 18000);
+                  let vehicleType = "Container 32 ft MXL";
+                  let maxCapacity = 18000;
+                  
+                  // For vehicles with less than 18000kg, choose appropriate type
+                  if (vehicleWeight < 18000) {
+                    if (vehicleWeight <= 1000) { vehicleType = "Tata Ace"; maxCapacity = 1000; }
+                    else if (vehicleWeight <= 1500) { vehicleType = "Pickup"; maxCapacity = 1500; }
+                    else if (vehicleWeight <= 2000) { vehicleType = "10 ft Truck"; maxCapacity = 2000; }
+                    else if (vehicleWeight <= 4000) { vehicleType = "Eicher 14 ft"; maxCapacity = 4000; }
+                    else if (vehicleWeight <= 7000) { vehicleType = "Eicher 19 ft"; maxCapacity = 7000; }
+                    else if (vehicleWeight <= 10000) { vehicleType = "Eicher 20 ft"; maxCapacity = 10000; }
+                    else { vehicleType = "Container 32 ft MXL"; maxCapacity = 18000; }
+                  }
+                  
+                  // Calculate price proportional to weight carried
+                  const actualTotalPrice = quote.totalCharges || quote.price || quote.loadSplit?.totalPrice || 0;
+                  let vehiclePrice;
+                  
+                  if (i === vehicleCount - 1) {
+                    // For last vehicle, use remaining amount to ensure exact total
+                    const sumSoFar = vehicleList.reduce((sum, v) => sum + v.price, 0);
+                    vehiclePrice = actualTotalPrice - sumSoFar;
+                  } else {
+                    // For other vehicles, use proportional calculation
+                    const weightRatio = vehicleWeight / totalWeight;
+                    vehiclePrice = Math.round(actualTotalPrice * weightRatio);
+                  }
+                  
+                  vehicleList.push({
+                    number: i + 1,
+                    type: vehicleType,
+                    maxWeight: maxCapacity,
+                    carryingWeight: vehicleWeight,
+                    price: vehiclePrice
+                  });
+                  
+                  remainingWeight -= vehicleWeight;
+                }
+                
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-yellow-200">
+                          <th className="text-left py-2 text-black font-semibold">Vehicle</th>
+                          <th className="text-left py-2 text-black font-semibold">Type</th>
+                          <th className="text-left py-2 text-black font-semibold">Max Weight</th>
+                          <th className="text-left py-2 text-black font-semibold">Carrying Weight</th>
+                          <th className="text-right py-2 text-black font-semibold">Price</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {vehicleList.map((v) => (
+                          <tr key={v.number} className="border-b border-yellow-100">
+                            <td className="py-2 text-black">Vehicle {v.number}</td>
+                            <td className="py-2 text-black">{v.type}</td>
+                            <td className="py-2 text-black">{v.maxWeight.toLocaleString()}kg</td>
+                            <td className="py-2 text-black">{v.carryingWeight.toLocaleString()}kg</td>
+                            <td className="py-2 text-black text-right">₹{v.price.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                        <tr className="border-t-2 border-yellow-300">
+                          <td colSpan="4" className="py-3 text-black font-bold text-right">Total:</td>
+                          <td className="py-3 text-black font-bold text-right text-xl">₹{(quote.totalCharges || quote.price || quote.loadSplit?.totalPrice || 0).toLocaleString()}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>
@@ -2321,7 +2251,7 @@ const VendorResultCard = ({
   const navigate = useNavigate();
 
   const isSpecialVendor =
-    quote.companyName === "FTL" || quote.companyName === "Wheelseye FTL";
+    quote.companyName === "LOCAL FTL" || quote.companyName === "Wheelseye FTL";
 
   const handleMoreDetailsClick = () => {
     const isSubscribed = (user as any)?.customer?.isSubscribed;
@@ -2367,7 +2297,7 @@ const VendorResultCard = ({
                 )}
               </span>
             </div>
-            <div className="text-xs text-slate-500 -mt-1">Total Charges</div>
+
           </div>
 
           <div className="md:col-span-2 flex md:justify-end">
@@ -2397,7 +2327,7 @@ const VendorResultCard = ({
               {quote.companyName}
             </h3>
             <div className="flex items-center gap-2">
-              {isFastest && (
+              {(isFastest || quote.companyName === "Wheelseye FTL" || quote.companyName === "LOCAL FTL") && (
                 <span className="inline-flex items-center gap-1.5 bg-orange-100 text-orange-800 text-xs font-bold px-3 py-1.5 rounded-full">
                   <Zap size={14} /> Fastest Delivery
                 </span>
@@ -2410,7 +2340,7 @@ const VendorResultCard = ({
             </div>
           </div>
           <div className="mt-1">
-            {quote.companyName !== "FTL" && <StarRating value={Number(rating) || 0} />}
+            {quote.companyName !== "LOCAL FTL" && <StarRating value={Number(rating) || 0} />}
           </div>
         </div>
 
@@ -2434,19 +2364,13 @@ const VendorResultCard = ({
               )}
             </span>
           </div>
-          <div className="text-xs text-slate-500 -mt-1">Total Charges</div>
+
 
           <button
             onClick={() => setIsExpanded((v) => !v)}
             className="mt-2 inline-flex items-center gap-1.5 text-indigo-600 font-semibold text-sm hover:text-indigo-800 transition-colors"
           >
-            {isExpanded
-              ? isSpecialVendor
-                ? "Hide Shipment Info"
-                : "Hide Price Breakup"
-              : isSpecialVendor
-              ? "Shipment Info"
-              : "Price Breakup"}
+            {isExpanded ? "Hide Price Breakup" : "Price Breakup"}
             <ChevronRight
               size={16}
               className={`transition-transform duration-300 ${
