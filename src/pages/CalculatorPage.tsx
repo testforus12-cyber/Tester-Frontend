@@ -45,6 +45,8 @@ import {
 const MAX_DIMENSION_LENGTH = 1500;
 const MAX_DIMENSION_WIDTH = 300;
 const MAX_DIMENSION_HEIGHT = 300;
+const MAX_WEIGHT = 10000;      // kg
+const MAX_BOXES = 10000;       // count
 
 // -----------------------------------------------------------------------------
 // Numeric helpers
@@ -72,6 +74,14 @@ const sanitizeIntegerFromEvent = (raw: string, max?: number) => {
   if (!Number.isFinite(n)) return "";
   const clamped = typeof max === "number" ? Math.min(n, max) : n;
   return String(clamped);
+};
+const sanitizeIntegerWithMax = (raw: string, max: number) => { 
+  const cleaned = digitsOnly(raw);
+  if (cleaned === "") return "";
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return "";
+  if (n > max) return String(max); // hard stop at max
+  return String(n);
 };
 
 // -----------------------------------------------------------------------------
@@ -239,15 +249,17 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   // Derived
   // ---------------------------------------------------------------------------
   const isAnyDimensionExceeded = useMemo(
-    () =>
-      boxes.some(
-        (box) =>
-          (box.length ?? 0) > MAX_DIMENSION_LENGTH ||
-          (box.width ?? 0) > MAX_DIMENSION_WIDTH ||
-          (box.height ?? 0) > MAX_DIMENSION_HEIGHT
-      ),
-    [boxes]
-  );
+  () =>
+    boxes.some(
+      (box) =>
+        (box.length ?? 0) > MAX_DIMENSION_LENGTH ||
+        (box.width ?? 0) > MAX_DIMENSION_WIDTH ||
+        (box.height ?? 0) > MAX_DIMENSION_HEIGHT ||
+        (box.weight ?? 0) > MAX_WEIGHT ||
+        (box.count ?? 0) > MAX_BOXES
+    ),
+  [boxes]
+);
 
   const totalWeight = boxes.reduce(
     (sum, b) => sum + (b.weight || 0) * (b.count || 0),
@@ -338,22 +350,22 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     setter(digits);
   };
 
-  // Dimension auto-cap (hard clamp to max value) – integers only
-  const handleDimensionChange = (
-    index: number,
-    field: "length" | "width" | "height",
-    rawValue: string,
-    maxDigits: number,
-    maxValue: number
-  ) => {
-    const cleaned = digitsOnly(rawValue).slice(0, maxDigits);
-    if (cleaned === "") {
-      updateBox(index, field, undefined);
-      return;
-    }
-    const n = Math.min(Number(cleaned), maxValue);
-    updateBox(index, field, n);
-  };
+// Dimension change: DO NOT clamp to max; just parse integer (still cap digit count)
+const handleDimensionChange = (
+  index: number,
+  field: "length" | "width" | "height",
+  rawValue: string,
+  maxDigits: number
+) => {
+  const cleaned = digitsOnly(rawValue).slice(0, maxDigits); // limits characters, not value
+  if (cleaned === "") {
+    updateBox(index, field, undefined);
+    return;
+  }
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return;
+  updateBox(index, field, n); // no auto-cap—lets it exceed so we can show the error state
+};
 
   const createNewBox = (): BoxDetails => ({
     id: `box-${Date.now()}-${Math.random()}`,
@@ -747,51 +759,57 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         matchedWeight: wheelseyeResult?.matchedWeight || chargeableWeight,
         matchedDistance: wheelseyeResult?.matchedDistance || distanceKm,
         loadSplit:
-          wheelseyeResult?.loadSplit ||
-          (chargeableWeight > 18000
-            ? {
-                vehiclesNeeded: 2,
-                firstVehicle: {
-                  vehicle: "Container 32 ft MXL",
-                  weight: 18000,
-                  price: Math.round(ftlPrice * 0.7),
-                  vehicleLength: 32,
-                },
-                secondVehicle: {
-                  vehicle:
-                    chargeableWeight - 18000 <= 1000
-                      ? "Tata Ace"
-                      : chargeableWeight - 18000 <= 1500
-                      ? "Pickup"
-                      : chargeableWeight - 18000 <= 2000
-                      ? "10 ft Truck"
-                      : chargeableWeight - 18000 <= 4000
-                      ? "Eicher 14 ft"
-                      : chargeableWeight - 18000 <= 7000
-                      ? "Eicher 19 ft"
-                      : chargeableWeight - 18000 <= 10000
-                      ? "Eicher 20 ft"
-                      : "Container 32 ft MXL",
-                  weight: chargeableWeight - 18000,
-                  price: Math.round(ftlPrice * 0.3),
-                  vehicleLength:
-                    chargeableWeight - 18000 <= 1000
-                      ? 7
-                      : chargeableWeight - 18000 <= 1500
-                      ? 8
-                      : chargeableWeight - 18000 <= 2000
-                      ? 10
-                      : chargeableWeight - 18000 <= 4000
-                      ? 14
-                      : chargeableWeight - 18000 <= 7000
-                      ? 19
-                      : chargeableWeight - 18000 <= 10000
-                      ? 20
-                      : 32,
-                },
-                totalPrice: ftlPrice,
-              }
-            : null),
+        chargeableWeight > 18000
+        ? (() => {
+        const CAPACITY = 18000;
+        const totalVehicles = Math.ceil(chargeableWeight / CAPACITY);
+
+        // keep totals equal after rounding (same approach you had)
+        const firstVehiclePrice = Math.round(ftlPrice / totalVehicles);
+        const additionalVehiclePrice =
+          totalVehicles > 1
+            ? Math.round((ftlPrice * (totalVehicles - 1)) / totalVehicles) /
+              (totalVehicles - 1)
+            : ftlPrice;
+
+        const vehicles: {
+          vehicle: string;
+          weight: number;
+          price: number;
+          vehicleLength: number;
+        }[] = [];
+
+        let remaining = chargeableWeight;
+
+        // first vehicle
+        const firstLoad = Math.min(remaining, CAPACITY);
+        vehicles.push({
+          vehicle: "Container 32 ft MXL",
+          weight: firstLoad,
+          price: firstVehiclePrice,
+          vehicleLength: 32,
+        });
+        remaining -= firstLoad;
+
+        // remaining vehicles
+        for (let i = 1; i < totalVehicles; i++) {
+          const load = Math.min(remaining, CAPACITY);
+          vehicles.push({
+            vehicle: "Container 32 ft MXL",
+            weight: load,
+            price: additionalVehiclePrice,
+            vehicleLength: 32,
+          });
+          remaining -= load;
+        }
+
+        return {
+          vehiclesNeeded: totalVehicles,
+          vehicles, // <- full list
+          totalPrice: ftlPrice,
+        };
+      })()
+    : null,
       };
 
       // Always show FTL
@@ -869,51 +887,57 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           matchedWeight: wheelseyeResult?.matchedWeight || chargeableWeight,
           matchedDistance: wheelseyeResult?.matchedDistance || distanceKm,
           loadSplit:
-            wheelseyeResult?.loadSplit ||
-            (chargeableWeight > 18000
-              ? {
-                  vehiclesNeeded: 2,
-                  firstVehicle: {
-                    vehicle: "Container 32 ft MXL",
-                    weight: 18000,
-                    price: Math.round(wheelseeePrice * 0.7),
-                    vehicleLength: 32,
-                  },
-                  secondVehicle: {
-                    vehicle:
-                      chargeableWeight - 18000 <= 1000
-                        ? "Tata Ace"
-                        : chargeableWeight - 18000 <= 1500
-                        ? "Pickup"
-                        : chargeableWeight - 18000 <= 2000
-                        ? "10 ft Truck"
-                        : chargeableWeight - 18000 <= 4000
-                        ? "Eicher 14 ft"
-                        : chargeableWeight - 18000 <= 7000
-                        ? "Eicher 19 ft"
-                        : chargeableWeight - 18000 <= 10000
-                        ? "Eicher 20 ft"
-                        : "Container 32 ft MXL",
-                    weight: chargeableWeight - 18000,
-                    price: Math.round(wheelseyePrice * 0.3),
-                    vehicleLength:
-                      chargeableWeight - 18000 <= 1000
-                        ? 7
-                        : chargeableWeight - 18000 <= 1500
-                        ? 8
-                        : chargeableWeight - 18000 <= 2000
-                        ? 10
-                        : chargeableWeight - 18000 <= 4000
-                        ? 14
-                        : chargeableWeight - 18000 <= 7000
-                        ? 19
-                        : chargeableWeight - 18000 <= 10000
-                        ? 20
-                        : 32,
-                  },
-                  totalPrice: wheelseyePrice,
-                }
-              : null),
+  chargeableWeight > 18000
+    ? (() => {
+        const CAPACITY = 18000;
+        const totalVehicles = Math.ceil(chargeableWeight / CAPACITY);
+
+        // price split like before (keeps totals equal after rounding)
+        const firstVehiclePrice = Math.round(wheelseyePrice / totalVehicles);
+const additionalVehiclePrice =
+  totalVehicles > 1
+    ? Math.round((wheelseyePrice * (totalVehicles - 1)) / totalVehicles) /
+      (totalVehicles - 1)
+    : wheelseyePrice;
+
+const vehicles: {
+  vehicle: string;
+  weight: number;
+  price: number;
+  vehicleLength: number;
+}[] = [];
+
+let remaining = chargeableWeight;
+
+// first vehicle
+const firstLoad = Math.min(remaining, CAPACITY);
+vehicles.push({
+  vehicle: "Container 32 ft MXL",
+  weight: firstLoad,
+  price: firstVehiclePrice,
+  vehicleLength: 32,
+});
+remaining -= firstLoad;
+
+// remaining vehicles
+for (let i = 1; i < totalVehicles; i++) {
+  const load = Math.min(remaining, CAPACITY);
+  vehicles.push({
+    vehicle: "Container 32 ft MXL",
+    weight: load,
+    price: additionalVehiclePrice,
+    vehicleLength: 32,
+  });
+  remaining -= load;
+}
+
+return {
+  vehiclesNeeded: totalVehicles,
+  vehicles, // <- full list
+  totalPrice: wheelseyePrice,
+};
+      })()
+    : null,
         };
 
         // Put Wheelseye just after FTL
@@ -1218,43 +1242,70 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                       type="text"
                       inputMode="numeric"
                       pattern="\d*"
+                      maxLength={5} // 10000 has 5 digits
                       value={box.count ?? ""}
                       onKeyDown={preventNonIntegerKeys}
                       onChange={(e) => {
                         const next = sanitizeIntegerFromEvent(e.target.value);
-                        if (next === "") updateBox(index, "count", undefined);
-                        else updateBox(index, "count", Number(next));
+                        if (next === "") {
+                          updateBox(index, "count", undefined);
+                          return;
+                        }
+                        const n = Number(next);
+                        if (n > MAX_BOXES) {
+                          // Block any value above the limit
+                          return;
+                        }
+                        updateBox(index, "count", n);
                       }}
                       onPaste={(e) => {
                         e.preventDefault();
                         const pasted = (e.clipboardData || (window as any).clipboardData).getData("text");
                         const next = sanitizeIntegerFromEvent(pasted);
                         if (next === "") return;
-                        updateBox(index, "count", Number(next));
+                        const n = Number(next);
+                        if (n > MAX_BOXES) {
+                          // Block paste if it exceeds the limit
+                          return;
+                        }
+                        updateBox(index, "count", n);
                       }}
                       placeholder="e.g., 10"
                       required
                     />
-
                     <InputField
                       label="Weight (kg)"
                       id={`weight-${index}`}
                       type="text"
                       inputMode="numeric"
                       pattern="\d*"
+                      maxLength={5} // 10000 has 5 digits
                       value={box.weight ?? ""}
                       onKeyDown={preventNonIntegerKeys}
                       onChange={(e) => {
                         const next = sanitizeIntegerFromEvent(e.target.value);
-                        if (next === "") updateBox(index, "weight", undefined);
-                        else updateBox(index, "weight", Number(next));
+                        if (next === "") {
+                          updateBox(index, "weight", undefined);
+                          return;
+                        }
+                        const n = Number(next);
+                        if (n > MAX_WEIGHT) {
+                          // Block any value above the limit
+                          return;
+                        }
+                        updateBox(index, "weight", n);
                       }}
                       onPaste={(e) => {
                         e.preventDefault();
                         const pasted = (e.clipboardData || (window as any).clipboardData).getData("text");
                         const next = sanitizeIntegerFromEvent(pasted);
                         if (next === "") return;
-                        updateBox(index, "weight", Number(next));
+                        const n = Number(next);
+                        if (n > MAX_WEIGHT) {
+                          // Block paste if it exceeds the limit
+                          return;
+                        }
+                        updateBox(index, "weight", n);
                       }}
                       placeholder="e.g., 5"
                       required
@@ -1273,16 +1324,13 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                         value={box.length ?? ""}
                         onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
-                          handleDimensionChange(
-                            index,
-                            "length",
-                            e.target.value,
-                            4,
-                            MAX_DIMENSION_LENGTH
-                          )
+                          handleDimensionChange(index, "length", e.target.value, 4)
                         }
                         placeholder="Length"
                         required
+                        className={(box.length ?? 0) > MAX_DIMENSION_LENGTH
+                          ? "border-red-500 focus:border-red-600 ring-1 ring-red-300"
+                          : undefined}
                       />
                       {(box.length ?? 0) > MAX_DIMENSION_LENGTH && (
                         <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
@@ -1302,16 +1350,13 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                         value={box.width ?? ""}
                         onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
-                          handleDimensionChange(
-                            index,
-                            "width",
-                            e.target.value,
-                            3,
-                            MAX_DIMENSION_WIDTH
-                          )
+                          handleDimensionChange(index, "width", e.target.value, 3)
                         }
                         placeholder="Width"
                         required
+                        className={(box.width ?? 0) > MAX_DIMENSION_WIDTH
+                          ? "border-red-500 focus:border-red-600 ring-1 ring-red-300"
+                          : undefined}
                       />
                       {(box.width ?? 0) > MAX_DIMENSION_WIDTH && (
                         <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
@@ -1331,16 +1376,13 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                         value={box.height ?? ""}
                         onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
-                          handleDimensionChange(
-                            index,
-                            "height",
-                            e.target.value,
-                            3,
-                            MAX_DIMENSION_HEIGHT
-                          )
+                          handleDimensionChange(index, "height", e.target.value, 3)
                         }
                         placeholder="Height"
                         required
+                        className={(box.height ?? 0) > MAX_DIMENSION_HEIGHT
+                          ? "border-red-500 focus:border-red-600 ring-1 ring-red-300"
+                          : undefined}
                       />
                       {(box.height ?? 0) > MAX_DIMENSION_HEIGHT && (
                         <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
@@ -2115,7 +2157,7 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
                 <div className="text-green-700">
                   • Total Weight: {quote.matchedWeight?.toLocaleString() || "N/A"} kg
                   <br />
-                  • Total Distance: {quote.matchedDistance || "N/A"} km
+                  • Total Distance: {quote.distance ? String(quote.distance).replace(" km", "") : "N/A"} km
                   <br />
                   • Vehicles Required: {quote.loadSplit.vehiclesNeeded || "N/A"}
                   <br />
@@ -2125,105 +2167,135 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
               </div>
 
               <div className="space-y-3 text-sm">
-                <div className="border border-green-200 rounded p-2">
-                  <div className="font-semibold text-green-800 mb-1">🚛 First Vehicle:</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Vehicle Type:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.firstVehicle.vehicle}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Vehicle Length:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.firstVehicle.vehicleLength} ft
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Load Capacity:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.firstVehicle.weight.toLocaleString()} kg
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Transport Cost:</span>
-                      <span className="font-medium text-green-800">
-                        ₹{quote.loadSplit.firstVehicle.price.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+  {/* If vehicles[] present, render every vehicle. Otherwise fallback to first/second layout */}
+  {Array.isArray(quote.loadSplit.vehicles) && quote.loadSplit.vehicles.length > 0 ? (
+    quote.loadSplit.vehicles.map((v: any, idx: number) => (
+      <div key={idx} className="border border-green-200 rounded p-2">
+        <div className="font-semibold text-green-800 mb-1">🚛 Vehicle {idx + 1}:</div>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="flex justify-between">
+            <span className="text-green-600">Vehicle Type:</span>
+            <span className="font-medium text-green-800">{v.vehicle}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-green-600">Vehicle Length:</span>
+            <span className="font-medium text-green-800">{v.vehicleLength} ft</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-green-600">Load Capacity:</span>
+            <span className="font-medium text-green-800">
+              {Number(v.weight || 0).toLocaleString()} kg
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-green-600">Transport Cost:</span>
+            <span className="font-medium text-green-800">
+              ₹{Number(v.price || 0).toLocaleString()}
+            </span>
+          </div>
+        </div>
+      </div>
+    ))
+  ) : (
+    <>
+      {/* Fallback: old two-card layout (backward compatible) */}
+      <div className="border border-green-200 rounded p-2">
+        <div className="font-semibold text-green-800 mb-1">🚛 First Vehicle:</div>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="flex justify-between">
+            <span className="text-green-600">Vehicle Type:</span>
+            <span className="font-medium text-green-800">
+              {quote.loadSplit.firstVehicle.vehicle}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-green-600">Vehicle Length:</span>
+            <span className="font-medium text-green-800">
+              {quote.loadSplit.firstVehicle.vehicleLength} ft
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-green-600">Load Capacity:</span>
+            <span className="font-medium text-green-800">
+              {quote.loadSplit.firstVehicle.weight.toLocaleString()} kg
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-green-600">Transport Cost:</span>
+            <span className="font-medium text-green-800">
+              ₹{quote.loadSplit.firstVehicle.price.toLocaleString()}
+            </span>
+          </div>
+        </div>
+      </div>
 
-                <div className="border border-green-200 rounded p-2">
-                  <div className="font-semibold text-green-800 mb-1">🚛 Second Vehicle:</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Vehicle Type:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.secondVehicle.vehicle}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Vehicle Length:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.secondVehicle.vehicleLength} ft
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Load Capacity:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.secondVehicle.weight.toLocaleString()} kg
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Transport Cost:</span>
-                      <span className="font-medium text-green-800">
-                        ₹{quote.loadSplit.secondVehicle.price.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+      <div className="border border-green-200 rounded p-2">
+        <div className="font-semibold text-green-800 mb-1">🚛 Second Vehicle:</div>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="flex justify-between">
+            <span className="text-green-600">Vehicle Type:</span>
+            <span className="font-medium text-green-800">
+              {quote.loadSplit.secondVehicle.vehicle}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-green-600">Vehicle Length:</span>
+            <span className="font-medium text-green-800">
+              {quote.loadSplit.secondVehicle.vehicleLength} ft
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-green-600">Load Capacity:</span>
+            <span className="font-medium text-green-800">
+              {quote.loadSplit.secondVehicle.weight.toLocaleString()} kg
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-green-600">Transport Cost:</span>
+            <span className="font-medium text-green-800">
+              ₹{quote.loadSplit.secondVehicle.price.toLocaleString()}
+            </span>
+          </div>
+        </div>
+      </div>
 
-                {quote.loadSplit.vehiclesNeeded > 2 && (
-                  <div className="border border-orange-200 rounded p-2 bg-orange-50">
-                    <div className="font-semibold text-orange-800 mb-1">
-                      🚛 Additional Vehicles:
-                    </div>
-                    <div className="text-xs text-orange-700">
-                      <div className="mb-1">
-                        • Additional {quote.loadSplit.vehiclesNeeded - 2}{" "}
-                        {quote.loadSplit.secondVehicle.vehicle} vehicles required
-                      </div>
-                      <div className="mb-1">
-                        • Each additional vehicle: ₹
-                        {quote.loadSplit.secondVehicle.price.toLocaleString()}
-                      </div>
-                      <div className="font-semibold">
-                        • Total additional cost: ₹
-                        {(
-                          quote.loadSplit.secondVehicle.price *
-                          (quote.loadSplit.vehiclesNeeded - 2)
-                        ).toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-                )}
+      {quote.loadSplit.vehiclesNeeded > 2 && (
+        <div className="border border-orange-200 rounded p-2 bg-orange-50">
+          <div className="font-semibold text-orange-800 mb-1">🚛 Additional Vehicles:</div>
+          <div className="text-xs text-orange-700">
+            <div className="mb-1">
+              • Additional {quote.loadSplit.vehiclesNeeded - 2}{" "}
+              {quote.loadSplit.secondVehicle.vehicle} vehicles required
+            </div>
+            <div className="mb-1">
+              • Each additional vehicle: ₹
+              {quote.loadSplit.secondVehicle.price.toLocaleString()}
+            </div>
+            <div className="font-semibold">
+              • Total additional cost: ₹
+              {(
+                quote.loadSplit.secondVehicle.price *
+                (quote.loadSplit.vehiclesNeeded - 2)
+              ).toLocaleString()}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )}
 
-                <div className="border-t-2 border-green-300 pt-3 mt-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-green-700 font-semibold text-base">
-                      Total Transport Cost:
-                    </span>
-                    <span className="text-green-800 font-bold text-lg">
-                      ₹{quote.loadSplit.totalPrice.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="text-xs text-green-600 mt-1">
-                    Includes all vehicles, loading, and transport charges
-                  </div>
-                </div>
-              </div>
+  <div className="border-t-2 border-green-300 pt-3 mt-3">
+    <div className="flex justify-between items-center">
+      <span className="text-green-700 font-semibold text-base">Total Transport Cost:</span>
+      <span className="text-green-800 font-bold text-lg">
+        ₹{quote.loadSplit.totalPrice.toLocaleString()}
+      </span>
+    </div>
+    <div className="text-xs text-green-600 mt-1">
+      Includes all vehicles, loading, and transport charges
+    </div>
+  </div>
+</div>
             </div>
           )}
         </div>
