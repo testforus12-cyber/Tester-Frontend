@@ -1,15 +1,3 @@
-Here’s a drop-in **CalculatorPage.tsx** that adds strong Indian pincode gating **before** any heavy calls:
-
-* Real-time field validation (format + cannot start with 0).
-* Lightweight server check (`/api/transporter/validate-pincode`) on blur and again right before calculate.
-* Clear, field-specific error messages under each pincode.
-* Calculate button auto-disables if either pincode is invalid or incomplete.
-* No changes to your pricing/FTL logic or other features.
-
-> Re: Google APIs — they’re overkill and inconsistent for Indian PINs. Your own 25k-pincode DB via the `validate-pincode` endpoint is perfect for a fast preflight.
-
-```tsx
-// frontend/src/pages/CalculatorPage.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
@@ -2479,4 +2467,3 @@ const VendorResultCard = ({
 };
 
 export default CalculatorPage;
-```
