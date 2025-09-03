@@ -215,7 +215,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
 
   // Results
   const [data, setData] = useState<QuoteAny[] | null>(null);
-  the [hiddendata, setHiddendata] = useState<QuoteAny[] | null>(null);
+  const [hiddendata, setHiddendata] = useState<QuoteAny[] | null>(null); // <-- fixed
 
   // -------------------- Form State --------------------
   const [modeOfTransport, setModeOfTransport] = useState<
@@ -1220,7 +1220,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
             Select your mode of transport and enter the pickup and destination pincodes.
           </p>
 
-        <div className="space-y-6">
+          <div className="space-y-6">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
                 { name: "Road", icon: Truck, isAvailable: true },
@@ -2394,7 +2394,7 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
                           </tr>
                         ))}
                         <tr className="border-t-2 border-yellow-300">
-                          <td colSpan={4 as any} className="py-3 text-black font-bold text-right">Total:</td>
+                          <td colSpan={4} className="py-3 text-black font-bold text-right">Total:</td>
                           <td className="py-3 text-black font-bold text-right text-xl">₹{(quote.totalCharges || quote.price || quote.loadSplit?.totalPrice || 0).toLocaleString()}</td>
                         </tr>
                       </tbody>
