@@ -1,3 +1,14 @@
+Here’s a drop-in **CalculatorPage.tsx** that adds strong Indian pincode gating **before** any heavy calls:
+
+* Real-time field validation (format + cannot start with 0).
+* Lightweight server check (`/api/transporter/validate-pincode`) on blur and again right before calculate.
+* Clear, field-specific error messages under each pincode.
+* Calculate button auto-disables if either pincode is invalid or incomplete.
+* No changes to your pricing/FTL logic or other features.
+
+> Re: Google APIs — they’re overkill and inconsistent for Indian PINs. Your own 25k-pincode DB via the `validate-pincode` endpoint is perfect for a fast preflight.
+
+```tsx
 // frontend/src/pages/CalculatorPage.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -100,6 +111,7 @@ const InputField = (
   props: React.InputHTMLAttributes<HTMLInputElement> & {
     label?: string;
     icon?: React.ReactNode;
+    error?: string | null;
   }
 ) => (
   <div>
@@ -119,11 +131,22 @@ const InputField = (
       )}
       <input
         {...props}
-        className={`block w-full py-2 bg-white border border-slate-300 rounded-lg text-sm shadow-sm placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition read-only:bg-slate-100 read-only:cursor-not-allowed disabled:bg-slate-100 disabled:border-slate-200 disabled:cursor-not-allowed ${
+        aria-invalid={props.error ? "true" : "false"}
+        className={`block w-full py-2 bg-white border rounded-lg text-sm shadow-sm placeholder-slate-400 focus:outline-none focus:ring-1 transition read-only:bg-slate-100 read-only:cursor-not-allowed disabled:bg-slate-100 disabled:border-slate-200 disabled:cursor-not-allowed ${
           props.icon ? "pl-10" : "px-4"
+        } ${
+          props.error
+            ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+            : "border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
         }`}
       />
     </div>
+    {!!props.error && (
+      <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+        <AlertCircle size={14} />
+        {props.error}
+      </p>
+    )}
   </div>
 );
 
@@ -206,6 +229,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const [fromPincode, setFromPincode] = useState("");
   const [toPincode, setToPincode] = useState("");
 
+  // Field-level errors for pincode validation
+  const [fromPinError, setFromPinError] = useState<string | null>(null);
+  const [toPinError, setToPinError] = useState<string | null>(null);
+
   const [boxes, setBoxes] = useState<BoxDetails[]>([
     {
       id: `box-${Date.now()}-${Math.random()}`,
@@ -261,6 +288,12 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const displayableBoxes = savedBoxes.filter((b) =>
     b.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const hasPincodeIssues =
+    !!fromPinError ||
+    !!toPinError ||
+    fromPincode.length !== 6 ||
+    toPincode.length !== 6;
 
   // ---------------------------------------------------------------------------
   // Effects
@@ -336,10 +369,12 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   // ---------------------------------------------------------------------------
   const handlePincodeChange = (
     raw: string,
-    setter: React.Dispatch<React.SetStateAction<string>>
+    setter: React.Dispatch<React.SetStateAction<string>>,
+    clearError?: (msg: string | null) => void
   ) => {
     const digits = digitsOnly(raw).slice(0, 6);
     setter(digits);
+    if (clearError) clearError(null); // clear inline error while typing
   };
 
   // Dimension auto-cap (hard clamp to max value) – integers only
@@ -348,7 +383,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     field: "length" | "width" | "height",
     rawValue: string,
     maxDigits: number,
-    maxValue: number
+    _maxValue: number
   ) => {
     const cleaned = digitsOnly(rawValue).slice(0, maxDigits);
     if (cleaned === "") {
@@ -356,7 +391,12 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       return;
     }
     const n = Number(cleaned);
-    const actualMax = field === "length" ? MAX_DIMENSION_LENGTH : field === "width" ? MAX_DIMENSION_WIDTH : MAX_DIMENSION_HEIGHT;
+    const actualMax =
+      field === "length"
+        ? MAX_DIMENSION_LENGTH
+        : field === "width"
+        ? MAX_DIMENSION_WIDTH
+        : MAX_DIMENSION_HEIGHT;
     updateBox(index, field, n > actualMax ? n : n);
   };
 
@@ -588,26 +628,52 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     }
   }
 
+  // Synchronous format validation for Indian pincodes
+  const validatePincodeFormat = (pin: string): string | null => {
+    if (!pin) return "Pincode is required.";
+    if (!/^\d{6}$/.test(pin)) return "Enter a 6-digit pincode.";
+    if (!/^[1-9]\d{5}$/.test(pin)) return "Pincode cannot start with 0.";
+    return null;
+  };
+
+  // Validate a single field (format + server check)
+  const validatePincodeField = async (which: "from" | "to") => {
+    const pin = which === "from" ? fromPincode : toPincode;
+    const setErr = which === "from" ? setFromPinError : setToPinError;
+
+    // 1) quick format check
+    const msg = validatePincodeFormat(pin);
+    if (msg) {
+      setErr(msg);
+      return false;
+    }
+
+    // 2) backend preflight (cheap) — blocks heavy calculate if not serviceable
+    const ok = await isPincodeValid(pin);
+    if (!ok) {
+      setErr("Unknown or non-serviceable pincode.");
+      return false;
+    }
+    setErr(null);
+    return true;
+  };
+
   // -------------------- Calculate Quotes (with CACHE) --------------------
   const calculateQuotes = async () => {
     setError(null);
     setData(null);
     setHiddendata(null);
 
-    const pinRx = /^\d{6}$/;
-    const isFromPincodeValid = pinRx.test(fromPincode);
-    const isToPincodeValid = pinRx.test(toPincode);
-    
-    if (!isFromPincodeValid && !isToPincodeValid) {
-      setError("Origin and Destination pincodes are Missing or Invalid");
-      return;
-    }
-    if (!isFromPincodeValid) {
-      setError("Origin pincode is Missing or Invalid");
-      return;
-    }
-    if (!isToPincodeValid) {
-      setError("Destination pincode is Missing or Invalid");
+    // Final gate: do not hit heavy endpoints unless both pincodes pass
+    const [okFrom, okTo] = await Promise.all([
+      validatePincodeField("from"),
+      validatePincodeField("to"),
+    ]);
+    if (!okFrom || !okTo) {
+      if (!okFrom && !okTo)
+        setError("Origin and Destination pincodes are invalid.");
+      else if (!okFrom) setError("Origin pincode is invalid.");
+      else setError("Destination pincode is invalid.");
       return;
     }
 
@@ -775,7 +841,9 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           wheelseyeResult?.loadSplit ||
           (chargeableWeight > 18000
             ? {
-                vehiclesNeeded: wheelseyeResult?.vehicleCalculation?.totalVehiclesRequired || Math.ceil(chargeableWeight / 18000),
+                vehiclesNeeded:
+                  wheelseyeResult?.vehicleCalculation?.totalVehiclesRequired ||
+                  Math.ceil(chargeableWeight / 18000),
                 firstVehicle: {
                   vehicle: "Container 32 ft MXL",
                   weight: 18000,
@@ -897,7 +965,9 @@ const CalculatorPage: React.FC = (): JSX.Element => {
             wheelseyeResult?.loadSplit ||
             (chargeableWeight > 18000
               ? {
-                  vehiclesNeeded: wheelseyeResult?.vehicleCalculation?.totalVehiclesRequired || Math.ceil(chargeableWeight / 18000),
+                  vehiclesNeeded:
+                    wheelseyeResult?.vehicleCalculation?.totalVehiclesRequired ||
+                    Math.ceil(chargeableWeight / 18000),
                   firstVehicle: {
                     vehicle: "Container 32 ft MXL",
                     weight: 18000,
@@ -976,7 +1046,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       });
 
       // Final guard: ensure LOCAL FTL exists only if in service area and not already added
-      if (isLocalFTLAvailable && !others.find((q) => q.companyName === "LOCAL FTL")) {
+      if (
+        isLocalFTLAvailable &&
+        !others.find((q) => q.companyName === "LOCAL FTL")
+      ) {
         const emergencyFtlQuote = {
           message: "",
           isHidden: false,
@@ -1120,7 +1193,11 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                 icon={<MapPin />}
                 inputMode="numeric"
                 pattern="\d{6}"
-                onChange={(e) => handlePincodeChange(e.target.value, setFromPincode)}
+                error={fromPinError}
+                onChange={(e) =>
+                  handlePincodeChange(e.target.value, setFromPincode, setFromPinError)
+                }
+                onBlur={() => validatePincodeField("from")}
               />
               <InputField
                 label="Destination Pincode"
@@ -1131,7 +1208,11 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                 icon={<MapPin />}
                 inputMode="numeric"
                 pattern="\d{6}"
-                onChange={(e) => handlePincodeChange(e.target.value, setToPincode)}
+                error={toPinError}
+                onChange={(e) =>
+                  handlePincodeChange(e.target.value, setToPincode, setToPinError)
+                }
+                onBlur={() => validatePincodeField("to")}
               />
             </div>
           </div>
@@ -1459,12 +1540,12 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               )}
               <motion.button
                 onClick={calculateQuotes}
-                disabled={isCalculating || isAnyDimensionExceeded}
+                disabled={isCalculating || isAnyDimensionExceeded || hasPincodeIssues}
                 whileHover={{
-                  scale: isCalculating || isAnyDimensionExceeded ? 1 : 1.05,
+                  scale: isCalculating || isAnyDimensionExceeded || hasPincodeIssues ? 1 : 1.05,
                 }}
                 whileTap={{
-                  scale: isCalculating || isAnyDimensionExceeded ? 1 : 0.95,
+                  scale: isCalculating || isAnyDimensionExceeded || hasPincodeIssues ? 1 : 0.95,
                 }}
                 className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-indigo-600 text-white text-lg font-bold rounded-full shadow-lg shadow-indigo-500/50 hover:bg-indigo-700 transition-all duration-300 disabled:opacity-60 disabled:shadow-none disabled:cursor-not-allowed"
               >
@@ -2218,7 +2299,7 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
                           </tr>
                         ))}
                         <tr className="border-t-2 border-yellow-300">
-                          <td colSpan="4" className="py-3 text-black font-bold text-right">Total:</td>
+                          <td colSpan={4 as any} className="py-3 text-black font-bold text-right">Total:</td>
                           <td className="py-3 text-black font-bold text-right text-xl">₹{(quote.totalCharges || quote.price || quote.loadSplit?.totalPrice || 0).toLocaleString()}</td>
                         </tr>
                       </tbody>
@@ -2398,3 +2479,4 @@ const VendorResultCard = ({
 };
 
 export default CalculatorPage;
+```
