@@ -49,6 +49,13 @@ const MAX_BOXES = 10000;
 const MAX_WEIGHT = 20000;
 
 // -----------------------------------------------------------------------------
+// Rate limit config (client side)
+// -----------------------------------------------------------------------------
+const RATE_LIMIT_MAX_CALLS = 10;        // max clicks inside the window
+const RATE_LIMIT_WINDOW_MS = 60_000;    // measure clicks in last 60s
+const RATE_LIMIT_COOLDOWN_MS = 120_000; // lock for 120s after hitting limit
+
+// -----------------------------------------------------------------------------
 // Numeric helpers
 // -----------------------------------------------------------------------------
 const digitsOnly = (s: string) => s.replace(/\D/g, "");
@@ -164,7 +171,7 @@ const SortOptionButton = ({
 );
 
 // -----------------------------------------------------------------------------
-// Types
+// Types (broad to cover different API shapes)
 // -----------------------------------------------------------------------------
 type QuoteAny = any;
 
@@ -208,7 +215,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
 
   // Results
   const [data, setData] = useState<QuoteAny[] | null>(null);
-  const [hiddendata, setHiddendata] = useState<QuoteAny[] | null>(null);
+  the [hiddendata, setHiddendata] = useState<QuoteAny[] | null>(null);
 
   // -------------------- Form State --------------------
   const [modeOfTransport, setModeOfTransport] = useState<
@@ -252,6 +259,13 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const [maxTime, setMaxTime] = useState(300);
   const [minRating, setMinRating] = useState(0);
 
+  // Rate limit state
+  const [calcClicks, setCalcClicks] = useState<number[]>([]);
+  const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  const isRateLimited =
+    cooldownUntil !== null && Date.now() < (cooldownUntil as number);
+
   // ---------------------------------------------------------------------------
   // Derived
   // ---------------------------------------------------------------------------
@@ -277,7 +291,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     b.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Cache for server pin validations
   const pinCacheRef = useRef<Map<string, boolean>>(new Map());
 
   const hasPincodeIssues =
@@ -290,13 +303,13 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   // Effects
   // ---------------------------------------------------------------------------
 
-  // Autofill Origin Pincode from profile
+  // Always autofill Origin Pincode from profile
   useEffect(() => {
     const pin = (user as any)?.customer?.pincode;
     if (pin) setFromPincode(String(pin));
   }, [user]);
 
-  // Restore last form/results
+  // Restore last form (except origin pincode) and last results
   useEffect(() => {
     clearStaleCache();
 
@@ -324,7 +337,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     }
   }, []);
 
-  // Persist form state
+  // Persist form state while typing
   useEffect(() => {
     saveFormState({
       fromPincode,
@@ -355,6 +368,23 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     fetchSavedBoxes();
   }, [user]);
 
+  // Cooldown countdown ticker
+  useEffect(() => {
+    if (!cooldownUntil) {
+      setCooldownRemaining(0);
+      return;
+    }
+    const iv = setInterval(() => {
+      const left = Math.max(0, cooldownUntil - Date.now());
+      setCooldownRemaining(left);
+      if (left <= 0) {
+        setCooldownUntil(null);
+        setCalcClicks([]);
+      }
+    }, 500);
+    return () => clearInterval(iv);
+  }, [cooldownUntil]);
+
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
@@ -365,10 +395,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   ) => {
     const digits = digitsOnly(raw).slice(0, 6);
     setter(digits);
-    if (clearError) clearError(null); // clear inline error while typing
+    if (clearError) clearError(null);
   };
 
-  // Dimension auto-cap – integers only
+  // Dimension auto-cap (hard clamp to max value) – integers only
   const handleDimensionChange = (
     index: number,
     field: "length" | "width" | "height",
@@ -549,7 +579,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     setSearchTerm("");
   };
 
-  // Distance via backend wrapper
+  // Distance via backend wrapper (Google Distance Matrix)
   async function getDistanceKmByAPI(originPin: string, destPin: string) {
     const apiBase =
       import.meta.env.VITE_API_BASE_URL || "https://tester-backend-4nxc.onrender.com";
@@ -566,7 +596,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     return Number(j.distanceKm);
   }
 
-  // Get Wheelseye pricing from database API
+  // Get Wheelseye pricing from database API with chargeable weight calculation
   async function getWheelseyePriceFromDB(
     weight: number,
     distance: number,
@@ -603,9 +633,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     }
   }
 
-  // -------------------- Pincode validation --------------------
-
-  // quick format-only check
+  // Check if pincode exists in the comprehensive service area database
   const validatePincodeFormat = (pin: string): string | null => {
     if (!pin) return "Pincode is required.";
     if (!/^\d{6}$/.test(pin)) return "Enter a 6-digit pincode.";
@@ -613,7 +641,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     return null;
   };
 
-  // best-effort coercion from various API shapes
   const coerceBoolean = (v: any): boolean | null => {
     if (typeof v === "boolean") return v;
     if (typeof v === "number") return v === 1;
@@ -625,22 +652,18 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     return null;
   };
 
-  // Call backend; return true (valid), false (explicitly invalid), or null (unknown/error)
   async function validatePincodeServer(pincode: string): Promise<boolean | null> {
-    // cache first
     if (pinCacheRef.current.has(pincode)) {
       return pinCacheRef.current.get(pincode)!;
     }
     try {
-      const headers =
-        token ? { Authorization: `Bearer ${token}` } : undefined; // don't send Bearer undefined
+      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
       const response = await axios.post(
         "https://tester-backend-4nxc.onrender.com/api/transporter/validate-pincode",
         { pincode },
         { headers }
       );
 
-      // try common keys
       const payload: any = response?.data ?? {};
       const keys = [
         "isValid",
@@ -659,7 +682,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           pinCacheRef.current.set(pincode, coerced);
           return coerced;
         }
-        // nested spots
         const nested = coerceBoolean(payload?.data?.[k] ?? payload?.result?.[k]);
         if (nested !== null) {
           pinCacheRef.current.set(pincode, nested);
@@ -667,38 +689,31 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         }
       }
 
-      // as a last resort, if backend returned 2xx without an explicit "false",
-      // treat as valid to avoid false negatives
+      // Safe default: if server replied 2xx but no explicit invalid flag, treat as valid.
       pinCacheRef.current.set(pincode, true);
       return true;
     } catch (error: any) {
-      // network/401/cors/etc — treat as unknown, don't block or show red
+      // Network/CORS/auth issue -> don't block user; mark unknown (null)
       console.warn("validate-pincode failed (non-blocking):", error?.message || error);
       return null;
     }
   }
 
-  // Validate a single field (format + server check)
   const validatePincodeField = async (which: "from" | "to") => {
     const pin = which === "from" ? fromPincode : toPincode;
     const setErr = which === "from" ? setFromPinError : setToPinError;
 
-    // format first
     const msg = validatePincodeFormat(pin);
     if (msg) {
       setErr(msg);
       return false;
     }
-
-    // server check (non-blocking on errors)
     const verdict = await validatePincodeServer(pin);
     if (verdict === false) {
       setErr("Unknown or non-serviceable pincode.");
       return false;
     }
-
-    // clear error for valid or unknown
-    setErr(null);
+    setErr(null); // valid or unknown -> allow
     return true;
   };
 
@@ -708,7 +723,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     setData(null);
     setHiddendata(null);
 
-    // Final gate: require format correctness; use server only if it explicitly returns false
     const [okFrom, okTo] = await Promise.all([
       validatePincodeField("from"),
       validatePincodeField("to"),
@@ -782,6 +796,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         })),
       ];
 
+      // SHOW ONLY THE CHEAPEST DP WORLD and HIDE EXPENSIVE ONE COMPLETELY
       const dpWorldQuotes = all.filter((q) => q.companyName === "DP World");
       const nonDpWorldQuotes = all.filter(
         (q) => q.companyName !== "DP World"
@@ -811,6 +826,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         console.warn("Distance calculation failed, using default:", e);
       }
 
+      // Always make Wheelseye and LOCAL FTL available for now
       const isWheelseyeAvailable = true;
       const isLocalFTLAvailable = true;
 
@@ -842,6 +858,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       const chargeableWeight =
         weightBreakdown?.chargeableWeight || totalWeight;
 
+      // FTL quote (always available)
       const ftlEstimatedTime = Math.ceil(distanceKm / 400);
       const ftlQuote = {
         message: "",
@@ -929,10 +946,12 @@ const CalculatorPage: React.FC = (): JSX.Element => {
             : null),
       };
 
+      // Only show LOCAL FTL if origin is in service area
       if (isLocalFTLAvailable) {
         others.unshift(ftlQuote);
       }
 
+      // Only add Wheelseye if origin is in service area
       if (isWheelseyeAvailable) {
         const wheelseyeEstimatedTime = Math.ceil(distanceKm / 400);
         const wheelseyeQuote = {
@@ -1055,7 +1074,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         others.unshift(wheelseyeQuote);
       }
 
-      // Multiply tied-up vendor prices by 5.0 (kept as-is)
+      // Multiply all other Tied-Up Vendors prices by 5.0 (unchanged)
       tied.forEach((quote) => {
         if (quote.companyName === "DP World") return;
         quote.totalCharges = Math.round((quote.totalCharges * 5.0) / 10) * 10;
@@ -1084,10 +1103,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           quote.rovCharges = Math.round((quote.rovCharges * 5.0) / 10) * 10;
       });
 
-      if (
-        isLocalFTLAvailable &&
-        !others.find((q) => q.companyName === "LOCAL FTL")
-      ) {
+      // Final guard: ensure LOCAL FTL exists only if not already added
+      if (!others.find((q) => q.companyName === "LOCAL FTL")) {
         const emergencyFtlQuote = {
           message: "",
           isHidden: false,
@@ -1121,6 +1138,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       setData(tied);
       setHiddendata(others);
 
+      // Cache
       writeCompareCache(cacheKey, {
         params: requestParams,
         data: tied,
@@ -1140,6 +1158,29 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     setTimeout(() => {
       document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
     }, 100);
+  };
+
+  // Click handler with rate limiting
+  const handleCalculateClick = async () => {
+    if (isRateLimited) {
+      const secs = Math.ceil(cooldownRemaining / 1000);
+      setError(`Too many attempts. Please try again in ${secs}s.`);
+      return;
+    }
+    const now = Date.now();
+    const windowStart = now - RATE_LIMIT_WINDOW_MS;
+    const recent = calcClicks.filter((t) => t > windowStart);
+    const next = [...recent, now];
+
+    if (next.length >= RATE_LIMIT_MAX_CALLS) {
+      setCooldownUntil(now + RATE_LIMIT_COOLDOWN_MS);
+      setCalcClicks([]);
+      setError(`Too many attempts. Please try again in ${Math.ceil(RATE_LIMIT_COOLDOWN_MS/1000)}s.`);
+      return;
+    }
+
+    setCalcClicks(next);
+    await calculateQuotes();
   };
 
   // -------------------- Render --------------------
@@ -1179,7 +1220,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
             Select your mode of transport and enter the pickup and destination pincodes.
           </p>
 
-          <div className="space-y-6">
+        <div className="space-y-6">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
                 { name: "Road", icon: Truck, isAvailable: true },
@@ -1576,18 +1617,24 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                 </motion.div>
               )}
               <motion.button
-                onClick={calculateQuotes}
-                disabled={isCalculating || isAnyDimensionExceeded || hasPincodeIssues}
+                onClick={handleCalculateClick}
+                disabled={isCalculating || isAnyDimensionExceeded || hasPincodeIssues || isRateLimited}
                 whileHover={{
-                  scale: isCalculating || isAnyDimensionExceeded || hasPincodeIssues ? 1 : 1.05,
+                  scale: isCalculating || isAnyDimensionExceeded || hasPincodeIssues || isRateLimited ? 1 : 1.05,
                 }}
                 whileTap={{
-                  scale: isCalculating || isAnyDimensionExceeded || hasPincodeIssues ? 1 : 0.95,
+                  scale: isCalculating || isAnyDimensionExceeded || hasPincodeIssues || isRateLimited ? 1 : 0.95,
                 }}
                 className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-indigo-600 text-white text-lg font-bold rounded-full shadow-lg shadow-indigo-500/50 hover:bg-indigo-700 transition-all duration-300 disabled:opacity-60 disabled:shadow-none disabled:cursor-not-allowed"
               >
-                {isCalculating ? <Loader2 className="animate-spin" /> : <CalculatorIcon />}
-                {isCalculating
+                {isCalculating ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <CalculatorIcon />
+                )}
+                {isRateLimited
+                  ? `Locked (${Math.ceil(cooldownRemaining / 1000)}s)`
+                  : isCalculating
                   ? calculationProgress || "Calculating Rates..."
                   : "Calculate Freight Cost"}
               </motion.button>
@@ -1756,16 +1803,21 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                     ...(hiddendata || []),
                   ].filter((q) => q.message !== "service not available");
 
-                  const bestValueQuote =
-                    allQuotes.length > 0
-                      ? allQuotes.reduce((prev, current) =>
-                          (prev.totalCharges ?? Infinity) <
-                          (current.totalCharges ?? Infinity)
-                            ? prev
-                            : current
-                        )
-                      : null;
+                  // ----- Best price & ties -----
+                  const getPrice = (q: QuoteAny) =>
+                    Number.isFinite(q?.totalCharges) ? q.totalCharges : Infinity;
 
+                  const bestPrice = allQuotes.length
+                    ? Math.min(...allQuotes.map(getPrice))
+                    : Infinity;
+
+                  const isBest = (q: QuoteAny) =>
+                    getPrice(q) === bestPrice;
+
+                  const bestCount = allQuotes.filter(isBest).length;
+                  const bestIsTie = bestCount > 1;
+
+                  // Keep fastest logic as-is
                   const unlocked = allQuotes.filter(
                     (q) => !q.isHidden && typeof q.estimatedTime === "number"
                   );
@@ -1779,6 +1831,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                         )
                       : null;
 
+                  // Sorting / filtering unchanged except price-tie handling
                   const processQuotes = (quotes: QuoteAny[] | null) => {
                     if (!quotes) return [];
                     const filtered = quotes.filter((q) => {
@@ -1816,11 +1869,24 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                           return ratingB - ratingA;
                         }
                         case "price":
-                        default:
-                          return (
-                            (a.totalCharges ?? Infinity) -
-                            (b.totalCharges ?? Infinity)
-                          );
+                        default: {
+                          const pa = getPrice(a);
+                          const pb = getPrice(b);
+                          // Promote best-price items; within best group, alphabetical
+                          const aBest = pa === bestPrice;
+                          const bBest = pb === bestPrice;
+                          if (aBest && !bBest) return -1;
+                          if (!aBest && bBest) return 1;
+                          if (pa === pb) {
+                            if (aBest && bBest) {
+                              return (a.companyName || "").localeCompare(
+                                b.companyName || ""
+                              );
+                            }
+                            return 0;
+                          }
+                          return pa - pb;
+                        }
                       }
                     });
                   };
@@ -1842,7 +1908,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                               <VendorResultCard
                                 key={`tied-${index}`}
                                 quote={item}
-                                isBestValue={item === bestValueQuote}
+                                isBestValue={isBest(item)}
+                                bestTie={bestIsTie}
                                 isFastest={item === fastestQuote}
                               />
                             ))}
@@ -1860,7 +1927,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                               <VendorResultCard
                                 key={`other-${index}`}
                                 quote={item}
-                                isBestValue={item === bestValueQuote}
+                                isBestValue={isBest(item)}
+                                bestTie={bestIsTie}
                                 isFastest={item === fastestQuote}
                               />
                             ))}
@@ -1925,7 +1993,7 @@ const StarRating = ({ value }: { value: number }) => {
 };
 
 // -----------------------------------------------------------------------------
-// FineTune Modal
+// FineTune Modal (Portal overlay at topmost z-index)
 // -----------------------------------------------------------------------------
 const FineTuneModal = ({
   isOpen,
@@ -2348,10 +2416,12 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
 const VendorResultCard = ({
   quote,
   isBestValue,
+  bestTie,
   isFastest,
 }: {
   quote: any;
   isBestValue?: boolean;
+  bestTie?: boolean;
   isFastest?: boolean;
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -2383,8 +2453,6 @@ const VendorResultCard = ({
         className={`relative p-5 rounded-2xl border-2 transition-all duration-300 ${
           isSpecialVendor
             ? "bg-yellow-50 border-yellow-300 shadow-lg"
-            : isBestValue
-            ? "bg-white border-green-400 shadow-lg"
             : "bg-white border-slate-200"
         }`}
       >
@@ -2405,7 +2473,6 @@ const VendorResultCard = ({
                 )}
               </span>
             </div>
-
           </div>
 
           <div className="md:col-span-2 flex md:justify-end">
@@ -2423,8 +2490,6 @@ const VendorResultCard = ({
       className={`p-5 rounded-2xl border-2 transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${
         isSpecialVendor
           ? "bg-yellow-50 border-yellow-300 shadow-lg"
-          : isBestValue
-          ? "bg-white border-green-400 shadow-lg"
           : "bg-white border-slate-200"
       }`}
     >
@@ -2442,13 +2507,13 @@ const VendorResultCard = ({
               )}
               {isBestValue && (
                 <span className="inline-flex items-center gap-1.5 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full">
-                  Best Value
+                  {bestTie ? "Best Result" : "Best Value"}
                 </span>
               )}
             </div>
           </div>
           <div className="mt-1">
-            {quote.companyName !== "LOCAL FTL" && <StarRating value={Number(4) || 0} />}
+            {quote.companyName !== "LOCAL FTL" && <StarRating value={Number(rating) || 0} />}
           </div>
         </div>
 
@@ -2472,7 +2537,6 @@ const VendorResultCard = ({
               )}
             </span>
           </div>
-
 
           <button
             onClick={() => setIsExpanded((v) => !v)}
