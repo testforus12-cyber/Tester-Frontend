@@ -133,7 +133,7 @@ const InputField = (
           props.error
             ? "border-red-500 focus:border-red-500 focus:ring-red-500"
             : "border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
-        }`}
+        } ${props.className || ""}`}
       />
     </div>
     {!!props.error && (
@@ -168,6 +168,21 @@ const SortOptionButton = ({
     {icon}
     <span>{label}</span>
   </button>
+);
+
+// -----------------------------------------------------------------------------
+// Loading skeletons (reassure user while calculating)
+// -----------------------------------------------------------------------------
+const ResultSkeletonCard = () => (
+  <div className="p-5 rounded-2xl border-2 border-slate-200 bg-white animate-pulse">
+    <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+      <div className="h-6 bg-slate-200 rounded md:col-span-5" />
+      <div className="h-6 bg-slate-200 rounded md:col-span-2" />
+      <div className="h-8 bg-slate-200 rounded md:col-span-3" />
+      <div className="h-10 bg-slate-200 rounded md:col-span-2" />
+    </div>
+    <div className="mt-4 h-5 bg-slate-100 rounded" />
+  </div>
 );
 
 // -----------------------------------------------------------------------------
@@ -215,7 +230,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
 
   // Results
   const [data, setData] = useState<QuoteAny[] | null>(null);
-  const [hiddendata, setHiddendata] = useState<QuoteAny[] | null>(null); // <-- fixed
+  const [hiddendata, setHiddendata] = useState<QuoteAny[] | null>(null);
 
   // -------------------- Form State --------------------
   const [modeOfTransport, setModeOfTransport] = useState<
@@ -265,6 +280,17 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const isRateLimited =
     cooldownUntil !== null && Date.now() < (cooldownUntil as number);
+
+  // Cancel in-flight run if a new one starts
+  const inflightRef = useRef<{
+    main?: AbortController;
+    dist?: AbortController;
+    wheel?: AbortController;
+  } | null>(null);
+
+  // simple helper to yield a frame so spinner paints before work begins
+  const nextFrame = () =>
+    new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
   // ---------------------------------------------------------------------------
   // Derived
@@ -384,6 +410,15 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     }, 500);
     return () => clearInterval(iv);
   }, [cooldownUntil]);
+
+  // Abort any in-flight requests on unmount
+  useEffect(() => {
+    return () => {
+      inflightRef.current?.main?.abort();
+      inflightRef.current?.dist?.abort();
+      inflightRef.current?.wheel?.abort();
+    };
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -580,7 +615,11 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   };
 
   // Distance via backend wrapper (Google Distance Matrix)
-  async function getDistanceKmByAPI(originPin: string, destPin: string) {
+  async function getDistanceKmByAPI(
+    originPin: string,
+    destPin: string,
+    signal?: AbortSignal
+  ) {
     const apiBase =
       import.meta.env.VITE_API_BASE_URL || "https://tester-backend-4nxc.onrender.com";
     const resp = await fetch(`${apiBase}/api/vendor/wheelseye-distance`, {
@@ -590,6 +629,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         origin: `${originPin},IN`,
         destination: `${destPin},IN`,
       }),
+      signal,
     });
     if (!resp.ok) throw new Error(`DM HTTP ${resp.status}`);
     const j = await resp.json();
@@ -600,7 +640,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   async function getWheelseyePriceFromDB(
     weight: number,
     distance: number,
-    shipmentDetails?: any[]
+    shipmentDetails?: any[],
+    signal?: AbortSignal
   ) {
     try {
       const apiBase =
@@ -619,6 +660,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
+        signal,
       });
 
       if (!resp.ok) {
@@ -723,6 +765,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     setData(null);
     setHiddendata(null);
 
+    // phase 1: validation
+    setCalculationProgress("Validating details…");
     const [okFrom, okTo] = await Promise.all([
       validatePincodeField("from"),
       validatePincodeField("to"),
@@ -735,6 +779,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       return;
     }
 
+    // phase 2: build payload
+    setCalculationProgress("Preparing shipment…");
     const boxesToCalc =
       calculationTarget === "all" ? boxes : [boxes[calculationTarget]];
 
@@ -768,10 +814,18 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     };
     const cacheKey = makeCompareKey(requestParams);
 
-    setIsCalculating(true);
-    setCalculationProgress("Fetching quotes from vendors...");
+    // abort older run (if any)
+    inflightRef.current?.main?.abort();
+    inflightRef.current?.dist?.abort();
+    inflightRef.current?.wheel?.abort();
+    inflightRef.current = {};
 
     try {
+      // phase 3: main quotes
+      setCalculationProgress("Fetching quotes from vendors…");
+      const mainController = new AbortController();
+      inflightRef.current!.main = mainController;
+
       const resp = await axios.post(
         "https://tester-backend-4nxc.onrender.com/api/transporter/calculate",
         {
@@ -782,7 +836,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           toPincode,
           shipment_details: shipmentPayload,
         },
-        { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
+        {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          signal: mainController.signal as any, // axios supports AbortSignal
+        }
       );
 
       const all: QuoteAny[] = [
@@ -819,14 +876,16 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       let others = [...nonDpWorldQuotes.filter((q) => !q.isTiedUp)];
 
       // ---------- Inject FTL + Wheelseye FTL ----------
+      setCalculationProgress("Computing FTL options…");
       let distanceKm = 500; // fallback
       try {
-        distanceKm = await getDistanceKmByAPI(fromPincode, toPincode);
+        const distController = new AbortController();
+        inflightRef.current!.dist = distController;
+        distanceKm = await getDistanceKmByAPI(fromPincode, toPincode, distController.signal);
       } catch (e) {
         console.warn("Distance calculation failed, using default:", e);
       }
 
-      // Always make Wheelseye and LOCAL FTL available for now
       const isWheelseyeAvailable = true;
       const isLocalFTLAvailable = true;
 
@@ -835,10 +894,13 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       let wheelseyeResult: any = null;
 
       try {
+        const wheelController = new AbortController();
+        inflightRef.current!.wheel = wheelController;
         wheelseyeResult = await getWheelseyePriceFromDB(
           totalWeight,
           distanceKm,
-          shipmentPayload
+          shipmentPayload,
+          wheelController.signal
         );
 
         wheelseyePrice = wheelseyeResult.price;
@@ -946,12 +1008,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
             : null),
       };
 
-      // Only show LOCAL FTL if origin is in service area
       if (isLocalFTLAvailable) {
         others.unshift(ftlQuote);
       }
 
-      // Only add Wheelseye if origin is in service area
       if (isWheelseyeAvailable) {
         const wheelseyeEstimatedTime = Math.ceil(distanceKm / 400);
         const wheelseyeQuote = {
@@ -1146,46 +1206,73 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         form: { fromPincode, toPincode, modeOfTransport, boxes },
       });
     } catch (e: any) {
+      if (axios.isCancel?.(e)) {
+        // silently ignore cancelled runs
+        return;
+      }
       if (e.response?.status === 401) {
         setError("Authentication failed. Please log out and log back in.");
       } else {
         setError(`Failed to get rates. Error: ${e.message}`);
       }
     }
-
-    setCalculationProgress("");
-    setIsCalculating(false);
-    setTimeout(() => {
-      document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
-    }, 100);
   };
 
-  // Click handler with rate limiting
+  // Click handler with immediate feedback + rate limiting
   const handleCalculateClick = async () => {
+    // rate limit first (so we don't lock UI unnecessarily)
     if (isRateLimited) {
       const secs = Math.ceil(cooldownRemaining / 1000);
       setError(`Too many attempts. Please try again in ${secs}s.`);
       return;
     }
+    if (isCalculating) return; // extra guard
+
+    // record click
     const now = Date.now();
     const windowStart = now - RATE_LIMIT_WINDOW_MS;
     const recent = calcClicks.filter((t) => t > windowStart);
     const next = [...recent, now];
-
     if (next.length >= RATE_LIMIT_MAX_CALLS) {
       setCooldownUntil(now + RATE_LIMIT_COOLDOWN_MS);
       setCalcClicks([]);
-      setError(`Too many attempts. Please try again in ${Math.ceil(RATE_LIMIT_COOLDOWN_MS/1000)}s.`);
+      setError(
+        `Too many attempts. Please try again in ${Math.ceil(
+          RATE_LIMIT_COOLDOWN_MS / 1000
+        )}s.`
+      );
       return;
     }
-
     setCalcClicks(next);
-    await calculateQuotes();
+
+    // immediate feedback BEFORE any async work
+    setError(null);
+    setIsCalculating(true);
+    setCalculationProgress("Validating details…");
+    await nextFrame(); // force paint so spinner shows right away
+
+    try {
+      await calculateQuotes();
+      // scroll to results post-calculation
+      setTimeout(() => {
+        document
+          .getElementById("results")
+          ?.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+    } finally {
+      setCalculationProgress("");
+      setIsCalculating(false);
+      // clear controllers for a clean state
+      inflightRef.current?.main?.abort();
+      inflightRef.current?.dist?.abort();
+      inflightRef.current?.wheel?.abort();
+      inflightRef.current = null;
+    }
   };
 
   // -------------------- Render --------------------
   return (
-    <div className="min-h-screen w-full bg-slate-50 font-sans">
+    <div className="min-h-screen w-full bg-slate-50 font-sans" aria-busy={isCalculating}>
       <div
         className="absolute top-0 left-0 w-full h-80 bg-gradient-to-br from-indigo-50 to-purple-50"
         style={{ clipPath: "polygon(0 0, 100% 0, 100% 65%, 0% 100%)" }}
@@ -1626,6 +1713,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                   scale: isCalculating || isAnyDimensionExceeded || hasPincodeIssues || isRateLimited ? 1 : 0.95,
                 }}
                 className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-indigo-600 text-white text-lg font-bold rounded-full shadow-lg shadow-indigo-500/50 hover:bg-indigo-700 transition-all duration-300 disabled:opacity-60 disabled:shadow-none disabled:cursor-not-allowed"
+                aria-live="polite"
               >
                 {isCalculating ? (
                   <Loader2 className="animate-spin" />
@@ -1638,6 +1726,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                   ? calculationProgress || "Calculating Rates..."
                   : "Calculate Freight Cost"}
               </motion.button>
+              {/* Live region for screen readers */}
+              <div className="sr-only" aria-live="polite">
+                {isCalculating ? calculationProgress : ""}
+              </div>
             </div>
           </div>
         </Card>
@@ -1734,7 +1826,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         )}
 
         {/* Controls */}
-        {(data || hiddendata) && (
+        {(data || hiddendata || isCalculating) && (
           <>
             <Card>
               <div className="flex justify-between items-start">
@@ -1798,6 +1890,21 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                 className="space-y-8"
               >
                 {(() => {
+                  if (isCalculating) {
+                    return (
+                      <section>
+                        <h2 className="text-2xl font-bold text-slate-800 mb-5 border-l-4 border-indigo-500 pl-4">
+                          Getting quotes…
+                        </h2>
+                        <div className="space-y-4">
+                          <ResultSkeletonCard />
+                          <ResultSkeletonCard />
+                          <ResultSkeletonCard />
+                        </div>
+                      </section>
+                    );
+                  }
+
                   const allQuotes = [
                     ...(data || []),
                     ...(hiddendata || []),
@@ -1893,8 +2000,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
 
                   const tiedUpVendors = processQuotes(data);
                   const otherVendors = processQuotes(hiddendata);
-
-                  if (isCalculating) return null;
 
                   return (
                     <>
