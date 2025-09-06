@@ -8,7 +8,6 @@ import {
   Clock,
   IndianRupee,
   Loader2,
-  MapPin,
   Navigation,
   Package,
   PackageSearch,
@@ -38,6 +37,7 @@ import {
   readLastKey,
   clearStaleCache,
 } from "../lib/compareCache";
+import PincodeAutocomplete from "../components/PincodeAutocomplete";
 
 // -----------------------------------------------------------------------------
 // Limits
@@ -49,11 +49,31 @@ const MAX_BOXES = 10000;
 const MAX_WEIGHT = 20000;
 
 // -----------------------------------------------------------------------------
-// Rate limit config (client side)
+// Wheelseye Service Area Validation
 // -----------------------------------------------------------------------------
-const RATE_LIMIT_MAX_CALLS = 10;        // max clicks inside the window
-const RATE_LIMIT_WINDOW_MS = 60_000;    // measure clicks in last 60s
-const RATE_LIMIT_COOLDOWN_MS = 120_000; // lock for 120s after hitting limit
+const isWheelseyeServiceArea = (pincode: string): boolean => {
+  if (!pincode || pincode.length !== 6) return false;
+  
+  const pin = parseInt(pincode);
+  
+  // Delhi pincodes: 110001-110096
+  if (pin >= 110001 && pin <= 110096) return true;
+  
+  // Noida pincodes: 201301-201315
+  if (pin >= 201301 && pin <= 201315) return true;
+  
+  // Greater Noida pincodes: 201306, 201310, 201312, 201314
+  const greaterNoidaPins = [201306, 201310, 201312, 201314];
+  if (greaterNoidaPins.includes(pin)) return true;
+  
+  // Gurgaon pincodes: 122001-122022
+  if (pin >= 122001 && pin <= 122022) return true;
+  
+  // Ghaziabad pincodes: 201001-201015
+  if (pin >= 201001 && pin <= 201015) return true;
+  
+  return false;
+};
 
 // -----------------------------------------------------------------------------
 // Numeric helpers
@@ -133,7 +153,7 @@ const InputField = (
           props.error
             ? "border-red-500 focus:border-red-500 focus:ring-red-500"
             : "border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
-        } ${props.className || ""}`}
+        }`}
       />
     </div>
     {!!props.error && (
@@ -171,22 +191,7 @@ const SortOptionButton = ({
 );
 
 // -----------------------------------------------------------------------------
-// Loading skeletons (reassure user while calculating)
-// -----------------------------------------------------------------------------
-const ResultSkeletonCard = () => (
-  <div className="p-5 rounded-2xl border-2 border-slate-200 bg-white animate-pulse">
-    <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-      <div className="h-6 bg-slate-200 rounded md:col-span-5" />
-      <div className="h-6 bg-slate-200 rounded md:col-span-2" />
-      <div className="h-8 bg-slate-200 rounded md:col-span-3" />
-      <div className="h-10 bg-slate-200 rounded md:col-span-2" />
-    </div>
-    <div className="mt-4 h-5 bg-slate-100 rounded" />
-  </div>
-);
-
-// -----------------------------------------------------------------------------
-// Types (broad to cover different API shapes)
+// Types
 // -----------------------------------------------------------------------------
 type QuoteAny = any;
 
@@ -242,6 +247,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   // Field-level errors for pincode validation
   const [fromPinError, setFromPinError] = useState<string | null>(null);
   const [toPinError, setToPinError] = useState<string | null>(null);
+  
+  // Pincode validation states
+  const [isFromPincodeValid, setIsFromPincodeValid] = useState(false);
+  const [isToPincodeValid, setIsToPincodeValid] = useState(false);
 
   const [boxes, setBoxes] = useState<BoxDetails[]>([
     {
@@ -274,24 +283,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const [maxTime, setMaxTime] = useState(300);
   const [minRating, setMinRating] = useState(0);
 
-  // Rate limit state
-  const [calcClicks, setCalcClicks] = useState<number[]>([]);
-  const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
-  const [cooldownRemaining, setCooldownRemaining] = useState(0);
-  const isRateLimited =
-    cooldownUntil !== null && Date.now() < (cooldownUntil as number);
-
-  // Cancel in-flight run if a new one starts
-  const inflightRef = useRef<{
-    main?: AbortController;
-    dist?: AbortController;
-    wheel?: AbortController;
-  } | null>(null);
-
-  // simple helper to yield a frame so spinner paints before work begins
-  const nextFrame = () =>
-    new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-
   // ---------------------------------------------------------------------------
   // Derived
   // ---------------------------------------------------------------------------
@@ -317,25 +308,26 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     b.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Cache for server pin validations
   const pinCacheRef = useRef<Map<string, boolean>>(new Map());
 
   const hasPincodeIssues =
     !!fromPinError ||
     !!toPinError ||
-    fromPincode.length !== 6 ||
-    toPincode.length !== 6;
+    !isFromPincodeValid ||
+    !isToPincodeValid;
 
   // ---------------------------------------------------------------------------
   // Effects
   // ---------------------------------------------------------------------------
 
-  // Always autofill Origin Pincode from profile
+  // Autofill Origin Pincode from profile
   useEffect(() => {
     const pin = (user as any)?.customer?.pincode;
     if (pin) setFromPincode(String(pin));
   }, [user]);
 
-  // Restore last form (except origin pincode) and last results
+  // Restore last form/results
   useEffect(() => {
     clearStaleCache();
 
@@ -363,7 +355,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     }
   }, []);
 
-  // Persist form state while typing
+  // Persist form state
   useEffect(() => {
     saveFormState({
       fromPincode,
@@ -394,46 +386,11 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     fetchSavedBoxes();
   }, [user]);
 
-  // Cooldown countdown ticker
-  useEffect(() => {
-    if (!cooldownUntil) {
-      setCooldownRemaining(0);
-      return;
-    }
-    const iv = setInterval(() => {
-      const left = Math.max(0, cooldownUntil - Date.now());
-      setCooldownRemaining(left);
-      if (left <= 0) {
-        setCooldownUntil(null);
-        setCalcClicks([]);
-      }
-    }, 500);
-    return () => clearInterval(iv);
-  }, [cooldownUntil]);
-
-  // Abort any in-flight requests on unmount
-  useEffect(() => {
-    return () => {
-      inflightRef.current?.main?.abort();
-      inflightRef.current?.dist?.abort();
-      inflightRef.current?.wheel?.abort();
-    };
-  }, []);
-
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
-  const handlePincodeChange = (
-    raw: string,
-    setter: React.Dispatch<React.SetStateAction<string>>,
-    clearError?: (msg: string | null) => void
-  ) => {
-    const digits = digitsOnly(raw).slice(0, 6);
-    setter(digits);
-    if (clearError) clearError(null);
-  };
 
-  // Dimension auto-cap (hard clamp to max value) – integers only
+  // Dimension auto-cap – integers only
   const handleDimensionChange = (
     index: number,
     field: "length" | "width" | "height",
@@ -491,7 +448,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     if (!user || !token) return;
     try {
       const response = await axios.get(
-        `https://tester-backend-4nxc.onrender.com/api/transporter/getpackinglist?customerId=${
+        `https://backend-bcxr.onrender.com/api/transporter/getpackinglist?customerId=${
           (user as any).customer._id
         }`,
         { headers: { Authorization: `Bearer ${token}` } }
@@ -556,7 +513,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     };
     try {
       await axios.post(
-        `https://tester-backend-4nxc.onrender.com/api/transporter/savepackinglist`,
+        `https://backend-bcxr.onrender.com/api/transporter/savepackinglist`,
         payload,
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -579,7 +536,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     if (window.confirm("Delete this preset permanently?")) {
       try {
         await axios.delete(
-          `https://tester-backend-4nxc.onrender.com/api/transporter/deletepackinglist/${presetId}`,
+          `https://backend-bcxr.onrender.com/api/transporter/deletepackinglist/${presetId}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         await fetchSavedBoxes();
@@ -614,14 +571,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     setSearchTerm("");
   };
 
-  // Distance via backend wrapper (Google Distance Matrix)
-  async function getDistanceKmByAPI(
-    originPin: string,
-    destPin: string,
-    signal?: AbortSignal
-  ) {
+  // Distance via backend wrapper
+  async function getDistanceKmByAPI(originPin: string, destPin: string) {
     const apiBase =
-      import.meta.env.VITE_API_BASE_URL || "https://tester-backend-4nxc.onrender.com";
+      import.meta.env.VITE_API_BASE_URL || "https://backend-bcxr.onrender.com";
     const resp = await fetch(`${apiBase}/api/vendor/wheelseye-distance`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -629,23 +582,21 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         origin: `${originPin},IN`,
         destination: `${destPin},IN`,
       }),
-      signal,
     });
     if (!resp.ok) throw new Error(`DM HTTP ${resp.status}`);
     const j = await resp.json();
     return Number(j.distanceKm);
   }
 
-  // Get Wheelseye pricing from database API with chargeable weight calculation
+  // Get Wheelseye pricing from database API
   async function getWheelseyePriceFromDB(
     weight: number,
     distance: number,
-    shipmentDetails?: any[],
-    signal?: AbortSignal
+    shipmentDetails?: any[]
   ) {
     try {
       const apiBase =
-        import.meta.env.VITE_API_BASE_URL || "https://tester-backend-4nxc.onrender.com";
+        import.meta.env.VITE_API_BASE_URL || "https://backend-bcxr.onrender.com";
       const requestBody: any = {
         distance: distance,
       };
@@ -660,7 +611,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
-        signal,
       });
 
       if (!resp.ok) {
@@ -675,7 +625,9 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     }
   }
 
-  // Check if pincode exists in the comprehensive service area database
+  // -------------------- Pincode validation --------------------
+
+  // quick format-only check
   const validatePincodeFormat = (pin: string): string | null => {
     if (!pin) return "Pincode is required.";
     if (!/^\d{6}$/.test(pin)) return "Enter a 6-digit pincode.";
@@ -683,6 +635,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     return null;
   };
 
+  // best-effort coercion from various API shapes
   const coerceBoolean = (v: any): boolean | null => {
     if (typeof v === "boolean") return v;
     if (typeof v === "number") return v === 1;
@@ -694,18 +647,22 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     return null;
   };
 
+  // Call backend; return true (valid), false (explicitly invalid), or null (unknown/error)
   async function validatePincodeServer(pincode: string): Promise<boolean | null> {
+    // cache first
     if (pinCacheRef.current.has(pincode)) {
       return pinCacheRef.current.get(pincode)!;
     }
     try {
-      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+      const headers =
+        token ? { Authorization: `Bearer ${token}` } : undefined; // don't send Bearer undefined
       const response = await axios.post(
-        "https://tester-backend-4nxc.onrender.com/api/transporter/validate-pincode",
+        "https://backend-bcxr.onrender.com/api/transporter/validate-pincode",
         { pincode },
         { headers }
       );
 
+      // try common keys
       const payload: any = response?.data ?? {};
       const keys = [
         "isValid",
@@ -724,6 +681,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           pinCacheRef.current.set(pincode, coerced);
           return coerced;
         }
+        // nested spots
         const nested = coerceBoolean(payload?.data?.[k] ?? payload?.result?.[k]);
         if (nested !== null) {
           pinCacheRef.current.set(pincode, nested);
@@ -731,56 +689,53 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         }
       }
 
-      // Safe default: if server replied 2xx but no explicit invalid flag, treat as valid.
+      // as a last resort, if backend returned 2xx without an explicit "false",
+      // treat as valid to avoid false negatives
       pinCacheRef.current.set(pincode, true);
       return true;
     } catch (error: any) {
-      // Network/CORS/auth issue -> don't block user; mark unknown (null)
+      // network/401/cors/etc — treat as unknown, don't block or show red
       console.warn("validate-pincode failed (non-blocking):", error?.message || error);
       return null;
     }
   }
 
+  // Validate a single field (format + server check)
   const validatePincodeField = async (which: "from" | "to") => {
     const pin = which === "from" ? fromPincode : toPincode;
     const setErr = which === "from" ? setFromPinError : setToPinError;
 
+    // format first
     const msg = validatePincodeFormat(pin);
     if (msg) {
       setErr(msg);
       return false;
     }
+
+    // server check (non-blocking on errors)
     const verdict = await validatePincodeServer(pin);
     if (verdict === false) {
       setErr("Unknown or non-serviceable pincode.");
       return false;
     }
-    setErr(null); // valid or unknown -> allow
+
+    // clear error for valid or unknown
+    setErr(null);
     return true;
   };
 
   // -------------------- Calculate Quotes (with CACHE) --------------------
   const calculateQuotes = async () => {
+    // Prevent multiple simultaneous calculations
+    if (isCalculating) return;
+    
+    // Immediate UI feedback
+    setIsCalculating(true);
     setError(null);
     setData(null);
     setHiddendata(null);
 
-    // phase 1: validation
-    setCalculationProgress("Validating details…");
-    const [okFrom, okTo] = await Promise.all([
-      validatePincodeField("from"),
-      validatePincodeField("to"),
-    ]);
-    if (!okFrom || !okTo) {
-      if (!okFrom && !okTo)
-        setError("Origin and Destination pincodes are invalid.");
-      else if (!okFrom) setError("Origin pincode is invalid.");
-      else setError("Destination pincode is invalid.");
-      return;
-    }
-
-    // phase 2: build payload
-    setCalculationProgress("Preparing shipment…");
+    // First check shipment details before any validation
     const boxesToCalc =
       calculationTarget === "all" ? boxes : [boxes[calculationTarget]];
 
@@ -795,6 +750,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       ) {
         const name = box.description || `Box Type ${boxes.indexOf(box) + 1}`;
         setError(`Please fill in all details for "${name}".`);
+        setIsCalculating(false);
         return;
       }
       shipmentPayload.push({
@@ -806,6 +762,21 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       });
     }
 
+    // Now validate pincodes after shipment details are confirmed (in background)
+    // Final gate: require format correctness; use server only if it explicitly returns false
+    const [okFrom, okTo] = await Promise.all([
+      validatePincodeField("from"),
+      validatePincodeField("to"),
+    ]);
+    if (!okFrom || !okTo) {
+      setIsCalculating(false);
+      if (!okFrom && !okTo)
+        setError("Origin and Destination pincodes are invalid.");
+      else if (!okFrom) setError("Origin pincode is invalid.");
+      else setError("Destination pincode is invalid.");
+      return;
+    }
+
     const requestParams = {
       modeoftransport: modeOfTransport,
       fromPincode,
@@ -814,20 +785,9 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     };
     const cacheKey = makeCompareKey(requestParams);
 
-    // abort older run (if any)
-    inflightRef.current?.main?.abort();
-    inflightRef.current?.dist?.abort();
-    inflightRef.current?.wheel?.abort();
-    inflightRef.current = {};
-
     try {
-      // phase 3: main quotes
-      setCalculationProgress("Fetching quotes from vendors…");
-      const mainController = new AbortController();
-      inflightRef.current!.main = mainController;
-
       const resp = await axios.post(
-        "https://tester-backend-4nxc.onrender.com/api/transporter/calculate",
+        "https://backend-bcxr.onrender.com/api/transporter/calculate",
         {
           customerID: (user as any).customer._id,
           userogpincode: (user as any).customer.pincode,
@@ -836,10 +796,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           toPincode,
           shipment_details: shipmentPayload,
         },
-        {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          signal: mainController.signal as any, // axios supports AbortSignal
-        }
+        { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
       );
 
       const all: QuoteAny[] = [
@@ -853,7 +810,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         })),
       ];
 
-      // SHOW ONLY THE CHEAPEST DP WORLD and HIDE EXPENSIVE ONE COMPLETELY
       const dpWorldQuotes = all.filter((q) => q.companyName === "DP World");
       const nonDpWorldQuotes = all.filter(
         (q) => q.companyName !== "DP World"
@@ -876,12 +832,9 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       let others = [...nonDpWorldQuotes.filter((q) => !q.isTiedUp)];
 
       // ---------- Inject FTL + Wheelseye FTL ----------
-      setCalculationProgress("Computing FTL options…");
       let distanceKm = 500; // fallback
       try {
-        const distController = new AbortController();
-        inflightRef.current!.dist = distController;
-        distanceKm = await getDistanceKmByAPI(fromPincode, toPincode, distController.signal);
+        distanceKm = await getDistanceKmByAPI(fromPincode, toPincode);
       } catch (e) {
         console.warn("Distance calculation failed, using default:", e);
       }
@@ -892,19 +845,135 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       let ftlPrice = 0;
       let wheelseyePrice = 0;
       let wheelseyeResult: any = null;
+      let actualWeight = totalWeight;
+      let volumetricWeight = totalWeight;
+      let effectiveChargeableWeight = totalWeight;
 
       try {
-        const wheelController = new AbortController();
-        inflightRef.current!.wheel = wheelController;
+        // First, get the weight breakdown to determine the effective chargeable weight
         wheelseyeResult = await getWheelseyePriceFromDB(
           totalWeight,
           distanceKm,
-          shipmentPayload,
-          wheelController.signal
+          shipmentPayload
         );
 
+        const weightBreakdown = wheelseyeResult?.weightBreakdown;
+        actualWeight = weightBreakdown?.actualWeight || totalWeight;
+        volumetricWeight = weightBreakdown?.volumetricWeight || totalWeight;
+        effectiveChargeableWeight = weightBreakdown?.chargeableWeight || 
+                                  Math.max(actualWeight, volumetricWeight);
+        
+        // For weights over 18,000kg, calculate pricing for each vehicle individually
+        if (effectiveChargeableWeight > 18000) {
+          const vehicleCount = Math.ceil(effectiveChargeableWeight / 18000);
+          let totalWheelseyePrice = 0;
+          let totalFtlPrice = 0;
+          const vehiclePricing: any[] = [];
+
+          // Process vehicles in parallel for better performance
+          const vehiclePromises = [];
+          for (let i = 0; i < vehicleCount; i++) {
+            const vehicleWeight = Math.min(18000, effectiveChargeableWeight - (i * 18000));
+            const vehicleShipmentDetails = [{
+              count: 1,
+              length: 100, // Default dimensions for vehicle pricing
+              width: 100,
+              height: 100,
+              weight: vehicleWeight,
+            }];
+
+            vehiclePromises.push(
+              getWheelseyePriceFromDB(vehicleWeight, distanceKm, vehicleShipmentDetails)
+                .then(vehicleResult => ({
+                  success: true,
+                  result: vehicleResult,
+                  weight: vehicleWeight,
+                  index: i
+                }))
+                .catch(vehicleError => ({
+                  success: false,
+                  error: vehicleError,
+                  weight: vehicleWeight,
+                  index: i
+                }))
+            );
+          }
+
+          // Wait for all vehicle pricing calls to complete
+          const vehicleResults = await Promise.all(vehiclePromises);
+          
+          // Process results
+          vehicleResults.forEach((vehicleResult) => {
+            if (vehicleResult.success) {
+              const { result, weight } = vehicleResult as { success: true; result: any; weight: number; index: number };
+              totalWheelseyePrice += result.price;
+              totalFtlPrice += Math.round((result.price * 1.2) / 10) * 10;
+
+              // For weights over 18,000kg, use appropriate vehicle type based on actual weight
+              const vehicleType = weight <= 1000 ? "Tata Ace" :
+                                 weight <= 1500 ? "Pickup" :
+                                 weight <= 2000 ? "10 ft Truck" :
+                                 weight <= 4000 ? "Eicher 14 ft" :
+                                 weight <= 7000 ? "Eicher 19 ft" :
+                                 weight <= 10000 ? "Eicher 20 ft" :
+                                 "Container 32 ft MXL";
+              
+              const maxWeight = weight <= 1000 ? 1000 :
+                               weight <= 1500 ? 1500 :
+                               weight <= 2000 ? 2000 :
+                               weight <= 4000 ? 4000 :
+                               weight <= 7000 ? 7000 :
+                               weight <= 10000 ? 10000 :
+                               18000;
+
+              vehiclePricing.push({
+                weight: weight,
+                wheelseyePrice: result.price,
+                ftlPrice: Math.round((result.price * 1.2) / 10) * 10,
+                vehicleType: vehicleType,
+                maxWeight: maxWeight
+              });
+            } else {
+              const { error, index } = vehicleResult as { success: false; error: any; weight: number; index: number };
+              console.warn(`Pricing failed for vehicle ${index + 1}:`, error);
+              // Fallback to proportional pricing for this vehicle
+              const fallbackPrice = Math.round((wheelseyeResult?.price || 50000) / vehicleCount);
+              totalWheelseyePrice += fallbackPrice;
+              totalFtlPrice += Math.round((fallbackPrice * 1.2) / 10) * 10;
+            }
+          });
+
+          wheelseyePrice = totalWheelseyePrice;
+          ftlPrice = totalFtlPrice;
+          
+          // Store vehicle pricing for load split display
+          wheelseyeResult = {
+            ...wheelseyeResult,
+            price: wheelseyePrice,
+            vehiclePricing: vehiclePricing,
+            loadSplit: {
+              vehiclesNeeded: vehicleCount,
+              vehicles: vehiclePricing.map((vehicle: any) => ({
+                vehicle: vehicle.vehicleType,
+                weight: vehicle.weight,
+                maxWeight: vehicle.maxWeight,
+                price: vehicle.wheelseyePrice,
+                vehicleLength: vehicle.vehicleType === "Tata Ace" ? 7 :
+                             vehicle.vehicleType === "Pickup" ? 8 :
+                             vehicle.vehicleType === "10 ft Truck" ? 10 :
+                             vehicle.vehicleType === "Eicher 14 ft" ? 14 :
+                             vehicle.vehicleType === "Eicher 19 ft" ? 19 :
+                             vehicle.vehicleType === "Eicher 20 ft" ? 20 : 32
+              })),
+              totalPrice: wheelseyePrice
+            }
+          };
+          
+        } else {
+          // For weights under 18,000kg, use the existing result
         wheelseyePrice = wheelseyeResult.price;
         ftlPrice = Math.round((wheelseyePrice * 1.2) / 10) * 10; // 20% more than Wheelseye
+        }
       } catch (e) {
         console.warn("Wheelseye pricing failed, using fallback:", e);
         const referenceQuote = others.find((q) => q.companyName === "Ekart");
@@ -913,14 +982,15 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         wheelseyePrice = Math.round((referencePrice * 0.95) / 10) * 10;
       }
 
-      const weightBreakdown = wheelseyeResult?.weightBreakdown;
-      const actualWeight = weightBreakdown?.actualWeight || totalWeight;
-      const volumetricWeight =
-        weightBreakdown?.volumetricWeight || totalWeight;
-      const chargeableWeight =
-        weightBreakdown?.chargeableWeight || totalWeight;
+      // Weight breakdown is already calculated above
+      const chargeableWeight = effectiveChargeableWeight;
 
-      // FTL quote (always available)
+      // Check if weight or volumetric weight is less than 500kg
+      // Use actualWeight and volumetricWeight from API, fallback to totalWeight from form
+      const effectiveActualWeight = actualWeight;
+      const effectiveVolumetricWeight = volumetricWeight;
+      const isWeightTooLow = effectiveActualWeight < 500 || effectiveVolumetricWeight < 500;
+
       const ftlEstimatedTime = Math.ceil(distanceKm / 400);
       const ftlQuote = {
         message: "",
@@ -942,7 +1012,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         chargeableWeight,
         total: ftlPrice,
         totalPrice: ftlPrice,
-        distance: `${distanceKm} km`,
+        distance: `${Math.round(distanceKm)} km`,
         originPincode: fromPincode,
         destinationPincode: toPincode,
         category: "LOCAL FTL",
@@ -951,26 +1021,75 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           wheelseyeResult?.vehicle ||
           (chargeableWeight > 18000
             ? "Container 32 ft MXL + Additional Vehicle"
-            : "FTL Vehicle"),
+            : chargeableWeight <= 1000
+            ? "Tata Ace"
+            : chargeableWeight <= 1500
+            ? "Pickup"
+            : chargeableWeight <= 2000
+            ? "10 ft Truck"
+            : chargeableWeight <= 4000
+            ? "Eicher 14 ft"
+            : chargeableWeight <= 7000
+            ? "Eicher 19 ft"
+            : chargeableWeight <= 10000
+            ? "Eicher 20 ft"
+            : chargeableWeight <= 18000
+            ? "Container 32 ft MXL"
+            : "Container 32 ft MXL"),
         vehicleLength:
           wheelseyeResult?.vehicleLength ||
-          (chargeableWeight > 18000 ? "32 ft + Additional" : 14),
+          (chargeableWeight > 18000
+            ? "32 ft + Additional"
+            : chargeableWeight <= 1000
+            ? 7
+            : chargeableWeight <= 1500
+            ? 8
+            : chargeableWeight <= 2000
+            ? 10
+            : chargeableWeight <= 4000
+            ? 14
+            : chargeableWeight <= 7000
+            ? 19
+            : chargeableWeight <= 10000
+            ? 20
+            : chargeableWeight <= 18000
+            ? 32
+            : 32),
         matchedWeight: wheelseyeResult?.matchedWeight || chargeableWeight,
         matchedDistance: wheelseyeResult?.matchedDistance || distanceKm,
         loadSplit:
-          wheelseyeResult?.loadSplit ||
-          (chargeableWeight > 18000
+          (chargeableWeight > 18000 && wheelseyeResult?.vehiclePricing)
+            ? {
+                vehiclesNeeded: wheelseyeResult.vehiclePricing.length,
+                vehicles: wheelseyeResult.vehiclePricing.map((vehicle: any) => ({
+                  vehicle: vehicle.vehicleType,
+                  weight: vehicle.weight,
+                  maxWeight: vehicle.maxWeight,
+                  price: vehicle.ftlPrice,
+                  vehicleLength: vehicle.vehicleType === "Tata Ace" ? 7 :
+                               vehicle.vehicleType === "Pickup" ? 8 :
+                               vehicle.vehicleType === "10 ft Truck" ? 10 :
+                               vehicle.vehicleType === "Eicher 14 ft" ? 14 :
+                               vehicle.vehicleType === "Eicher 19 ft" ? 19 :
+                               vehicle.vehicleType === "Eicher 20 ft" ? 20 : 32
+                })),
+                totalPrice: ftlPrice,
+                vehicleCalculation: wheelseyeResult?.vehicleCalculation,
+              }
+            : (chargeableWeight > 18000
             ? {
                 vehiclesNeeded:
                   wheelseyeResult?.vehicleCalculation?.totalVehiclesRequired ||
                   Math.ceil(chargeableWeight / 18000),
-                firstVehicle: {
+                  vehicles: [
+                    {
                   vehicle: "Container 32 ft MXL",
                   weight: 18000,
+                      maxWeight: 18000,
                   price: Math.round(ftlPrice * 0.7),
                   vehicleLength: 32,
                 },
-                secondVehicle: {
+                    {
                   vehicle:
                     chargeableWeight - 18000 <= 1000
                       ? "Tata Ace"
@@ -986,6 +1105,19 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                       ? "Eicher 20 ft"
                       : "Container 32 ft MXL",
                   weight: chargeableWeight - 18000,
+                      maxWeight: chargeableWeight - 18000 <= 1000
+                        ? 1000
+                        : chargeableWeight - 18000 <= 1500
+                        ? 1500
+                        : chargeableWeight - 18000 <= 2000
+                        ? 2000
+                        : chargeableWeight - 18000 <= 4000
+                        ? 4000
+                        : chargeableWeight - 18000 <= 7000
+                        ? 7000
+                        : chargeableWeight - 18000 <= 10000
+                        ? 10000
+                        : 18000,
                   price: Math.round(ftlPrice * 0.3),
                   vehicleLength:
                     chargeableWeight - 18000 <= 1000
@@ -1001,18 +1133,19 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                       : chargeableWeight - 18000 <= 10000
                       ? 20
                       : 32,
-                },
+                    }
+                  ],
                 totalPrice: ftlPrice,
                 vehicleCalculation: wheelseyeResult?.vehicleCalculation,
               }
             : null),
       };
 
-      if (isLocalFTLAvailable) {
+      if (isLocalFTLAvailable && isWheelseyeServiceArea(fromPincode) && !isWeightTooLow) {
         others.unshift(ftlQuote);
       }
 
-      if (isWheelseyeAvailable) {
+      if (isWheelseyeAvailable && isWheelseyeServiceArea(fromPincode) && !isWeightTooLow) {
         const wheelseyeEstimatedTime = Math.ceil(distanceKm / 400);
         const wheelseyeQuote = {
           message: "",
@@ -1034,7 +1167,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           chargeableWeight,
           total: wheelseyePrice,
           totalPrice: wheelseyePrice,
-          distance: `${distanceKm} km`,
+          distance: `${Math.round(distanceKm)} km`,
           originPincode: fromPincode,
           destinationPincode: toPincode,
           category: "Wheelseye FTL",
@@ -1080,61 +1213,64 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           matchedWeight: wheelseyeResult?.matchedWeight || chargeableWeight,
           matchedDistance: wheelseyeResult?.matchedDistance || distanceKm,
           loadSplit:
-            wheelseyeResult?.loadSplit ||
-            (chargeableWeight > 18000
-              ? {
-                  vehiclesNeeded:
-                    wheelseyeResult?.vehicleCalculation?.totalVehiclesRequired ||
-                    Math.ceil(chargeableWeight / 18000),
-                  firstVehicle: {
+            (chargeableWeight > 18000)
+              ? (wheelseyeResult?.vehiclePricing && wheelseyeResult.vehiclePricing.length > 0)
+                ? {
+                    vehiclesNeeded: wheelseyeResult.vehiclePricing.length,
+                    vehicles: wheelseyeResult.vehiclePricing.map((vehicle: any) => ({
+                      vehicle: vehicle.vehicleType,
+                      weight: vehicle.weight,
+                      maxWeight: vehicle.maxWeight,
+                      price: vehicle.wheelseyePrice,
+                      vehicleLength: vehicle.vehicleType === "Tata Ace" ? 7 :
+                                   vehicle.vehicleType === "Pickup" ? 8 :
+                                   vehicle.vehicleType === "10 ft Truck" ? 10 :
+                                   vehicle.vehicleType === "Eicher 14 ft" ? 14 :
+                                   vehicle.vehicleType === "Eicher 19 ft" ? 19 :
+                                   vehicle.vehicleType === "Eicher 20 ft" ? 20 : 32
+                    })),
+                    totalPrice: wheelseyePrice,
+                    vehicleCalculation: wheelseyeResult?.vehicleCalculation,
+                  }
+                : (() => {
+                    const totalVehiclesNeeded = wheelseyeResult?.vehicleCalculation?.totalVehiclesRequired || 
+                                              Math.ceil(chargeableWeight / 18000);
+                    const vehicles = [];
+                    
+                    // Create individual vehicles for the actual count needed
+                    for (let i = 0; i < totalVehiclesNeeded; i++) {
+                      const isLastVehicle = i === totalVehiclesNeeded - 1;
+                      const remainingWeight = chargeableWeight - (i * 18000);
+                      const vehicleWeight = isLastVehicle ? remainingWeight : 18000;
+                      
+                      vehicles.push({
                     vehicle: "Container 32 ft MXL",
-                    weight: 18000,
-                    price: Math.round(wheelseyePrice * 0.7),
+                        vehicleType: "Container 32 ft MXL",
+                        weight: vehicleWeight,
+                        maxWeight: 18000,
+                        price: Math.round((wheelseyePrice / totalVehiclesNeeded) * (vehicleWeight / 18000)),
                     vehicleLength: 32,
-                  },
-                  secondVehicle: {
-                    vehicle:
-                      chargeableWeight - 18000 <= 1000
-                        ? "Tata Ace"
-                        : chargeableWeight - 18000 <= 1500
-                        ? "Pickup"
-                        : chargeableWeight - 18000 <= 2000
-                        ? "10 ft Truck"
-                        : chargeableWeight - 18000 <= 4000
-                        ? "Eicher 14 ft"
-                        : chargeableWeight - 18000 <= 7000
-                        ? "Eicher 19 ft"
-                        : chargeableWeight - 18000 <= 10000
-                        ? "Eicher 20 ft"
-                        : "Container 32 ft MXL",
-                    weight: chargeableWeight - 18000,
-                    price: Math.round(wheelseyePrice * 0.3),
-                    vehicleLength:
-                      chargeableWeight - 18000 <= 1000
-                        ? 7
-                        : chargeableWeight - 18000 <= 1500
-                        ? 8
-                        : chargeableWeight - 18000 <= 2000
-                        ? 10
-                        : chargeableWeight - 18000 <= 4000
-                        ? 14
-                        : chargeableWeight - 18000 <= 7000
-                        ? 19
-                        : chargeableWeight - 18000 <= 10000
-                        ? 20
-                        : 32,
-                  },
+                      });
+                    }
+                    
+                    return {
+                      vehiclesNeeded: totalVehiclesNeeded,
+                      vehicles: vehicles,
                   totalPrice: wheelseyePrice,
                   vehicleCalculation: wheelseyeResult?.vehicleCalculation,
-                }
-              : null),
+                    };
+                  })()
+              : null,
         };
 
-        // Put Wheelseye just after FTL
+
+        // Put Wheelseye just after FTL (only if origin is in service area)
+        if (isWheelseyeServiceArea(fromPincode)) {
         others.unshift(wheelseyeQuote);
+        }
       }
 
-      // Multiply all other Tied-Up Vendors prices by 5.0 (unchanged)
+      // Multiply tied-up vendor prices by 5.0 (kept as-is)
       tied.forEach((quote) => {
         if (quote.companyName === "DP World") return;
         quote.totalCharges = Math.round((quote.totalCharges * 5.0) / 10) * 10;
@@ -1163,116 +1299,236 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           quote.rovCharges = Math.round((quote.rovCharges * 5.0) / 10) * 10;
       });
 
-      // Final guard: ensure LOCAL FTL exists only if not already added
-      if (!others.find((q) => q.companyName === "LOCAL FTL")) {
+      if (
+        isLocalFTLAvailable &&
+        !others.find((q) => q.companyName === "LOCAL FTL")
+      ) {
+        // Calculate the actual total from vehicle breakdown for LOCAL FTL using real Wheelseye pricing + 20%
+        const actualVehicleTotal = chargeableWeight > 18000 ? await (async () => {
+          const vehicles = [];
+          const totalVehiclesNeeded = Math.ceil(chargeableWeight / 18000);
+          let totalCalculatedPrice = 0;
+          
+          for (let i = 0; i < totalVehiclesNeeded; i++) {
+            const isLastVehicle = i === totalVehiclesNeeded - 1;
+            const remainingWeight = chargeableWeight - (i * 18000);
+            const vehicleWeight = isLastVehicle ? remainingWeight : 18000;
+            
+            // Vehicle type is determined by weight for Wheelseye API call
+            // No need to store it separately as it's not used in the calculation
+            
+            // Use actual Wheelseye pricing + 20% instead of hardcoded formula
+            let vehiclePrice: number;
+            try {
+              // Get actual Wheelseye pricing for this vehicle
+              const wheelseyeResult = await getWheelseyePriceFromDB(vehicleWeight, distanceKm);
+              const wheelseyePrice = wheelseyeResult?.price || 0;
+              vehiclePrice = Math.round(wheelseyePrice * 1.2); // 20% markup
+            } catch (error) {
+              console.warn(`Failed to get Wheelseye pricing for vehicle ${i + 1}, using fallback:`, error);
+              // Fallback to proportional pricing if API fails
+              const weightRatio = vehicleWeight / chargeableWeight;
+              vehiclePrice = Math.round(ftlPrice * weightRatio);
+            }
+            
+            if (isLastVehicle && totalVehiclesNeeded > 1) {
+              const sumSoFar = totalCalculatedPrice;
+              const remainingPrice = ftlPrice - sumSoFar;
+              
+              if (remainingPrice > 0 && Math.abs(remainingPrice - vehiclePrice) < vehiclePrice * 0.5) {
+                vehiclePrice = remainingPrice;
+              }
+            }
+            
+            totalCalculatedPrice += vehiclePrice;
+            vehicles.push({ price: vehiclePrice });
+          }
+          
+          return totalCalculatedPrice;
+        })() : ftlPrice;
+
+        // Calculate vehicles for loadSplit if needed
+        let loadSplitVehicles = [];
+        if (chargeableWeight > 18000) {
+          const totalVehiclesNeeded = Math.ceil(chargeableWeight / 18000);
+          let totalCalculatedPrice = 0;
+          
+          for (let i = 0; i < totalVehiclesNeeded; i++) {
+            const isLastVehicle = i === totalVehiclesNeeded - 1;
+            const remainingWeight = chargeableWeight - (i * 18000);
+            const vehicleWeight = isLastVehicle ? remainingWeight : 18000;
+            
+            let vehicleType = "Container 32 ft MXL";
+            let maxCapacity = 18000;
+            if (vehicleWeight < 18000) {
+              if (vehicleWeight <= 1000) { vehicleType = "Tata Ace"; maxCapacity = 1000; }
+              else if (vehicleWeight <= 1500) { vehicleType = "Pickup"; maxCapacity = 1500; }
+              else if (vehicleWeight <= 2000) { vehicleType = "10 ft Truck"; maxCapacity = 2000; }
+              else if (vehicleWeight <= 4000) { vehicleType = "Eicher 14 ft"; maxCapacity = 4000; }
+              else if (vehicleWeight <= 7000) { vehicleType = "Eicher 19 ft"; maxCapacity = 7000; }
+              else if (vehicleWeight <= 10000) { vehicleType = "Eicher 20 ft"; maxCapacity = 10000; }
+              else { vehicleType = "Container 32 ft MXL"; maxCapacity = 18000; }
+            }
+            
+            // Use actual Wheelseye pricing + 20% instead of hardcoded formula
+            let vehiclePrice: number;
+            try {
+              // Get actual Wheelseye pricing for this vehicle
+              const wheelseyeResult = await getWheelseyePriceFromDB(vehicleWeight, distanceKm);
+              const wheelseyePrice = wheelseyeResult?.price || 0;
+              vehiclePrice = Math.round(wheelseyePrice * 1.2); // 20% markup
+            } catch (error) {
+              console.warn(`Failed to get Wheelseye pricing for vehicle ${i + 1}, using fallback:`, error);
+              // Fallback to proportional pricing if API fails
+              const weightRatio = vehicleWeight / chargeableWeight;
+              vehiclePrice = Math.round(ftlPrice * weightRatio);
+            }
+            
+            // For the last vehicle, ensure it gets a proper price based on its weight and distance
+            if (isLastVehicle && totalVehiclesNeeded > 1) {
+              const sumSoFar = totalCalculatedPrice;
+              const remainingPrice = ftlPrice - sumSoFar;
+              
+              if (remainingPrice > 0 && Math.abs(remainingPrice - vehiclePrice) < vehiclePrice * 0.5) {
+                vehiclePrice = remainingPrice;
+              }
+            }
+            
+            totalCalculatedPrice += vehiclePrice;
+            
+            loadSplitVehicles.push({
+              vehicle: vehicleType,
+              vehicleType: vehicleType,
+              weight: vehicleWeight,
+              maxWeight: maxCapacity,
+              price: vehiclePrice,
+              vehicleLength: vehicleType === "Tata Ace" ? 7 :
+                           vehicleType === "Pickup" ? 8 :
+                           vehicleType === "10 ft Truck" ? 10 :
+                           vehicleType === "Eicher 14 ft" ? 14 :
+                           vehicleType === "Eicher 19 ft" ? 19 :
+                           vehicleType === "Eicher 20 ft" ? 20 : 32
+            });
+          }
+        }
+
         const emergencyFtlQuote = {
           message: "",
           isHidden: false,
           transporterData: { rating: 4.6 },
-          totalCharges: 35000,
+          totalCharges: actualVehicleTotal,
           estimatedDelivery: "2 Days",
           companyName: "LOCAL FTL",
-          price: 35000,
+          price: actualVehicleTotal,
           transporterName: "LOCAL FTL",
           deliveryTime: "2 Days",
           estimatedTime: 2,
-          actualWeight: totalWeight,
-          volumetricWeight: totalWeight,
-          chargeableWeight: totalWeight,
-          total: 35000,
-          totalPrice: 35000,
-          distance: `${distanceKm} km`,
+          actualWeight: actualWeight,
+          volumetricWeight: volumetricWeight,
+          chargeableWeight: chargeableWeight,
+          total: actualVehicleTotal,
+          totalPrice: actualVehicleTotal,
+          distance: `${Math.round(distanceKm)} km`,
           originPincode: fromPincode,
           destinationPincode: toPincode,
           category: "LOCAL FTL",
           isTiedUp: false,
-          vehicle: "FTL Vehicle",
-          vehicleLength: 14,
-          matchedWeight: totalWeight,
+          vehicle: chargeableWeight > 18000
+            ? "Container 32 ft MXL + Additional Vehicle"
+            : chargeableWeight <= 1000
+            ? "Tata Ace"
+            : chargeableWeight <= 1500
+            ? "Pickup"
+            : chargeableWeight <= 2000
+            ? "10 ft Truck"
+            : chargeableWeight <= 4000
+            ? "Eicher 14 ft"
+            : chargeableWeight <= 7000
+            ? "Eicher 19 ft"
+            : chargeableWeight <= 10000
+            ? "Eicher 20 ft"
+            : chargeableWeight <= 18000
+            ? "Container 32 ft MXL"
+            : "Container 32 ft MXL",
+          vehicleLength: chargeableWeight > 18000
+            ? "32 ft + Additional"
+            : chargeableWeight <= 1000
+            ? 7
+            : chargeableWeight <= 1500
+            ? 8
+            : chargeableWeight <= 2000
+            ? 10
+            : chargeableWeight <= 4000
+            ? 14
+            : chargeableWeight <= 7000
+            ? 19
+            : chargeableWeight <= 10000
+            ? 20
+            : chargeableWeight <= 18000
+            ? 32
+            : 32,
+          matchedWeight: chargeableWeight,
           matchedDistance: distanceKm,
-          loadSplit: null,
+          loadSplit: chargeableWeight > 18000 ? {
+            vehiclesNeeded: Math.ceil(chargeableWeight / 18000),
+            vehicles: loadSplitVehicles,
+            totalPrice: actualVehicleTotal
+          } : null,
         };
         others.unshift(emergencyFtlQuote);
       }
 
+      // Batch state updates to reduce re-renders
       setData(tied);
       setHiddendata(others);
 
-      // Cache
+      // Cache update can be done asynchronously to not block UI
+      setTimeout(() => {
       writeCompareCache(cacheKey, {
         params: requestParams,
         data: tied,
         hiddendata: others,
         form: { fromPincode, toPincode, modeOfTransport, boxes },
       });
+      }, 0);
+      
     } catch (e: any) {
-      if (axios.isCancel?.(e)) {
-        // silently ignore cancelled runs
-        return;
-      }
       if (e.response?.status === 401) {
         setError("Authentication failed. Please log out and log back in.");
       } else {
         setError(`Failed to get rates. Error: ${e.message}`);
       }
+    } finally {
+    setCalculationProgress("");
+    setIsCalculating(false);
+      // Scroll to results after a brief delay to ensure DOM is updated
+    setTimeout(() => {
+      document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
+      }, 50);
     }
   };
 
-  // Click handler with immediate feedback + rate limiting
-  const handleCalculateClick = async () => {
-    // rate limit first (so we don't lock UI unnecessarily)
-    if (isRateLimited) {
-      const secs = Math.ceil(cooldownRemaining / 1000);
-      setError(`Too many attempts. Please try again in ${secs}s.`);
-      return;
-    }
-    if (isCalculating) return; // extra guard
-
-    // record click
-    const now = Date.now();
-    const windowStart = now - RATE_LIMIT_WINDOW_MS;
-    const recent = calcClicks.filter((t) => t > windowStart);
-    const next = [...recent, now];
-    if (next.length >= RATE_LIMIT_MAX_CALLS) {
-      setCooldownUntil(now + RATE_LIMIT_COOLDOWN_MS);
-      setCalcClicks([]);
-      setError(
-        `Too many attempts. Please try again in ${Math.ceil(
-          RATE_LIMIT_COOLDOWN_MS / 1000
-        )}s.`
+  // -------------------- Keyboard Event Handler --------------------
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+      // Check if all required fields are filled (except box type validation)
+      const hasValidPincodes = fromPincode.length === 6 && toPincode.length === 6 && 
+                              isFromPincodeValid && isToPincodeValid;
+      
+      const hasValidBoxes = boxes.every(box => 
+        box.count && box.length && box.width && box.height && box.weight
       );
-      return;
-    }
-    setCalcClicks(next);
-
-    // immediate feedback BEFORE any async work
-    setError(null);
-    setIsCalculating(true);
-    setCalculationProgress("Validating details…");
-    await nextFrame(); // force paint so spinner shows right away
-
-    try {
-      await calculateQuotes();
-      // scroll to results post-calculation
-      setTimeout(() => {
-        document
-          .getElementById("results")
-          ?.scrollIntoView({ behavior: "smooth" });
-      }, 100);
-    } finally {
-      setCalculationProgress("");
-      setIsCalculating(false);
-      // clear controllers for a clean state
-      inflightRef.current?.main?.abort();
-      inflightRef.current?.dist?.abort();
-      inflightRef.current?.wheel?.abort();
-      inflightRef.current = null;
+      
+      if (hasValidPincodes && hasValidBoxes && !isCalculating) {
+        e.preventDefault();
+        calculateQuotes();
+      }
     }
   };
 
   // -------------------- Render --------------------
   return (
-    <div className="min-h-screen w-full bg-slate-50 font-sans" aria-busy={isCalculating}>
+    <div className="min-h-screen w-full bg-slate-50 font-sans" onKeyDown={handleKeyDown}>
       <div
         className="absolute top-0 left-0 w-full h-80 bg-gradient-to-br from-indigo-50 to-purple-50"
         style={{ clipPath: "polygon(0 0, 100% 0, 100% 65%, 0% 100%)" }}
@@ -1304,10 +1560,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
             <Navigation size={22} className="mr-3 text-indigo-500" /> Mode & Route
           </h2>
           <p className="text-sm text-slate-500 mb-6">
-            Select your mode of transport and enter the pickup and destination pincodes.
+
+            Select your mode of transport.
           </p>
 
-          <div className="space-y-6">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
                 { name: "Road", icon: Truck, isAvailable: true },
@@ -1347,39 +1603,50 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                 </button>
               ))}
             </div>
+        </Card>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-              <InputField
+        {/* Pincode Input */}
+        <Card>
+          <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center">
+            <Navigation size={22} className="mr-3 text-indigo-500" /> Pickup & Destination
+          </h2>
+          <p className="text-sm text-slate-500 mb-6">
+            Enter the pickup and destination pincodes.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <PincodeAutocomplete
                 label="Origin Pincode"
                 id="fromPincode"
                 value={fromPincode}
                 placeholder="e.g., 400001"
-                maxLength={6}
-                icon={<MapPin />}
-                inputMode="numeric"
-                pattern="\d{6}"
                 error={fromPinError}
-                onChange={(e) =>
-                  handlePincodeChange(e.target.value, setFromPincode, setFromPinError)
-                }
+              onChange={(value) => {
+                setFromPincode(value);
+                setFromPinError(null);
+              }}
                 onBlur={() => validatePincodeField("from")}
+              onSelect={(suggestion) => {
+                console.log('Origin pincode selected:', suggestion);
+              }}
+              onValidationChange={setIsFromPincodeValid}
               />
-              <InputField
+            <PincodeAutocomplete
                 label="Destination Pincode"
                 id="toPincode"
                 value={toPincode}
                 placeholder="e.g., 110001"
-                maxLength={6}
-                icon={<MapPin />}
-                inputMode="numeric"
-                pattern="\d{6}"
                 error={toPinError}
-                onChange={(e) =>
-                  handlePincodeChange(e.target.value, setToPincode, setToPinError)
-                }
+              onChange={(value) => {
+                setToPincode(value);
+                setToPinError(null);
+              }}
                 onBlur={() => validatePincodeField("to")}
+              onSelect={(suggestion) => {
+                console.log('Destination pincode selected:', suggestion);
+              }}
+              onValidationChange={setIsToPincodeValid}
               />
-            </div>
           </div>
         </Card>
 
@@ -1703,33 +1970,16 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                   them to proceed.
                 </motion.div>
               )}
-              <motion.button
-                onClick={handleCalculateClick}
-                disabled={isCalculating || isAnyDimensionExceeded || hasPincodeIssues || isRateLimited}
-                whileHover={{
-                  scale: isCalculating || isAnyDimensionExceeded || hasPincodeIssues || isRateLimited ? 1 : 1.05,
-                }}
-                whileTap={{
-                  scale: isCalculating || isAnyDimensionExceeded || hasPincodeIssues || isRateLimited ? 1 : 0.95,
-                }}
-                className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-indigo-600 text-white text-lg font-bold rounded-full shadow-lg shadow-indigo-500/50 hover:bg-indigo-700 transition-all duration-300 disabled:opacity-60 disabled:shadow-none disabled:cursor-not-allowed"
-                aria-live="polite"
+              <button
+                onClick={calculateQuotes}
+                disabled={isCalculating || isAnyDimensionExceeded || hasPincodeIssues}
+                className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-indigo-600 text-white text-lg font-bold rounded-full shadow-lg shadow-indigo-500/50 hover:bg-indigo-700 transition-all duration-200 disabled:opacity-60 disabled:shadow-none disabled:cursor-not-allowed transform hover:scale-105 active:scale-95"
               >
-                {isCalculating ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <CalculatorIcon />
-                )}
-                {isRateLimited
-                  ? `Locked (${Math.ceil(cooldownRemaining / 1000)}s)`
-                  : isCalculating
+                {isCalculating ? <Loader2 className="animate-spin" /> : <CalculatorIcon />}
+                {isCalculating
                   ? calculationProgress || "Calculating Rates..."
                   : "Calculate Freight Cost"}
-              </motion.button>
-              {/* Live region for screen readers */}
-              <div className="sr-only" aria-live="polite">
-                {isCalculating ? calculationProgress : ""}
-              </div>
+              </button>
             </div>
           </div>
         </Card>
@@ -1826,7 +2076,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         )}
 
         {/* Controls */}
-        {(data || hiddendata || isCalculating) && (
+        {(data || hiddendata) && (
           <>
             <Card>
               <div className="flex justify-between items-start">
@@ -1890,41 +2140,12 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                 className="space-y-8"
               >
                 {(() => {
-                  if (isCalculating) {
-                    return (
-                      <section>
-                        <h2 className="text-2xl font-bold text-slate-800 mb-5 border-l-4 border-indigo-500 pl-4">
-                          Getting quotes…
-                        </h2>
-                        <div className="space-y-4">
-                          <ResultSkeletonCard />
-                          <ResultSkeletonCard />
-                          <ResultSkeletonCard />
-                        </div>
-                      </section>
-                    );
-                  }
-
                   const allQuotes = [
                     ...(data || []),
                     ...(hiddendata || []),
                   ].filter((q) => q.message !== "service not available");
 
-                  // ----- Best price & ties -----
-                  const getPrice = (q: QuoteAny) =>
-                    Number.isFinite(q?.totalCharges) ? q.totalCharges : Infinity;
 
-                  const bestPrice = allQuotes.length
-                    ? Math.min(...allQuotes.map(getPrice))
-                    : Infinity;
-
-                  const isBest = (q: QuoteAny) =>
-                    getPrice(q) === bestPrice;
-
-                  const bestCount = allQuotes.filter(isBest).length;
-                  const bestIsTie = bestCount > 1;
-
-                  // Keep fastest logic as-is
                   const unlocked = allQuotes.filter(
                     (q) => !q.isHidden && typeof q.estimatedTime === "number"
                   );
@@ -1938,7 +2159,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                         )
                       : null;
 
-                  // Sorting / filtering unchanged except price-tie handling
                   const processQuotes = (quotes: QuoteAny[] | null) => {
                     if (!quotes) return [];
                     const filtered = quotes.filter((q) => {
@@ -1946,6 +2166,26 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                         q?.rating ??
                         q?.transporterData?.ratingAverage ??
                         0) as number;
+                      
+                      // Weight-based filtering
+                      if (q.companyName === "LOCAL FTL" || q.companyName === "Wheelseye FTL") {
+                        // For LOCAL FTL and Wheelseye, check weight constraints
+                        const effectiveActualWeight = q.actualWeight || totalWeight;
+                        const effectiveVolumetricWeight = q.volumetricWeight || totalWeight;
+                        const isActualWeightSufficient = effectiveActualWeight >= 500;
+                        const isVolumetricWeightSufficient = effectiveVolumetricWeight >= 500;
+                        
+                        // Hide LOCAL FTL if EITHER actual OR volumetric weight is less than 500kg
+                        if (q.companyName === "LOCAL FTL" && (!isActualWeightSufficient || !isVolumetricWeightSufficient)) {
+                          return false;
+                        }
+                        
+                        // Show Wheelseye if EITHER actual OR volumetric weight is sufficient (>= 500kg)
+                        if (q.companyName === "Wheelseye FTL" && !(isActualWeightSufficient || isVolumetricWeightSufficient)) {
+                          return false;
+                        }
+                      }
+                      
                       if (q.isHidden) return (q.totalCharges ?? Infinity) <= maxPrice;
                       return (
                         (q.totalCharges ?? Infinity) <= maxPrice &&
@@ -1976,30 +2216,68 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                           return ratingB - ratingA;
                         }
                         case "price":
-                        default: {
-                          const pa = getPrice(a);
-                          const pb = getPrice(b);
-                          // Promote best-price items; within best group, alphabetical
-                          const aBest = pa === bestPrice;
-                          const bBest = pb === bestPrice;
-                          if (aBest && !bBest) return -1;
-                          if (!aBest && bBest) return 1;
-                          if (pa === pb) {
-                            if (aBest && bBest) {
-                              return (a.companyName || "").localeCompare(
-                                b.companyName || ""
-                              );
-                            }
-                            return 0;
+                        default:
+                          const priceA = a.totalCharges ?? Infinity;
+                          const priceB = b.totalCharges ?? Infinity;
+                          
+                          // If prices are equal, sort alphabetically by company name
+                          if (priceA === priceB) {
+                            const nameA = (a.companyName || a.transporterName || '').toLowerCase();
+                            const nameB = (b.companyName || b.transporterName || '').toLowerCase();
+                            
+                            // Custom sorting function that handles both text and numbers
+                            const compareNames = (name1: string, name2: string) => {
+                              // Split names into text and number parts
+                              const parts1 = name1.split(/(\d+)/);
+                              const parts2 = name2.split(/(\d+)/);
+                              
+                              const maxLength = Math.max(parts1.length, parts2.length);
+                              
+                              for (let i = 0; i < maxLength; i++) {
+                                const part1 = parts1[i] || '';
+                                const part2 = parts2[i] || '';
+                                
+                                // If both parts are numbers, compare numerically
+                                if (/^\d+$/.test(part1) && /^\d+$/.test(part2)) {
+                                  const num1 = parseInt(part1, 10);
+                                  const num2 = parseInt(part2, 10);
+                                  if (num1 !== num2) {
+                                    return num1 - num2;
+                                  }
+                                } else {
+                                  // Otherwise, compare as strings
+                                  const comparison = part1.localeCompare(part2);
+                                  if (comparison !== 0) {
+                                    return comparison;
+                                  }
+                                }
+                              }
+                              return 0;
+                            };
+                            
+                            return compareNames(nameA, nameB);
                           }
-                          return pa - pb;
-                        }
+                          
+                          return priceA - priceB;
                       }
                     });
                   };
 
                   const tiedUpVendors = processQuotes(data);
                   const otherVendors = processQuotes(hiddendata);
+
+                  // Recalculate bestValueQuotes from the processed quotes to ensure accuracy
+                  const allProcessedQuotes = [...tiedUpVendors, ...otherVendors];
+                  const processedLowestPrice = allProcessedQuotes.length > 0 
+                    ? Math.min(...allProcessedQuotes.map(q => q.totalCharges ?? Infinity))
+                    : Infinity;
+                  
+                  const processedBestValueQuotes = allProcessedQuotes.filter(q => {
+                    const price = q.totalCharges ?? Infinity;
+                    return Math.abs(price - processedLowestPrice) < 0.01;
+                  });
+
+                  if (isCalculating) return null;
 
                   return (
                     <>
@@ -2013,8 +2291,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                               <VendorResultCard
                                 key={`tied-${index}`}
                                 quote={item}
-                                isBestValue={isBest(item)}
-                                bestTie={bestIsTie}
+                                isBestValue={processedBestValueQuotes.includes(item)}
                                 isFastest={item === fastestQuote}
                               />
                             ))}
@@ -2032,8 +2309,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                               <VendorResultCard
                                 key={`other-${index}`}
                                 quote={item}
-                                isBestValue={isBest(item)}
-                                bestTie={bestIsTie}
+                                isBestValue={processedBestValueQuotes.includes(item)}
                                 isFastest={item === fastestQuote}
                               />
                             ))}
@@ -2098,7 +2374,7 @@ const StarRating = ({ value }: { value: number }) => {
 };
 
 // -----------------------------------------------------------------------------
-// FineTune Modal (Portal overlay at topmost z-index)
+// FineTune Modal
 // -----------------------------------------------------------------------------
 const FineTuneModal = ({
   isOpen,
@@ -2333,7 +2609,9 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
   };
 
   const isFTLVendor =
-    quote.companyName === "FTL" || quote.companyName === "Wheelseye FTL";
+    quote.companyName === "FTL" || 
+    quote.companyName === "Wheelseye FTL" || 
+    quote.companyName === "LOCAL FTL";
 
   return (
     <motion.div
@@ -2385,7 +2663,7 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
             <span className="font-medium text-slate-800">
               {(() => {
                 if (quote.distance) return quote.distance;
-                if (quote.distanceKm) return `${quote.distanceKm} km`;
+                if (quote.distanceKm) return `${Math.round(quote.distanceKm)} km`;
                 return "-";
               })()}
             </span>
@@ -2442,30 +2720,88 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
                 const totalWeight = quote.matchedWeight || quote.chargeableWeight || 0;
                 const vehicleCount = Math.ceil(totalWeight / 18000);
                 const vehicleList: Array<{number: number; type: string; maxWeight: number; carryingWeight: number; price: number;}> = [];
+                
+                // Use database pricing if available, otherwise fall back to proportional
+                if (quote.loadSplit?.vehicles && quote.loadSplit.vehicles.length > 0) {
+                  // Use the database pricing for each vehicle
+                  quote.loadSplit.vehicles.forEach((vehicle: any, index: number) => {
+                    vehicleList.push({
+                      number: index + 1,
+                      type: vehicle.vehicle || vehicle.vehicleType || "Container 32 ft MXL",
+                      maxWeight: vehicle.maxWeight || 18000,
+                      carryingWeight: vehicle.weight || 18000,
+                      price: vehicle.price || 0
+                    });
+                  });
+                } else {
+                  // Fallback to proportional pricing (synchronous version)
                 let remainingWeight = totalWeight;
+                const actualTotalPrice = quote.totalCharges || quote.price || quote.loadSplit?.totalPrice || 0;
+                let totalCalculatedPrice = 0;
                 
                 for (let i = 0; i < vehicleCount; i++) {
-                  const vehicleWeight = Math.min(remainingWeight, 18000);
+                  const isLastVehicle = i === vehicleCount - 1;
+                  const vehicleWeight = isLastVehicle ? remainingWeight : Math.min(remainingWeight, 18000);
+                  
+                  // Determine vehicle type based on weight - more accurate selection
                   let vehicleType = "Container 32 ft MXL";
                   let maxCapacity = 18000;
-                  if (vehicleWeight < 18000) {
-                    if (vehicleWeight <= 1000) { vehicleType = "Tata Ace"; maxCapacity = 1000; }
-                    else if (vehicleWeight <= 1500) { vehicleType = "Pickup"; maxCapacity = 1500; }
-                    else if (vehicleWeight <= 2000) { vehicleType = "10 ft Truck"; maxCapacity = 2000; }
-                    else if (vehicleWeight <= 4000) { vehicleType = "Eicher 14 ft"; maxCapacity = 4000; }
-                    else if (vehicleWeight <= 7000) { vehicleType = "Eicher 19 ft"; maxCapacity = 7000; }
-                    else if (vehicleWeight <= 10000) { vehicleType = "Eicher 20 ft"; maxCapacity = 10000; }
-                    else { vehicleType = "Container 32 ft MXL"; maxCapacity = 18000; }
+                  
+                  if (vehicleWeight <= 1000) { 
+                    vehicleType = "Tata Ace"; 
+                    maxCapacity = 1000; 
                   }
-                  const actualTotalPrice = quote.totalCharges || quote.price || quote.loadSplit?.totalPrice || 0;
+                  else if (vehicleWeight <= 1500) { 
+                    vehicleType = "Pickup"; 
+                    maxCapacity = 1500; 
+                  }
+                  else if (vehicleWeight <= 2000) { 
+                    vehicleType = "10 ft Truck"; 
+                    maxCapacity = 2000; 
+                  }
+                  else if (vehicleWeight <= 4000) { 
+                    vehicleType = "Eicher 14 ft"; 
+                    maxCapacity = 4000; 
+                  }
+                  else if (vehicleWeight <= 7000) { 
+                    vehicleType = "Eicher 19 ft"; 
+                    maxCapacity = 7000; 
+                  }
+                  else if (vehicleWeight <= 10000) { 
+                    vehicleType = "Eicher 20 ft"; 
+                    maxCapacity = 10000; 
+                  }
+                  else if (vehicleWeight <= 18000) { 
+                    vehicleType = "Container 32 ft MXL"; 
+                    maxCapacity = 18000; 
+                  }
+                  else {
+                    // For weights over 18,000kg, use the largest container
+                    vehicleType = "Container 32 ft MXL"; 
+                    maxCapacity = 18000;
+                  }
+                  
+                  // Calculate vehicle price based on weight and distance
                   let vehiclePrice;
-                  if (i === vehicleCount - 1) {
-                    const sumSoFar = vehicleList.reduce((sum, v) => sum + v.price, 0);
-                    vehiclePrice = actualTotalPrice - sumSoFar;
+                  if (isLastVehicle && vehicleCount > 1) {
+                    // For the last vehicle, calculate based on weight and distance first
+                    const weightRatio = vehicleWeight / totalWeight;
+                    const calculatedPrice = Math.round(actualTotalPrice * weightRatio);
+                    const remainingPrice = actualTotalPrice - totalCalculatedPrice;
+                    
+                    // Use the calculated price if it's reasonable, otherwise use remaining price if positive
+                    if (remainingPrice > 0 && Math.abs(remainingPrice - calculatedPrice) < calculatedPrice * 0.5) {
+                      vehiclePrice = remainingPrice;
+                    } else {
+                      vehiclePrice = calculatedPrice;
+                    }
                   } else {
                     const weightRatio = vehicleWeight / totalWeight;
                     vehiclePrice = Math.round(actualTotalPrice * weightRatio);
                   }
+                  
+                  totalCalculatedPrice += vehiclePrice;
+                  
                   vehicleList.push({
                     number: i + 1,
                     type: vehicleType,
@@ -2474,6 +2810,26 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
                     price: vehiclePrice
                   });
                   remainingWeight -= vehicleWeight;
+                }
+                  
+                  // Verify total calculation accuracy
+                  const calculatedTotal = vehicleList.reduce((sum, vehicle) => sum + vehicle.price, 0);
+                  if (Math.abs(calculatedTotal - actualTotalPrice) > 1) {
+                    console.warn(`Fallback price mismatch: calculated ${calculatedTotal}, expected ${actualTotalPrice}`);
+                    // Only adjust if it won't result in negative pricing
+                    const lastVehicleIndex = vehicleList.length - 1;
+                    if (lastVehicleIndex >= 0) {
+                      const sumWithoutLast = vehicleList.slice(0, -1).reduce((sum, v) => sum + v.price, 0);
+                      const adjustedLastPrice = actualTotalPrice - sumWithoutLast;
+                      
+                      // Only adjust if the new price is positive and reasonable
+                      if (adjustedLastPrice > 0 && adjustedLastPrice > vehicleList[lastVehicleIndex].price * 0.1) {
+                        vehicleList[lastVehicleIndex].price = adjustedLastPrice;
+                      } else {
+                        console.warn(`Keeping calculated total ${calculatedTotal} instead of forcing ${actualTotalPrice}`);
+                      }
+                    }
+                  }
                 }
                 
                 return (
@@ -2499,8 +2855,8 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
                           </tr>
                         ))}
                         <tr className="border-t-2 border-yellow-300">
-                          <td colSpan={4} className="py-3 text-black font-bold text-right">Total:</td>
-                          <td className="py-3 text-black font-bold text-right text-xl">₹{(quote.totalCharges || quote.price || quote.loadSplit?.totalPrice || 0).toLocaleString()}</td>
+                          <td colSpan={4 as any} className="py-3 text-black font-bold text-right">Total:</td>
+                          <td className="py-3 text-black font-bold text-right text-xl">₹{vehicleList.reduce((sum, vehicle) => sum + vehicle.price, 0).toLocaleString()}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -2521,12 +2877,10 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
 const VendorResultCard = ({
   quote,
   isBestValue,
-  bestTie,
   isFastest,
 }: {
   quote: any;
   isBestValue?: boolean;
-  bestTie?: boolean;
   isFastest?: boolean;
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -2550,7 +2904,6 @@ const VendorResultCard = ({
     }
   };
 
-  const rating: number = 4;
 
   if (quote.isHidden) {
     return (
@@ -2558,6 +2911,8 @@ const VendorResultCard = ({
         className={`relative p-5 rounded-2xl border-2 transition-all duration-300 ${
           isSpecialVendor
             ? "bg-yellow-50 border-yellow-300 shadow-lg"
+            : isBestValue
+            ? "bg-white border-green-400 shadow-lg"
             : "bg-white border-slate-200"
         }`}
       >
@@ -2578,6 +2933,7 @@ const VendorResultCard = ({
                 )}
               </span>
             </div>
+
           </div>
 
           <div className="md:col-span-2 flex md:justify-end">
@@ -2595,6 +2951,8 @@ const VendorResultCard = ({
       className={`p-5 rounded-2xl border-2 transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${
         isSpecialVendor
           ? "bg-yellow-50 border-yellow-300 shadow-lg"
+          : isBestValue
+          ? "bg-white border-green-400 shadow-lg"
           : "bg-white border-slate-200"
       }`}
     >
@@ -2612,13 +2970,13 @@ const VendorResultCard = ({
               )}
               {isBestValue && (
                 <span className="inline-flex items-center gap-1.5 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full">
-                  {bestTie ? "Best Result" : "Best Value"}
+                  Best Value
                 </span>
               )}
             </div>
           </div>
           <div className="mt-1">
-            {quote.companyName !== "LOCAL FTL" && <StarRating value={Number(rating) || 0} />}
+            {quote.companyName !== "LOCAL FTL" && <StarRating value={Number(4) || 0} />}
           </div>
         </div>
 
@@ -2642,6 +3000,7 @@ const VendorResultCard = ({
               )}
             </span>
           </div>
+
 
           <button
             onClick={() => setIsExpanded((v) => !v)}
