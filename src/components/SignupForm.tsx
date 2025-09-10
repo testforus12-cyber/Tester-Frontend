@@ -7,10 +7,10 @@ import {
   User, Mail, Phone, Lock, Building, Hash, MapPin, Briefcase, BarChart,
   Package, HeartHandshake, Globe, Users, Truck, ChevronDown, Check,
   ArrowRight, CheckCircle, ShieldCheck, ArrowLeft, Loader2,
-  Weight,
-  Maximize
+  Weight, Maximize
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import PincodeAutocomplete from "./PincodeAutocomplete";
 
 // -----------------------------------------------------------------------------
 // Limits
@@ -20,7 +20,7 @@ const MAX_LENGTH_CM = 1500;
 const MAX_WIDTH_CM = 300;
 const MAX_HEIGHT_CM = 300;
 
-// --- Form Type Definitions (Updated with new fields) ---
+// --- Form Type Definitions ---
 type FormValues = {
   firstName: string; lastName: string; email: string; phone: string; password: string;
   companyName: string; gstNumber: string; businessType: string; monthlyOrder: string;
@@ -30,7 +30,6 @@ type FormValues = {
   emailOtp: string; contactNoOtp: string;
   sameAsPhone: boolean;
   whatsapp: string;
-  // --- NEW FIELDS ---
   maxLoadInDispatch: string;
   maxLength: string;
   maxWidth: string;
@@ -38,7 +37,7 @@ type FormValues = {
   customerNetwork: string;
 };
 
-// --- Reusable Input Field Component ---
+// --- Reusable Input Field ---
 interface InputFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   id: Path<FormValues>;
   label: string;
@@ -78,7 +77,7 @@ const InputField: React.FC<InputFieldProps> = ({ id, label, icon, register, erro
   );
 };
 
-// --- Single-Select Dropdown Component ---
+// --- Single-Select Dropdown ---
 interface SingleSelectFieldProps {
   id: Path<FormValues>;
   label: string;
@@ -183,7 +182,7 @@ const StepIndicator = ({ currentStep, steps }: { currentStep: number; steps: str
   </nav>
 );
 
-// --- Configuration for each step ---
+// --- Steps ---
 const stepConfig: { name: string; title: string; subtitle: string; fields: Path<FormValues>[] }[] = [
   { name: "Account", title: "Create Your Account", subtitle: "Let's get started with the basics.", fields: ["firstName", "lastName", "email", "phone", "password", "whatsapp"] },
   { name: "Business", title: "Business Details", subtitle: "Tell us more about your company.", fields: ["companyName", "gstNumber", "businessType", "address", "state", "pincode", "monthlyOrder"] },
@@ -194,7 +193,7 @@ const stepConfig: { name: string; title: string; subtitle: string; fields: Path<
 
 const stepNames = stepConfig.map(step => step.name);
 
-// --- Options for Dropdowns ---
+// --- Dropdown Options ---
 const businessTypeOptions = [
   { value: 'retailer', label: 'Retailer' }, { value: 'ecommerce', label: 'Ecommerce' },
   { value: 'franchise', label: 'Franchise' }, { value: 'co-loader', label: 'Co-loader' },
@@ -206,7 +205,7 @@ const handlingCareOptions = [{ value: 'normal', label: 'Normal' }, { value: 'ext
 const customerNetworkOptions = [{ value: 'domestic', label: 'Domestic' }, { value: 'international', label: 'International' }];
 const typeOfCustomersOptions = [{ value: 'b2c', label: 'Business-to-Consumer (B2C)' }, { value: 'b2b', label: 'Business-to-Business (B2B)' }];
 
-// --- Main Signup Form Component ---
+// --- Main ---
 const SignupForm: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -222,7 +221,6 @@ const SignupForm: React.FC = () => {
       emailOtp: "", contactNoOtp: "",
       sameAsPhone: false,
       whatsapp: "",
-      // --- NEW DEFAULTS ---
       maxLoadInDispatch: "",
       maxLength: "",
       maxWidth: "",
@@ -233,7 +231,10 @@ const SignupForm: React.FC = () => {
   const phoneValue = watch("phone");
   const sameAsPhone = watch("sameAsPhone");
 
-  // Watch spec fields for caps
+  // Pincode validity (from autocomplete)
+  const [isPincodeValid, setIsPincodeValid] = useState<boolean | null>(null);
+
+  // Caps check
   const [wLoad, wLen, wWid, wHei] = watch([
     "maxLoadInDispatch",
     "maxLength",
@@ -258,6 +259,19 @@ const SignupForm: React.FC = () => {
 
   const formVariants = { hidden: { opacity: 0, x: 50 }, visible: { opacity: 1, x: 0 }, exit: { opacity: 0, x: -50 } };
 
+  // ---- helpers to force digits-only + max length (DOM-level) ----
+  const digitsOnlyKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const allowed = ["Backspace", "Delete", "Tab", "ArrowLeft", "ArrowRight", "Home", "End"];
+    if (allowed.includes(e.key)) return;
+    if (!/^\d$/.test(e.key)) e.preventDefault();
+  };
+  const enforceDigits10: React.FormEventHandler<HTMLInputElement> = (e) => {
+    const t = e.currentTarget;
+    const cleaned = (t.value || "").replace(/\D/g, "").slice(0, 10);
+    if (t.value !== cleaned) t.value = cleaned;
+  };
+
   const handleNextStep = async () => {
     const fieldsToValidate = stepConfig[currentStep].fields;
     const isValid = await trigger(fieldsToValidate);
@@ -265,6 +279,15 @@ const SignupForm: React.FC = () => {
     if (!isValid) {
       toast.error("Please fill in all required fields correctly.");
       return;
+    }
+
+    // Extra guard for Business step: pincode must be OK
+    if (currentStep === 1) {
+      const pin = (getValues("pincode") || "").trim();
+      if (!/^\d{6}$/.test(pin) || isPincodeValid === false) {
+        toast.error("Please select a valid 6-digit pincode from the list.");
+        return;
+      }
     }
 
     if (currentStep === 3) {
@@ -327,7 +350,10 @@ const SignupForm: React.FC = () => {
               <InputField id="firstName" label="First Name" icon={<User size={18} />} register={register} errors={errors} required />
               <InputField id="lastName" label="Last Name" icon={<User size={18} />} register={register} errors={errors} required />
             </div>
+
             <InputField id="email" label="Email Address" icon={<Mail size={18} />} type="email" register={register} errors={errors} required />
+
+            {/* PHONE: digits only, max 10 */}
             <InputField
               id="phone"
               label="Phone Number"
@@ -337,13 +363,21 @@ const SignupForm: React.FC = () => {
               required
               type="tel"
               maxLength={10}
+              inputMode="numeric"
+              autoComplete="tel"
+              onKeyDown={digitsOnlyKeyDown}
+              onInput={enforceDigits10}
               validation={{
+                required: "Phone number is required.",
                 pattern: {
                   value: /^\d{10}$/,
                   message: "Phone number must be exactly 10 digits.",
                 },
+                // sanitize what goes into RHF state
+                setValueAs: (v: any) => String(v ?? "").replace(/\D/g, "").slice(0, 10),
               }}
             />
+
             <div className="flex items-center">
               <input
                 type="checkbox"
@@ -355,6 +389,8 @@ const SignupForm: React.FC = () => {
                 Same as phone number
               </label>
             </div>
+
+            {/* WHATSAPP: mirror same behavior */}
             <InputField
               id="whatsapp"
               label="WhatsApp Number"
@@ -364,14 +400,22 @@ const SignupForm: React.FC = () => {
               required={!sameAsPhone}
               type="tel"
               maxLength={10}
+              inputMode="numeric"
+              autoComplete="tel-national"
               disabled={sameAsPhone}
+              onKeyDown={digitsOnlyKeyDown}
+              onInput={enforceDigits10}
               validation={{
-                pattern: {
-                  value: /^\d{10}$/,
-                  message: "WhatsApp number must be exactly 10 digits.",
-                },
+                ...(sameAsPhone ? {} : {
+                  pattern: {
+                    value: /^\d{10}$/,
+                    message: "WhatsApp number must be exactly 10 digits.",
+                  }
+                }),
+                setValueAs: (v: any) => String(v ?? "").replace(/\D/g, "").slice(0, 10),
               }}
             />
+
             <InputField id="password" label="Password" icon={<Lock size={18} />} type="password" register={register} errors={errors} required validation={{ minLength: { value: 8, message: "Password must be at least 8 characters long." } }} />
           </div>
         );
@@ -382,10 +426,39 @@ const SignupForm: React.FC = () => {
             <InputField id="gstNumber" label="GST Number" icon={<Hash size={18} />} register={register} errors={errors} required />
             <SingleSelectField id="businessType" label="Business Type" icon={<Briefcase size={18} />} options={businessTypeOptions} control={control} required />
             <InputField id="address" label="Company Address" icon={<MapPin size={18} />} register={register} errors={errors} required />
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <InputField id="state" label="State" icon={<MapPin size={18} />} register={register} errors={errors} required />
-              <InputField id="pincode" label="Pincode" icon={<MapPin size={18} />} type="number" register={register} errors={errors} required />
+
+              <Controller
+                name="pincode"
+                control={control}
+                rules={{
+                  required: "Pincode is required.",
+                  pattern: {
+                    value: /^\d{6}$/,
+                    message: "Pincode must be exactly 6 digits."
+                  }
+                }}
+                render={({ field: { value, onChange, onBlur }, fieldState: { error } }) => (
+                  <PincodeAutocomplete
+                    label="Pincode"
+                    id="pincode"
+                    value={value || ""}
+                    placeholder="Enter 6-digit pincode"
+                    error={error?.message}
+                    onChange={(v) => onChange(v)}
+                    onBlur={onBlur}
+                    onValidationChange={(ok) => setIsPincodeValid(ok)}
+                    onSelect={(s) => {
+                      onChange(s.pincode);
+                      setValue("state", s.state || "", { shouldValidate: true });
+                    }}
+                  />
+                )}
+              />
             </div>
+
             <InputField id="monthlyOrder" label="Approx. Monthly Orders" icon={<BarChart size={18} />} type="number" register={register} errors={errors} required />
           </div>
         );
@@ -625,7 +698,11 @@ const SignupForm: React.FC = () => {
                     <motion.button
                       type="button"
                       onClick={handleNextStep}
-                      disabled={loading || (currentStep === 3 && specsOverCaps)}
+                      disabled={
+                        loading ||
+                        (currentStep === 3 && specsOverCaps) ||
+                        (currentStep === 1 && (!!errors.pincode || isPincodeValid === false))
+                      }
                       className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 rounded-lg shadow-sm hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed transition-all duration-300"
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
@@ -645,4 +722,3 @@ const SignupForm: React.FC = () => {
 };
 
 export default SignupForm;
-
