@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MapPin, AlertCircle, Loader2, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { usePincodes } from "../context/PincodeContext";
 
 interface PincodeSuggestion {
   pincode: string;
   city: string;
   state: string;
-  district: string;
+  district: string; // we’ll mirror city here, since our JSON has no separate district
 }
 
 interface PincodeAutocompleteProps {
@@ -34,6 +35,8 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
   onValidationChange,
   className = '',
 }) => {
+  const { ready, search, getByPincode } = usePincodes();
+
   const [suggestions, setSuggestions] = useState<PincodeSuggestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -41,76 +44,39 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
   const [lastValidValue, setLastValidValue] = useState('');
   const [hasAttemptedSelection, setHasAttemptedSelection] = useState(false);
   const [isUserSelected, setIsUserSelected] = useState(false);
-  
+
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceTimeoutRef = useRef<number | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Debounced API call for suggestions
-  const fetchSuggestions = useCallback(async (query: string) => {
-    if (query.length < 3) {
-      setSuggestions([]);
-      return;
-    }
-
-    // Cancel previous request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    // Create new abort controller
-    abortControllerRef.current = new AbortController();
-
-    try {
+  // Local search against context (no network)
+  const fetchSuggestions = useCallback(
+    (query: string) => {
+      if (!ready || query.length < 3) {
+        setSuggestions([]);
+        return;
+      }
       setIsLoading(true);
-      
-      const response = await fetch(
-        `https://api.postalpincode.in/pincode/${query}`,
-        {
-          signal: abortControllerRef.current.signal,
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: Failed to fetch suggestions`);
-      }
-
-      const data = await response.json();
-      
-      if (data && data[0] && data[0].Status === 'Success' && data[0].PostOffice) {
-        const uniqueSuggestions = data[0].PostOffice
-          .map((office: any) => ({
-            pincode: office.Pincode,
-            city: office.Name,
-            state: office.State,
-            district: office.District,
-          }))
-          .filter((suggestion: PincodeSuggestion, index: number, self: PincodeSuggestion[]) => 
-            index === self.findIndex(s => s.pincode === suggestion.pincode)
-          );
-        
-        setSuggestions(uniqueSuggestions);
-      } else {
-        setSuggestions([]);
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name !== 'AbortError') {
-        console.error('Error fetching pincode suggestions:', error);
-        setSuggestions([]);
-      }
-    } finally {
+      // our context.search prioritizes pincode startsWith; we pass limit 20
+      const rows = search(query, 20);
+      const mapped: PincodeSuggestion[] = rows.map(r => ({
+        pincode: r.pincode,
+        city: r.city,
+        state: r.state,
+        district: r.city, // mirror, since our JSON doesn’t have a separate district
+      }));
+      setSuggestions(mapped);
       setIsLoading(false);
-    }
-  }, []);
+    },
+    [ready, search]
+  );
 
   // Debounced search
   const debouncedSearch = useCallback((query: string) => {
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
     }
-
-    debounceTimeoutRef.current = setTimeout(() => {
+    debounceTimeoutRef.current = window.setTimeout(() => {
       fetchSuggestions(query);
     }, 250);
   }, [fetchSuggestions]);
@@ -118,16 +84,13 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
   // Handle input change
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const inputValue = e.target.value;
-    
-    // Only allow digits and limit to 6 characters
+    // Only digits, max 6
     const digitsOnly = inputValue.replace(/\D/g, '').slice(0, 6);
-    
-    console.log('Input changed:', { inputValue, digitsOnly, length: digitsOnly.length });
-    
+
     onChange(digitsOnly);
-    setHasAttemptedSelection(false); // Reset attempt flag when typing
-    setIsUserSelected(false); // Reset user selection flag when typing
-    
+    setHasAttemptedSelection(false);
+    setIsUserSelected(false);
+
     if (digitsOnly.length >= 3) {
       setIsOpen(true);
       debouncedSearch(digitsOnly);
@@ -135,66 +98,49 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
       setIsOpen(false);
       setSuggestions([]);
     }
-    
     setSelectedIndex(-1);
   };
 
-  // Handle input focus
   const handleFocus = () => {
-    if (value.length >= 3 && suggestions.length > 0) {
-      setIsOpen(true);
-    }
+    if (value.length >= 3 && suggestions.length > 0) setIsOpen(true);
   };
 
-  // Handle input blur
   const handleBlur = () => {
-    // Delay to allow selection click to register
     setTimeout(() => {
       setIsOpen(false);
       setSelectedIndex(-1);
-      
-      // Mark that user has attempted to enter a pincode
-      if (value.length >= 3) {
-        setHasAttemptedSelection(true);
-      }
-      
-      // Validate pincode format
+
+      if (value.length >= 3) setHasAttemptedSelection(true);
+
+      // basic format validation + keep last valid
       if (value && !/^[1-9]\d{5}$/.test(value)) {
-        // Revert to last valid value if current is invalid
-        if (lastValidValue) {
-          onChange(lastValidValue);
-        }
+        if (lastValidValue) onChange(lastValidValue);
       } else if (value && /^[1-9]\d{5}$/.test(value)) {
-        // Update last valid value
         setLastValidValue(value);
       }
-      
+
       onBlur?.();
     }, 150);
   };
 
-  // Handle suggestion selection
   const handleSuggestionSelect = (suggestion: PincodeSuggestion) => {
     onChange(suggestion.pincode);
     setLastValidValue(suggestion.pincode);
-    setHasAttemptedSelection(false); // Reset since user made a valid selection
-    setIsUserSelected(true); // Mark as user selected
+    setHasAttemptedSelection(false);
+    setIsUserSelected(true);
     setIsOpen(false);
     setSelectedIndex(-1);
     onSelect?.(suggestion);
     inputRef.current?.blur();
   };
 
-  // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!isOpen || suggestions.length === 0) return;
 
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setSelectedIndex(prev => 
-          prev < suggestions.length - 1 ? prev + 1 : prev
-        );
+        setSelectedIndex(prev => prev < suggestions.length - 1 ? prev + 1 : prev);
         break;
       case 'ArrowUp':
         e.preventDefault();
@@ -214,7 +160,7 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
     }
   };
 
-  // Validate pincode format
+  // Format validation
   const validatePincode = (pin: string): string | null => {
     if (!pin) return 'Pincode is required.';
     if (!/^\d{6}$/.test(pin)) return 'Enter a 6-digit pincode.';
@@ -222,50 +168,38 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
     return null;
   };
 
-  // Check if current value is valid
-  const isValid = value && /^[1-9]\d{5}$/.test(value);
+  // Derived states
+  const isValidFormat = value && /^[1-9]\d{5}$/.test(value);
   const formatError = validatePincode(value);
-  
-  // Check if pincode exists in suggestions (for 6-digit pincodes)
-  const pincodeExists = value.length === 6 && suggestions.some(s => s.pincode === value);
-  
-  // Only show invalid pincode error if:
-  // 1. User has attempted selection (blurred without selecting)
-  // 2. Pincode is 6 digits
-  // 3. Pincode doesn't exist in suggestions
-  // 4. No format error
-  // 5. User didn't select from dropdown
-  const isInvalidPincode = hasAttemptedSelection && 
-                          value.length === 6 && 
-                          !pincodeExists && 
-                          !formatError && 
-                          !isUserSelected;
-  
-  // Determine if the pincode is valid
-  // Valid if: proper format AND (user selected from dropdown OR pincode exists in suggestions OR no attempt made yet)
-  const isPincodeValid = isValid && 
-                        !formatError && 
-                        (isUserSelected || pincodeExists || !hasAttemptedSelection);
+
+  // Existence check now uses our local index
+  const pincodeExists = value.length === 6 && !!getByPincode(value);
+
+  const isInvalidPincode =
+    hasAttemptedSelection &&
+    value.length === 6 &&
+    !pincodeExists &&
+    !formatError &&
+    !isUserSelected;
+
+  const isPincodeValid =
+    Boolean(isValidFormat) &&
+    !formatError &&
+    (isUserSelected || pincodeExists || !hasAttemptedSelection);
 
   // Notify parent about validation changes
   useEffect(() => {
     onValidationChange?.(Boolean(isPincodeValid));
   }, [isPincodeValid, onValidationChange]);
 
-
-  // Cleanup on unmount
+  // Cleanup
   useEffect(() => {
     return () => {
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
     };
   }, []);
 
-  // Close dropdown when clicking outside
+  // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -278,7 +212,6 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
         setSelectedIndex(-1);
       }
     };
-
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
@@ -286,20 +219,17 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
   return (
     <div className={className}>
       {label && (
-        <label
-          htmlFor={id}
-          className="block text-sm font-medium text-slate-600 mb-1.5"
-        >
+        <label htmlFor={id} className="block text-sm font-medium text-slate-600 mb-1.5">
           {label}
         </label>
       )}
-      
+
       <div className="relative" ref={dropdownRef}>
         <div className="relative">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400">
             <MapPin />
           </div>
-          
+
           <input
             ref={inputRef}
             id={id}
@@ -325,7 +255,7 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
                 : 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-500'
             }`}
           />
-          
+
           <div className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5">
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
@@ -351,7 +281,7 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
             >
               {suggestions.map((suggestion, index) => (
                 <div
-                  key={`${suggestion.pincode}-${suggestion.city}`}
+                  key={`${suggestion.pincode}-${index}`}
                   onClick={() => handleSuggestionSelect(suggestion)}
                   className={`px-4 py-3 cursor-pointer transition-colors ${
                     index === selectedIndex
@@ -378,7 +308,7 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
           )}
         </AnimatePresence>
 
-        {/* No suggestions message */}
+        {/* No suggestions */}
         <AnimatePresence>
           {isOpen && !isLoading && suggestions.length === 0 && value.length >= 3 && (
             <motion.div
@@ -395,7 +325,6 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
         </AnimatePresence>
       </div>
 
-      {/* Error message */}
       {(error || formatError) && (
         <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
           <AlertCircle size={14} />
@@ -403,7 +332,6 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
         </p>
       )}
 
-      {/* Invalid pincode message */}
       {isInvalidPincode && (
         <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
           <AlertCircle size={14} />
@@ -411,8 +339,7 @@ const PincodeAutocomplete: React.FC<PincodeAutocompleteProps> = ({
         </p>
       )}
 
-      {/* Validation message for invalid selection */}
-      {value && !isValid && !formatError && !isInvalidPincode && (
+      {value && !isValidFormat && !formatError && !isInvalidPincode && (
         <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
           <AlertCircle size={14} />
           Please select a valid Indian pincode from the list.
