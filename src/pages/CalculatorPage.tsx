@@ -222,8 +222,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const [toPincode, setToPincode] = useState("");
   const [invoiceValue, setInvoiceValue] = useState("");
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
-  // Field errors + validity (frontend-only)
 
+  // Field errors + validity (frontend-only)
   const [fromPinError, setFromPinError] = useState<string | null>(null);
   const [toPinError, setToPinError] = useState<string | null>(null);
   const [isFromPincodeValid, setIsFromPincodeValid] = useState(false);
@@ -292,8 +292,18 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     b.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // 🚫 Same pincode cannot be used
+  const isSamePincode =
+    fromPincode.length === 6 &&
+    toPincode.length === 6 &&
+    fromPincode === toPincode;
+
   const hasPincodeIssues =
-    !!fromPinError || !!toPinError || !isFromPincodeValid || !isToPincodeValid;
+    !!fromPinError ||
+    !!toPinError ||
+    !isFromPincodeValid ||
+    !isToPincodeValid ||
+    isSamePincode;
 
   // ---------------------------------------------------------------------------
   // Effects
@@ -359,7 +369,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   // ✅ Auto-select pincode once 6 digits are typed & validated by child
   useEffect(() => {
     if (fromPincode.length === 6 && isFromPincodeValid && !fromAutoSelectedRef.current) {
-      // Treat as committed selection
       setFromPinError(null);
       fromAutoSelectedRef.current = true;
     }
@@ -493,7 +502,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     setSearchTerm("");
   };
 
-  // -------------------- Frontend Pincode validation (format only; serviceability via FE datasets) --------------------
+  // -------------------- Frontend Pincode validation --------------------
   const validatePincodeFormat = (pin: string): string | null => {
     if (!pin) return "Pincode is required.";
     if (!/^\d{6}$/.test(pin)) return "Enter a 6-digit pincode.";
@@ -509,7 +518,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       setErr(msg);
       return false;
     }
-    // Serviceability is handled by PincodeAutocomplete via onValidationChange
     setErr(null);
     return true;
   };
@@ -550,7 +558,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       setError("Selected pincodes are not serviceable.");
       return;
     }
-  
+
     // Uniqueness (case-insensitive)
     const exists = savedBoxes.some(
       (p) => p.name.toLowerCase() === name.toLowerCase()
@@ -647,6 +655,13 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       return;
     }
 
+    // 🚫 Same pincode check
+    if (isSamePincode) {
+      setIsCalculating(false);
+      setError("Origin and Destination pincodes cannot be the same.");
+      return;
+    }
+
     // ✅ Invoice value: enforce 1 .. 10 crores
     if (invoiceValue.trim() === "") {
       setIsCalculating(false);
@@ -669,8 +684,12 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     }
     if (inv > INVOICE_MAX) {
       setIsCalculating(false);
-      setInvoiceError(`Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`);
-      setError(`Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`);
+      setInvoiceError(
+        `Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`
+      );
+      setError(
+        `Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`
+      );
       return;
     }
 
@@ -680,8 +699,17 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       toPincode,
       shipment_details: shipmentPayload,
     };
-    
+
     const cacheKey = makeCompareKey(requestParams);
+
+    // helper to normalize ETA to integer days, min 1
+    const normalizeETA = (q: any) => {
+      const raw = Number(
+        q?.estimatedTime ?? q?.transitDays ?? q?.eta ?? 0
+      );
+      const normalized = Math.max(1, Math.ceil(Number.isFinite(raw) ? raw : 0));
+      return { ...q, estimatedTime: normalized };
+    };
 
     try {
       const resp = await axios.post(
@@ -767,6 +795,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           quote.rovCharges = round5(quote.rovCharges);
       });
 
+      // ✅ Normalize ETA for ALL quotes: integer days, minimum 1
+      tied = tied.map(normalizeETA);
+      others = others.map(normalizeETA);
+
       // Batch state updates
       setData(tied);
       setHiddendata(others);
@@ -802,7 +834,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         fromPincode.length === 6 &&
         toPincode.length === 6 &&
         isFromPincodeValid &&
-        isToPincodeValid;
+        isToPincodeValid &&
+        !isSamePincode;
       const hasValidBoxes = boxes.every(
         (box) => box.count && box.length && box.width && box.height && box.weight
       );
@@ -814,6 +847,11 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   };
 
   // -------------------- Render --------------------
+  const equalityError =
+    isSamePincode && isFromPincodeValid && isToPincodeValid
+      ? "Origin and Destination cannot be the same."
+      : null;
+
   return (
     <div className="min-h-screen w-full bg-slate-50 font-sans" onKeyDown={handleKeyDown}>
       <div
@@ -899,7 +937,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               id="fromPincode"
               value={fromPincode}
               placeholder="e.g., 400001"
-              error={fromPinError}
+              error={fromPinError || equalityError}
               onChange={(value: string) => {
                 setFromPincode(value);
                 setFromPinError(null);
@@ -913,7 +951,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               id="toPincode"
               value={toPincode}
               placeholder="e.g., 110001"
-              error={toPinError}
+              error={toPinError || equalityError}
               onChange={(value: string) => {
                 setToPincode(value);
                 setToPinError(null);
@@ -945,7 +983,9 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                 const num = Number(value);
                 if (num > INVOICE_MAX) {
                   setInvoiceValue(String(INVOICE_MAX));
-                  setInvoiceError(`Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`);
+                  setInvoiceError(
+                    `Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`
+                  );
                 } else {
                   setInvoiceValue(String(num));
                   setInvoiceError(null);
@@ -961,14 +1001,17 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                 }
                 if (num > INVOICE_MAX) {
                   num = INVOICE_MAX;
-                  setInvoiceError(`Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`);
+                  setInvoiceError(
+                    `Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`
+                  );
                 }
                 setInvoiceValue(String(num));
               }}
               error={invoiceError}
             />
             <p className="mt-1 text-xs text-slate-500">
-              Allowed range: ₹{INVOICE_MIN.toLocaleString("en-IN")} – ₹{INVOICE_MAX.toLocaleString("en-IN")} (10 crores)
+              Allowed range: ₹{INVOICE_MIN.toLocaleString("en-IN")} – ₹
+              {INVOICE_MAX.toLocaleString("en-IN")} (10 crores)
             </p>
           </div>
         </Card>
@@ -2134,8 +2177,8 @@ const VendorResultCard = ({
           <div className="flex items-center justify-center md:justify-start gap-2 font-semibold text-slate-700 text-lg">
             <Clock size={16} className="text-slate-500" />
             <span>
-              {Math.ceil(quote.estimatedTime ?? 0)}{" "}
-              {Math.ceil(quote.estimatedTime ?? 0) === 1 ? "Day" : "Days"}
+              {Math.ceil(quote.estimatedTime ?? 1)}{" "}
+              {Math.ceil(quote.estimatedTime ?? 1) === 1 ? "Day" : "Days"}
             </span>
           </div>
           <div className="text-xs text-slate-500 -mt-1">Estimated Delivery</div>
