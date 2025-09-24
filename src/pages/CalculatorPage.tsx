@@ -53,6 +53,10 @@ const MAX_DIMENSION_HEIGHT = 300;
 const MAX_BOXES = 10000;
 const MAX_WEIGHT = 20000;
 
+// ✅ Invoice bounds (₹1 .. ₹10,00,00,000)
+const INVOICE_MIN = 1;
+const INVOICE_MAX = 100_000_000; // 10 crores
+
 // -----------------------------------------------------------------------------
 // Numeric + small helpers
 // -----------------------------------------------------------------------------
@@ -225,6 +229,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const [isFromPincodeValid, setIsFromPincodeValid] = useState(false);
   const [isToPincodeValid, setIsToPincodeValid] = useState(false);
 
+  // 🔒 Guards to avoid re-select loops when auto-selecting on 6 digits
+  const fromAutoSelectedRef = useRef(false);
+  const toAutoSelectedRef = useRef(false);
+
   const [boxes, setBoxes] = useState<BoxDetails[]>([
     {
       id: `box-${Date.now()}-${Math.random()}`,
@@ -347,6 +355,28 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     fetchSavedBoxes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [(user as any)?.customer?._id, token]);
+
+  // ✅ Auto-select pincode once 6 digits are typed & validated by child
+  useEffect(() => {
+    if (fromPincode.length === 6 && isFromPincodeValid && !fromAutoSelectedRef.current) {
+      // Treat as committed selection
+      setFromPinError(null);
+      fromAutoSelectedRef.current = true;
+    }
+    if (fromPincode.length !== 6 || !isFromPincodeValid) {
+      fromAutoSelectedRef.current = false;
+    }
+  }, [fromPincode, isFromPincodeValid]);
+
+  useEffect(() => {
+    if (toPincode.length === 6 && isToPincodeValid && !toAutoSelectedRef.current) {
+      setToPinError(null);
+      toAutoSelectedRef.current = true;
+    }
+    if (toPincode.length !== 6 || !isToPincodeValid) {
+      toAutoSelectedRef.current = false;
+    }
+  }, [toPincode, isToPincodeValid]);
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -616,25 +646,39 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       else setError("Selected pincodes are not serviceable.");
       return;
     }
-  if (!invoiceValue) {
+
+    // ✅ Invoice value: enforce 1 .. 10 crores
+    if (invoiceValue.trim() === "") {
       setIsCalculating(false);
       setInvoiceError("Please enter invoice value");
       setError("Please enter invoice value");
       return;
     }
-
-    if (Number(invoiceValue) <= 0) {
+    const inv = Number(invoiceValue);
+    if (!Number.isFinite(inv)) {
       setIsCalculating(false);
-      setInvoiceError("Invoice value must be greater than 0");
-      setError("Invoice value must be greater than 0");
+      setInvoiceError("Invoice value must be a number");
+      setError("Invoice value must be a number");
       return;
     }
+    if (inv < INVOICE_MIN) {
+      setIsCalculating(false);
+      setInvoiceError(`Minimum invoice value is ₹${INVOICE_MIN}`);
+      setError(`Minimum invoice value is ₹${INVOICE_MIN}`);
+      return;
+    }
+    if (inv > INVOICE_MAX) {
+      setIsCalculating(false);
+      setInvoiceError(`Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`);
+      setError(`Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`);
+      return;
+    }
+
     const requestParams = {
       modeoftransport: modeOfTransport,
       fromPincode,
       toPincode,
       shipment_details: shipmentPayload,
-
     };
     
     const cacheKey = makeCompareKey(requestParams);
@@ -649,7 +693,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           fromPincode,
           toPincode,
           shipment_details: shipmentPayload,
-          invoiceValue: Number(invoiceValue),
+          invoiceValue: inv,
         },
         { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
       );
@@ -879,7 +923,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               onValidationChange={setIsToPincodeValid}
             />
           </div>
-                    <div className="mt-6">
+
+          <div className="mt-6">
             <InputField
               label="Invoice Value (₹)"
               id="invoiceValue"
@@ -890,14 +935,41 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               icon={<IndianRupee size={16} />}
               value={invoiceValue}
               onChange={(e) => {
-                const value = e.target.value.replace(/\D/g, '');
-                if (value === '' || Number(value) <= 10000000) {
-                  setInvoiceValue(value);
+                // Keep only digits; clamp to ≤ 10 crores
+                const value = e.target.value.replace(/\D/g, "");
+                if (value === "") {
+                  setInvoiceValue("");
+                  setInvoiceError(null);
+                  return;
+                }
+                const num = Number(value);
+                if (num > INVOICE_MAX) {
+                  setInvoiceValue(String(INVOICE_MAX));
+                  setInvoiceError(`Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`);
+                } else {
+                  setInvoiceValue(String(num));
                   setInvoiceError(null);
                 }
               }}
+              onBlur={(e) => {
+                const raw = e.currentTarget.value.replace(/\D/g, "");
+                if (raw === "") return;
+                let num = Number(raw);
+                if (num < INVOICE_MIN) {
+                  num = INVOICE_MIN;
+                  setInvoiceError(`Minimum invoice value is ₹${INVOICE_MIN}`);
+                }
+                if (num > INVOICE_MAX) {
+                  num = INVOICE_MAX;
+                  setInvoiceError(`Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`);
+                }
+                setInvoiceValue(String(num));
+              }}
               error={invoiceError}
             />
+            <p className="mt-1 text-xs text-slate-500">
+              Allowed range: ₹{INVOICE_MIN.toLocaleString("en-IN")} – ₹{INVOICE_MAX.toLocaleString("en-IN")} (10 crores)
+            </p>
           </div>
         </Card>
 
