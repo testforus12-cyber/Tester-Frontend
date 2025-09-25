@@ -77,13 +77,22 @@ async function postFirstAvailable<T>(
   throw lastErr ?? new Error("No matching endpoint found");
 }
 
-/** Distance — try likely paths */
+/**
+ * Distance provider (optional).
+ * NOTE: We DO NOT call any distance endpoint unless an explicit env path is provided.
+ * Prefer passing distanceKmOverride to the builder instead.
+ */
 export async function getDistanceKmByAPI(
   fromPin: string,
   toPin: string,
   token?: string
 ): Promise<number> {
   const explicit = import.meta.env.VITE_DISTANCE_ENDPOINT; // e.g. "/api/transporter/distance"
+  if (!explicit) {
+    // No explicit distance endpoint configured — avoid calling loose ends.
+    throw new Error("No distance endpoint configured (VITE_DISTANCE_ENDPOINT).");
+  }
+
   const candidates = [
     explicit,                                 // take env first if provided
     "/api/transporter/distance",
@@ -133,7 +142,11 @@ export async function getWheelseyePriceFromDB(
   return data;
 }
 
-/** End-to-end builder (unchanged logic; just uses helpers above) */
+/**
+ * End-to-end builder:
+ * - DOES NOT call any distance route unless distanceKmOverride is missing *and* VITE_DISTANCE_ENDPOINT is set.
+ * - Prefer passing distance from your /calculate response via distanceKmOverride.
+ */
 export async function buildFtlAndWheelseyeQuotes(opts: {
   fromPincode: string;
   toPincode: string;
@@ -142,6 +155,7 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
   token?: string;
   ekartFallback?: number;
   isWheelseyeServiceArea: (pin: string) => boolean;
+  distanceKmOverride?: number; // <── Prefer this; avoids any distance API call
 }) {
   const {
     fromPincode,
@@ -151,15 +165,26 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
     token,
     ekartFallback = 32000,
     isWheelseyeServiceArea,
+    distanceKmOverride,
   } = opts;
 
-  let distanceKm = 500;
-  try {
-    distanceKm = await getDistanceKmByAPI(fromPincode, toPincode, token);
-  } catch (e) {
-    console.warn("Distance calc failed, using 500km fallback:", e);
+  // 1) Distance: prefer override; otherwise only call API if explicit endpoint is configured.
+  let distanceKm =
+    typeof distanceKmOverride === "number" && distanceKmOverride > 0
+      ? distanceKmOverride
+      : 0;
+
+  if (!(distanceKm > 0)) {
+    try {
+      distanceKm = await getDistanceKmByAPI(fromPincode, toPincode, token);
+    } catch {
+      // No configured endpoint or call failed → default fallback
+      distanceKm = 500;
+      console.warn("Distance unavailable; using fallback 500km.");
+    }
   }
 
+  // 2) Compute Wheelseye + FTL
   let ftlPrice = 0;
   let wheelseyePrice = 0;
   let wheelseyeResult: WheelseyeBreakdown | null = null;
@@ -178,20 +203,25 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
     const wb = wheelseyeResult?.weightBreakdown;
     actualWeight = wb?.actualWeight ?? totalWeight;
     volumetricWeight = wb?.volumetricWeight ?? totalWeight;
-    chargeableWeight = wb?.chargeableWeight ?? Math.max(actualWeight, volumetricWeight);
+    chargeableWeight =
+      wb?.chargeableWeight ?? Math.max(actualWeight, volumetricWeight);
 
     if (chargeableWeight > 18000) {
+      // split into vehicles; re-query per vehicle
       const vehicleCount = Math.ceil(chargeableWeight / 18000);
       let totalWE = 0;
       let totalFTL = 0;
 
       const calls = Array.from({ length: vehicleCount }, (_, i) => {
         const w = Math.min(18000, chargeableWeight - i * 18000);
-        return getWheelseyePriceFromDB(w, distanceKm, [
-          { count: 1, length: 100, width: 100, height: 100, weight: w },
-        ], token).then(
-          (r) => ({ ok: true, price: r.price, w }),
-          (err) => ({ ok: false, err, w }),
+        return getWheelseyePriceFromDB(
+          w,
+          distanceKm,
+          [{ count: 1, length: 100, width: 100, height: 100, weight: w }],
+          token
+        ).then(
+          (r) => ({ ok: true as const, price: r.price, w }),
+          (err) => ({ ok: false as const, err, w })
         );
       });
 
@@ -201,7 +231,9 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
           totalWE += r.price;
           totalFTL += Math.round((r.price * 1.2) / 10) * 10;
         } else {
-          const fb = Math.round(((wheelseyeResult?.price ?? 50000) / vehicleCount));
+          const fb = Math.round(
+            ((wheelseyeResult?.price ?? 50000) / vehicleCount)
+          );
           totalWE += fb;
           totalFTL += Math.round((fb * 1.2) / 10) * 10;
         }
@@ -219,27 +251,41 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
     wheelseyePrice = Math.round((ekartFallback * 0.95) / 10) * 10;
   }
 
-  const tooLight = (actualWeight < 500) || (volumetricWeight < 500);
+  const tooLight = actualWeight < 500 || volumetricWeight < 500;
 
   const makeVehicleByWeight = (w: number) =>
-    w > 18000 ? "Container 32 ft MXL + Additional Vehicle"
-    : w <= 1000 ? "Tata Ace"
-    : w <= 1500 ? "Pickup"
-    : w <= 2000 ? "10 ft Truck"
-    : w <= 4000 ? "Eicher 14 ft"
-    : w <= 7000 ? "Eicher 19 ft"
-    : w <= 10000 ? "Eicher 20 ft"
-    : "Container 32 ft MXL";
+    w > 18000
+      ? "Container 32 ft MXL + Additional Vehicle"
+      : w <= 1000
+      ? "Tata Ace"
+      : w <= 1500
+      ? "Pickup"
+      : w <= 2000
+      ? "10 ft Truck"
+      : w <= 4000
+      ? "Eicher 14 ft"
+      : w <= 7000
+      ? "Eicher 19 ft"
+      : w <= 10000
+      ? "Eicher 20 ft"
+      : "Container 32 ft MXL";
 
   const makeVehicleLen = (w: number) =>
-    w > 18000 ? "32 ft + Additional"
-    : w <= 1000 ? 7
-    : w <= 1500 ? 8
-    : w <= 2000 ? 10
-    : w <= 4000 ? 14
-    : w <= 7000 ? 19
-    : w <= 10000 ? 20
-    : 32;
+    w > 18000
+      ? "32 ft + Additional"
+      : w <= 1000
+      ? 7
+      : w <= 1500
+      ? 8
+      : w <= 2000
+      ? 10
+      : w <= 4000
+      ? 14
+      : w <= 7000
+      ? 19
+      : w <= 10000
+      ? 20
+      : 32;
 
   const etaDays = (km: number) => Math.ceil(km / 400);
 
@@ -255,50 +301,74 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
     isTiedUp: false,
   };
 
-  const ftlQuote = !tooLight && isWheelseyeServiceArea(fromPincode) ? {
-    ...base,
-    message: "",
-    isHidden: false,
-    transporterData: { rating: 4.6 },
-    companyName: "LOCAL FTL",
-    transporterName: "LOCAL FTL",
-    category: "LOCAL FTL",
-    totalCharges: ftlPrice,
-    price: ftlPrice,
-    total: ftlPrice,
-    totalPrice: ftlPrice,
-    estimatedTime: etaDays(distanceKm),
-    estimatedDelivery: `${etaDays(distanceKm)} Day${etaDays(distanceKm) > 1 ? "s" : ""}`,
-    deliveryTime: `${etaDays(distanceKm)} Day${etaDays(distanceKm) > 1 ? "s" : ""}`,
-    vehicle: wheelseyeResult?.vehicle ?? makeVehicleByWeight(chargeableWeight),
-    vehicleLength: wheelseyeResult?.vehicleLength ?? makeVehicleLen(chargeableWeight),
-  } : null;
+  const ftlQuote =
+    !tooLight && isWheelseyeServiceArea(fromPincode)
+      ? {
+          ...base,
+          message: "",
+          isHidden: false,
+          transporterData: { rating: 4.6 },
+          companyName: "LOCAL FTL",
+          transporterName: "LOCAL FTL",
+          category: "LOCAL FTL",
+          totalCharges: ftlPrice,
+          price: ftlPrice,
+          total: ftlPrice,
+          totalPrice: ftlPrice,
+          estimatedTime: etaDays(distanceKm),
+          estimatedDelivery: `${etaDays(distanceKm)} Day${
+            etaDays(distanceKm) > 1 ? "s" : ""
+          }`,
+          deliveryTime: `${etaDays(distanceKm)} Day${
+            etaDays(distanceKm) > 1 ? "s" : ""
+          }`,
+          vehicle:
+            wheelseyeResult?.vehicle ?? makeVehicleByWeight(chargeableWeight),
+          vehicleLength:
+            wheelseyeResult?.vehicleLength ?? makeVehicleLen(chargeableWeight),
+        }
+      : null;
 
-  const wheelseyeQuote = !tooLight && isWheelseyeServiceArea(fromPincode) ? {
-    ...base,
-    message: "",
-    isHidden: false,
-    transporterData: { rating: 4.6 },
-    companyName: "Wheelseye FTL",
-    transporterName: "Wheelseye FTL",
-    category: "Wheelseye FTL",
-    totalCharges: wheelseyePrice,
-    price: wheelseyePrice,
-    total: wheelseyePrice,
-    totalPrice: wheelseyePrice,
-    estimatedTime: etaDays(distanceKm),
-    estimatedDelivery: `${etaDays(distanceKm)} Day${etaDays(distanceKm) > 1 ? "s" : ""}`,
-    deliveryTime: `${etaDays(distanceKm)} Day${etaDays(distanceKm) > 1 ? "s" : ""}`,
-    vehicle: wheelseyeResult?.vehicle ?? makeVehicleByWeight(chargeableWeight),
-    vehicleLength: wheelseyeResult?.vehicleLength ?? makeVehicleLen(chargeableWeight),
-    loadSplit: wheelseyeResult?.loadSplit ?? null,
-  } : null;
+  const wheelseyeQuote =
+    !tooLight && isWheelseyeServiceArea(fromPincode)
+      ? {
+          ...base,
+          message: "",
+          isHidden: false,
+          transporterData: { rating: 4.6 },
+          companyName: "Wheelseye FTL",
+          transporterName: "Wheelseye FTL",
+          category: "Wheelseye FTL",
+          totalCharges: wheelseyePrice,
+          price: wheelseyePrice,
+          total: wheelseyePrice,
+          totalPrice: wheelseyePrice,
+          estimatedTime: etaDays(distanceKm),
+          estimatedDelivery: `${etaDays(distanceKm)} Day${
+            etaDays(distanceKm) > 1 ? "s" : ""
+          }`,
+          deliveryTime: `${etaDays(distanceKm)} Day${
+            etaDays(distanceKm) > 1 ? "s" : ""
+          }`,
+          vehicle:
+            wheelseyeResult?.vehicle ?? makeVehicleByWeight(chargeableWeight),
+          vehicleLength:
+            wheelseyeResult?.vehicleLength ?? makeVehicleLen(chargeableWeight),
+          loadSplit: wheelseyeResult?.loadSplit ?? null,
+        }
+      : null;
 
   return {
     distanceKm,
     ftlQuote,
     wheelseyeQuote,
-    numbers: { ftlPrice, wheelseyePrice, actualWeight, volumetricWeight, chargeableWeight },
+    numbers: {
+      ftlPrice,
+      wheelseyePrice,
+      actualWeight,
+      volumetricWeight,
+      chargeableWeight,
+    },
     wheelseyeRaw: wheelseyeResult,
   };
 }
