@@ -1,6 +1,7 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import Cookies from 'js-cookie';
 import axios from 'axios';
+import http from '../lib/http';
 import { jwtDecode } from 'jwt-decode';
 
 interface JwtPayload {
@@ -76,7 +77,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // ACTUAL API LOGIN
     try {
-      const response = await axios.post("https://tester-backend-4nxc.onrender.com/api/auth/login", {
+      // Use Vite dev proxy in development and baseURL in production via http client
+      const response = await http.post("/api/auth/login", {
         email: lowerEmail,
         password: pass,
       });

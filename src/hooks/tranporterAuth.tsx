@@ -52,7 +52,7 @@ export const TransporterAuthProvider = ({ children }: { children: ReactNode }) =
     pass: string
   ): Promise<{ success: boolean; error?: string }> => {
     try {
-      const response = await axios.post("https://tester-backend-4nxc.onrender.com/api/transporter/auth/login", {
+      const response = await axios.post("https://backend-bcxr.onrender.com/api/transporter/auth/login", {
         email,
         password: pass,
       });

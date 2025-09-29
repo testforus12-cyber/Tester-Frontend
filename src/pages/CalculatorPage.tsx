@@ -38,10 +38,7 @@ import {
   clearStaleCache,
 } from "../lib/compareCache";
 
-// 🔽 Pincode UX/validation entirely from FE (Context + Hook + Autocomplete)
 import PincodeAutocomplete from "../components/PincodeAutocomplete";
-
-// 🔽 FTL + Wheelseye quotes from service (no inline vendor code)
 import { buildFtlAndWheelseyeQuotes } from "../services/wheelseye";
 
 // -----------------------------------------------------------------------------
@@ -52,6 +49,10 @@ const MAX_DIMENSION_WIDTH = 300;
 const MAX_DIMENSION_HEIGHT = 300;
 const MAX_BOXES = 10000;
 const MAX_WEIGHT = 20000;
+
+// Invoice bounds (₹1 .. ₹10,00,00,000)
+const INVOICE_MIN = 1;
+const INVOICE_MAX = 100_000_000; // 10 crores
 
 // -----------------------------------------------------------------------------
 // Numeric + small helpers
@@ -71,6 +72,19 @@ const sanitizeIntegerFromEvent = (raw: string, max?: number) => {
 const formatINR0 = (n: number) =>
   new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(
     Math.round(n / 10) * 10
+  );
+
+// ✅ normalized price reader used everywhere
+const getQuotePrice = (q: any) =>
+  Number(
+    q?.totalCharges ??
+      q?.totalPrice ??
+      q?.total ??
+      q?.grandTotal ??
+      q?.amount ??
+      q?.price ??
+      q?.quote?.price ??
+      NaN
   );
 
 // -----------------------------------------------------------------------------
@@ -199,6 +213,7 @@ type PresetSaveState = "idle" | "saving" | "success" | "exists" | "error";
 const CalculatorPage: React.FC = (): JSX.Element => {
   const { user } = useAuth();
   const token = Cookies.get("authToken");
+  const isSubscribed = Boolean((user as any)?.customer?.isSubscribed);
 
   // UI state
   const [sortBy, setSortBy] = useState<"price" | "time" | "rating">("price");
@@ -207,8 +222,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const [error, setError] = useState<string | null>(null);
 
   // Results
-  const [data, setData] = useState<QuoteAny[] | null>(null);
-  const [hiddendata, setHiddendata] = useState<QuoteAny[] | null>(null);
+  const [data, setData] = useState<QuoteAny[] | null>(null); // tied-up
+  const [hiddendata, setHiddendata] = useState<QuoteAny[] | null>(null); // others
 
   // Form state
   const [modeOfTransport, setModeOfTransport] = useState<
@@ -218,12 +233,16 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const [toPincode, setToPincode] = useState("");
   const [invoiceValue, setInvoiceValue] = useState("");
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
-  // Field errors + validity (frontend-only)
 
+  // Field errors + validity (frontend-only)
   const [fromPinError, setFromPinError] = useState<string | null>(null);
   const [toPinError, setToPinError] = useState<string | null>(null);
   const [isFromPincodeValid, setIsFromPincodeValid] = useState(false);
   const [isToPincodeValid, setIsToPincodeValid] = useState(false);
+
+  // Guards to avoid re-select loops when auto-selecting on 6 digits
+  const fromAutoSelectedRef = useRef(false);
+  const toAutoSelectedRef = useRef(false);
 
   const [boxes, setBoxes] = useState<BoxDetails[]>([
     {
@@ -242,9 +261,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
 
   // Presets & dropdowns
   const [savedBoxes, setSavedBoxes] = useState<SavedBox[]>([]);
-  const [openPresetDropdownIndex, setOpenPresetDropdownIndex] = useState<
-    number | null
-  >(null);
+  const [openPresetDropdownIndex, setOpenPresetDropdownIndex] =
+    useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const presetRefs = useRef<(HTMLDivElement | null)[]>([]);
   const boxFormRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -284,25 +302,34 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     b.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const isSamePincode =
+    fromPincode.length === 6 &&
+    toPincode.length === 6 &&
+    fromPincode === toPincode;
+
   const hasPincodeIssues =
-    !!fromPinError || !!toPinError || !isFromPincodeValid || !isToPincodeValid;
+    !!fromPinError ||
+    !!toPinError ||
+    !isFromPincodeValid ||
+    !isToPincodeValid ||
+    isSamePincode;
 
   // ---------------------------------------------------------------------------
   // Effects
   // ---------------------------------------------------------------------------
   useEffect(() => {
     const pin = (user as any)?.customer?.pincode;
-    if (pin) setFromPincode(String(pin));
-  }, [user]);
+    if (pin && !fromPincode) setFromPincode(String(pin));
+  }, [user, fromPincode]);
 
   useEffect(() => {
     clearStaleCache();
 
     const form = loadFormState();
     if (form) {
-      setFromPincode(form.fromPincode || "");
-      setToPincode(form.toPincode || "");
-      setModeOfTransport(form.modeOfTransport || "Road");
+      if (form.fromPincode) setFromPincode(form.fromPincode);
+      if (form.toPincode) setToPincode(form.toPincode);
+      if (form.modeOfTransport) setModeOfTransport(form.modeOfTransport);
       if (Array.isArray(form.boxes) && form.boxes.length) {
         setBoxes(
           form.boxes.map((b: any) => ({
@@ -313,15 +340,26 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       }
     }
 
+    // Try to restore results from cache and re-apply subscription visibility
     const lastKey = readLastKey();
     if (lastKey) {
       const cached = readCompareCacheByKey(lastKey);
       if (cached) {
-        setData(cached.data || null);
-        setHiddendata(cached.hiddendata || null);
+        const tied = (cached.data || []).map((q: any) => ({
+          ...q,
+          isTiedUp: true,
+          isHidden: false, // never hide tied-up
+        }));
+        const others = (cached.hiddendata || []).map((q: any) => ({
+          ...q,
+          isTiedUp: false,
+          isHidden: !isSubscribed, // hide others if not subscribed
+        }));
+        setData(tied);
+        setHiddendata(others);
       }
     }
-  }, []);
+  }, [isSubscribed]);
 
   useEffect(() => {
     saveFormState({ fromPincode, toPincode, modeOfTransport, boxes });
@@ -347,6 +385,34 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     fetchSavedBoxes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [(user as any)?.customer?._id, token]);
+
+  useEffect(() => {
+    if (
+      fromPincode.length === 6 &&
+      isFromPincodeValid &&
+      !fromAutoSelectedRef.current
+    ) {
+      setFromPinError(null);
+      fromAutoSelectedRef.current = true;
+    }
+    if (fromPincode.length !== 6 || !isFromPincodeValid) {
+      fromAutoSelectedRef.current = false;
+    }
+  }, [fromPincode, isFromPincodeValid]);
+
+  useEffect(() => {
+    if (
+      toPincode.length === 6 &&
+      isToPincodeValid &&
+      !toAutoSelectedRef.current
+    ) {
+      setToPinError(null);
+      toAutoSelectedRef.current = true;
+    }
+    if (toPincode.length !== 6 || !isToPincodeValid) {
+      toAutoSelectedRef.current = false;
+    }
+  }, [toPincode, isToPincodeValid]);
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -412,7 +478,9 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         }`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setSavedBoxes(Array.isArray(response.data.data) ? response.data.data : []);
+      setSavedBoxes(
+        Array.isArray(response.data.data) ? response.data.data : []
+      );
     } catch (err) {
       console.error("Failed to fetch saved boxes:", err);
     }
@@ -427,9 +495,9 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       try {
         await axios.delete(
           `https://backend-bcxr.onrender.com/api/transporter/deletepackinglist/${presetId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
         );
         await fetchSavedBoxes();
       } catch (err: any) {
@@ -463,7 +531,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     setSearchTerm("");
   };
 
-  // -------------------- Frontend Pincode validation (format only; serviceability via FE datasets) --------------------
+  // Frontend Pincode validation
   const validatePincodeFormat = (pin: string): string | null => {
     if (!pin) return "Pincode is required.";
     if (!/^\d{6}$/.test(pin)) return "Enter a 6-digit pincode.";
@@ -479,12 +547,11 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       setErr(msg);
       return false;
     }
-    // Serviceability is handled by PincodeAutocomplete via onValidationChange
     setErr(null);
     return true;
   };
 
-  // -------------------- Inline Save-as-Preset --------------------
+  // Inline Save-as-Preset
   const setPresetStatus = (boxId: string, s: PresetSaveState) =>
     setPresetStatusByBoxId((prev) => ({ ...prev, [boxId]: s }));
 
@@ -493,7 +560,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     const boxId = box.id;
     const name = (box.description || "").trim();
 
-    // Basic checks
     if (!name) {
       setError("Please enter a Box Name before saving.");
       return;
@@ -520,8 +586,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       setError("Selected pincodes are not serviceable.");
       return;
     }
-  
-    // Uniqueness (case-insensitive)
+
     const exists = savedBoxes.some(
       (p) => p.name.toLowerCase() === name.toLowerCase()
     );
@@ -563,7 +628,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         }
       );
       setPresetStatus(boxId, "success");
-      await fetchSavedBoxes(); // refresh dropdown data
+      await fetchSavedBoxes();
       setTimeout(() => setPresetStatus(boxId, "idle"), 1200);
     } catch (err: any) {
       console.error("Failed to save preset:", err);
@@ -575,7 +640,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     }
   };
 
-  // -------------------- Calculate Quotes (with CACHE) --------------------
+  // Calculate Quotes (with CACHE)
   const calculateQuotes = async () => {
     if (isCalculating) return;
 
@@ -589,7 +654,13 @@ const CalculatorPage: React.FC = (): JSX.Element => {
 
     const shipmentPayload: any[] = [];
     for (const box of boxesToCalc) {
-      if (!box.count || !box.length || !box.width || !box.height || !box.weight) {
+      if (
+        !box.count ||
+        !box.length ||
+        !box.width ||
+        !box.height ||
+        !box.weight
+      ) {
         const name = box.description || `Box Type ${boxes.indexOf(box) + 1}`;
         setError(`Please fill in all details for "${name}".`);
         setIsCalculating(false);
@@ -616,28 +687,59 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       else setError("Selected pincodes are not serviceable.");
       return;
     }
-  if (!invoiceValue) {
+
+    if (isSamePincode) {
+      setIsCalculating(false);
+      setError("Origin and Destination pincodes cannot be the same.");
+      return;
+    }
+
+    if (invoiceValue.trim() === "") {
       setIsCalculating(false);
       setInvoiceError("Please enter invoice value");
       setError("Please enter invoice value");
       return;
     }
-
-    if (Number(invoiceValue) <= 0) {
+    const inv = Number(invoiceValue);
+    if (!Number.isFinite(inv)) {
       setIsCalculating(false);
-      setInvoiceError("Invoice value must be greater than 0");
-      setError("Invoice value must be greater than 0");
+      setInvoiceError("Invoice value must be a number");
+      setError("Invoice value must be a number");
       return;
     }
+    if (inv < INVOICE_MIN) {
+      setIsCalculating(false);
+      setInvoiceError(`Minimum invoice value is ₹${INVOICE_MIN}`);
+      setError(`Minimum invoice value is ₹${INVOICE_MIN}`);
+      return;
+    }
+    if (inv > INVOICE_MAX) {
+      setIsCalculating(false);
+      const msg = `Maximum invoice value is ₹${INVOICE_MAX.toLocaleString(
+        "en-IN"
+      )} (10 crores)`;
+      setInvoiceError(msg);
+      setError(msg);
+      return;
+    }
+
     const requestParams = {
       modeoftransport: modeOfTransport,
       fromPincode,
       toPincode,
       shipment_details: shipmentPayload,
-
     };
-    
+
     const cacheKey = makeCompareKey(requestParams);
+
+    const normalizeETA = (q: any) => {
+      const raw = Number(q?.estimatedTime ?? q?.transitDays ?? q?.eta ?? 0);
+      const normalized = Math.max(
+        1,
+        Math.ceil(Number.isFinite(raw) ? raw : 0)
+      );
+      return { ...q, estimatedTime: normalized };
+    };
 
     try {
       const resp = await axios.post(
@@ -649,7 +751,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           fromPincode,
           toPincode,
           shipment_details: shipmentPayload,
-          invoiceValue: Number(invoiceValue),
+          invoiceValue: inv,
         },
         { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
       );
@@ -658,44 +760,47 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         ...(resp.data.tiedUpResult || []).map((q: QuoteAny) => ({
           ...q,
           isTiedUp: true,
+          isHidden: false, // NEVER hide tied-up
         })),
         ...(resp.data.companyResult || []).map((q: QuoteAny) => ({
           ...q,
           isTiedUp: false,
+          // Hide others if not subscribed, show normally if subscribed
+          isHidden: !isSubscribed,
         })),
       ];
 
-      // Keep only one DP World (cheapest) in tied-up
+      // Deduplicate DP World to cheapest in tied-up — use normalized price
       const dpWorldQuotes = all.filter((q) => q.companyName === "DP World");
       const nonDpWorldQuotes = all.filter((q) => q.companyName !== "DP World");
       const cheapestDPWorld =
         dpWorldQuotes.length > 0
           ? dpWorldQuotes.reduce((cheapest, current) =>
-              current.totalCharges < cheapest.totalCharges ? current : cheapest
+              getQuotePrice(current) < getQuotePrice(cheapest)
+                ? current
+                : cheapest
             )
           : null;
 
       let tied = [
         ...nonDpWorldQuotes.filter((q) => q.isTiedUp),
-        ...(cheapestDPWorld ? [{ ...cheapestDPWorld, isTiedUp: true }] : []),
+        ...(cheapestDPWorld ? [{ ...cheapestDPWorld, isTiedUp: true, isHidden: false }] : []),
       ];
       let others = [...nonDpWorldQuotes.filter((q) => !q.isTiedUp)];
 
-      // ---------- Inject Local FTL + Wheelseye via SERVICE ----------
+      // Inject Local FTL + Wheelseye via SERVICE (treated as "others")
       const { ftlQuote, wheelseyeQuote } = await buildFtlAndWheelseyeQuotes({
         fromPincode,
         toPincode,
         shipment: shipmentPayload,
         totalWeight,
         token,
-        // FE-only example check; service can ignore/override
         isWheelseyeServiceArea: (pin: string) => /^\d{6}$/.test(pin),
       });
+      if (ftlQuote) others.unshift({ ...ftlQuote, isTiedUp: false });
+      if (wheelseyeQuote) others.unshift({ ...wheelseyeQuote, isTiedUp: false });
 
-      if (ftlQuote) others.unshift(ftlQuote);
-      if (wheelseyeQuote) others.unshift(wheelseyeQuote);
-
-      // ---------- Optional: price rounding for tied-up vendors ----------
+      // Round certain charges for tied-up vendors (except DP World)
       tied.forEach((quote) => {
         if (quote.companyName === "DP World") return;
         const round5 = (x: number) => Math.round((x * 5.0) / 10) * 10;
@@ -723,11 +828,16 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           quote.rovCharges = round5(quote.rovCharges);
       });
 
-      // Batch state updates
+      // Normalize ETA
+      tied = tied.map(normalizeETA);
+      others = others.map(normalizeETA).map((q) => ({
+        ...q,
+        isHidden: !isSubscribed, // enforce visibility on others
+      }));
+
       setData(tied);
       setHiddendata(others);
 
-      // update cache (async)
       setTimeout(() => {
         writeCompareCache(cacheKey, {
           params: requestParams,
@@ -746,21 +856,28 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       setCalculationProgress("");
       setIsCalculating(false);
       setTimeout(() => {
-        document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
+        document.getElementById("results")?.scrollIntoView({
+          behavior: "smooth",
+        });
       }, 50);
     }
   };
 
-  // -------------------- Keyboard Event Handler --------------------
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey) {
       const hasValidPincodes =
         fromPincode.length === 6 &&
         toPincode.length === 6 &&
         isFromPincodeValid &&
-        isToPincodeValid;
+        isToPincodeValid &&
+        !isSamePincode;
       const hasValidBoxes = boxes.every(
-        (box) => box.count && box.length && box.width && box.height && box.weight
+        (box) =>
+          box.count &&
+          box.length &&
+          box.width &&
+          box.height &&
+          box.weight
       );
       if (hasValidPincodes && hasValidBoxes && !isCalculating) {
         e.preventDefault();
@@ -769,7 +886,12 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     }
   };
 
-  // -------------------- Render --------------------
+  // Render
+  const equalityError =
+    isSamePincode && isFromPincodeValid && isToPincodeValid
+      ? "Origin and Destination cannot be the same."
+      : null;
+
   return (
     <div className="min-h-screen w-full bg-slate-50 font-sans" onKeyDown={handleKeyDown}>
       <div
@@ -842,7 +964,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           </div>
         </Card>
 
-        {/* Pincode Input — FE validation + autofill */}
+        {/* Pincode Input */}
         <Card>
           <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center">
             <Navigation size={22} className="mr-3 text-indigo-500" /> Pickup & Destination
@@ -855,7 +977,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               id="fromPincode"
               value={fromPincode}
               placeholder="e.g., 400001"
-              error={fromPinError}
+              error={fromPinError || equalityError}
               onChange={(value: string) => {
                 setFromPincode(value);
                 setFromPinError(null);
@@ -869,7 +991,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               id="toPincode"
               value={toPincode}
               placeholder="e.g., 110001"
-              error={toPinError}
+              error={toPinError || equalityError}
               onChange={(value: string) => {
                 setToPincode(value);
                 setToPinError(null);
@@ -879,7 +1001,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               onValidationChange={setIsToPincodeValid}
             />
           </div>
-                    <div className="mt-6">
+
+          <div className="mt-6">
             <InputField
               label="Invoice Value (₹)"
               id="invoiceValue"
@@ -890,14 +1013,45 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               icon={<IndianRupee size={16} />}
               value={invoiceValue}
               onChange={(e) => {
-                const value = e.target.value.replace(/\D/g, '');
-                if (value === '' || Number(value) <= 10000000) {
-                  setInvoiceValue(value);
+                const value = e.target.value.replace(/\D/g, "");
+                if (value === "") {
+                  setInvoiceValue("");
+                  setInvoiceError(null);
+                  return;
+                }
+                const num = Number(value);
+                if (num > INVOICE_MAX) {
+                  setInvoiceValue(String(INVOICE_MAX));
+                  setInvoiceError(
+                    `Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`
+                  );
+                } else {
+                  setInvoiceValue(String(num));
                   setInvoiceError(null);
                 }
               }}
+              onBlur={(e) => {
+                const raw = e.currentTarget.value.replace(/\D/g, "");
+                if (raw === "") return;
+                let num = Number(raw);
+                if (num < INVOICE_MIN) {
+                  num = INVOICE_MIN;
+                  setInvoiceError(`Minimum invoice value is ₹${INVOICE_MIN}`);
+                }
+                if (num > INVOICE_MAX) {
+                  num = INVOICE_MAX;
+                  setInvoiceError(
+                    `Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`
+                  );
+                }
+                setInvoiceValue(String(num));
+              }}
               error={invoiceError}
             />
+            <p className="mt-1 text-xs text-slate-500">
+              Allowed range: ₹{INVOICE_MIN.toLocaleString("en-IN")} – ₹
+              {INVOICE_MAX.toLocaleString("en-IN")} (10 crores)
+            </p>
           </div>
         </Card>
 
@@ -1420,9 +1574,12 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                 className="space-y-8"
               >
                 {(() => {
-                  const allQuotes = [...(data || []), ...(hiddendata || [])].filter(
-                    (q) => q.message !== "service not available"
-                  );
+                  // remove service-not-available & zero/invalid prices
+                  const allQuotes = [...(data || []), ...(hiddendata || [])].filter((q) => {
+                    if (q?.message === "service not available") return false;
+                    const p = getQuotePrice(q);
+                    return Number.isFinite(p) && p > 0;
+                  });
 
                   const unlocked = allQuotes.filter(
                     (q) => !q.isHidden && typeof q.estimatedTime === "number"
@@ -1440,12 +1597,14 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                   const processQuotes = (quotes: QuoteAny[] | null) => {
                     if (!quotes) return [];
                     const filtered = quotes.filter((q) => {
+                      const price = getQuotePrice(q);
+                      if (!Number.isFinite(price) || price <= 0) return false;
+
                       const rating = (q?.transporterData?.rating ??
                         q?.rating ??
                         q?.transporterData?.ratingAverage ??
                         0) as number;
 
-                      // Weight-based filtering for FTLs
                       if (
                         q.companyName === "LOCAL FTL" ||
                         q.companyName === "Wheelseye FTL"
@@ -1461,21 +1620,26 @@ const CalculatorPage: React.FC = (): JSX.Element => {
 
                         if (
                           q.companyName === "LOCAL FTL" &&
-                          (!isActualWeightSufficient || !isVolumetricWeightSufficient)
+                          (!isActualWeightSufficient ||
+                            !isVolumetricWeightSufficient)
                         ) {
                           return false;
                         }
                         if (
                           q.companyName === "Wheelseye FTL" &&
-                          !(isActualWeightSufficient || isVolumetricWeightSufficient)
+                          !(isActualWeightSufficient ||
+                            isVolumetricWeightSufficient)
                         ) {
                           return false;
                         }
                       }
 
-                      if (q.isHidden) return (q.totalCharges ?? Infinity) <= maxPrice;
+                      if (q.isHidden) {
+                        // Hidden cards ignore time/rating filters, only cap by price slider
+                        return price <= maxPrice;
+                      }
                       return (
-                        (q.totalCharges ?? Infinity) <= maxPrice &&
+                        price <= maxPrice &&
                         (q.estimatedTime ?? Infinity) <= maxTime &&
                         rating >= minRating
                       );
@@ -1505,8 +1669,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                         }
                         case "price":
                         default: {
-                          const priceA = a.totalCharges ?? Infinity;
-                          const priceB = b.totalCharges ?? Infinity;
+                          const priceA = getQuotePrice(a);
+                          const priceB = getQuotePrice(b);
                           if (priceA === priceB) {
                             const nameA = (
                               a.companyName || a.transporterName || ""
@@ -1542,23 +1706,31 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                     });
                   };
 
-                  const tiedUpVendors = processQuotes(data);
-                  const otherVendors = processQuotes(hiddendata);
+                  const tiedUpVendors = processQuotes(
+                    (data || []).map((q) => ({ ...q, isHidden: false }))
+                  );
+                  const otherVendors = processQuotes(
+                    (hiddendata || []).map((q) => ({
+                      ...q,
+                      isHidden: !isSubscribed || q.isHidden, // enforce on render too
+                    }))
+                  );
 
                   const allProcessedQuotes = [...tiedUpVendors, ...otherVendors];
-                  const processedLowestPrice =
-                    allProcessedQuotes.length > 0
-                      ? Math.min(
-                          ...allProcessedQuotes.map(
-                            (q) => q.totalCharges ?? Infinity
-                          )
-                        )
-                      : Infinity;
+                  const priced = allProcessedQuotes
+                    .map((q) => getQuotePrice(q))
+                    .filter((n) => Number.isFinite(n) && n > 0);
+                  const processedLowestPrice = priced.length
+                    ? Math.min(...priced)
+                    : Infinity;
 
                   const processedBestValueQuotes = allProcessedQuotes.filter(
                     (q) => {
-                      const price = q.totalCharges ?? Infinity;
-                      return Math.abs(price - processedLowestPrice) < 0.01;
+                      const price = getQuotePrice(q);
+                      return (
+                        Number.isFinite(price) &&
+                        Math.abs(price - processedLowestPrice) < 0.01
+                      );
                     }
                   );
 
@@ -1575,7 +1747,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                             {tiedUpVendors.map((item, index) => (
                               <VendorResultCard
                                 key={`tied-${index}`}
-                                quote={item}
+                                quote={{ ...item, isHidden: false }}
                                 isBestValue={processedBestValueQuotes.includes(item)}
                                 isFastest={item === fastestQuote}
                               />
@@ -1593,7 +1765,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                             {otherVendors.map((item, index) => (
                               <VendorResultCard
                                 key={`other-${index}`}
-                                quote={item}
+                                quote={{ ...item, isHidden: !isSubscribed || item.isHidden }}
                                 isBestValue={processedBestValueQuotes.includes(item)}
                                 isFastest={item === fastestQuote}
                               />
@@ -1773,7 +1945,7 @@ const FineTuneModal = ({
 };
 
 // -----------------------------------------------------------------------------
-// Bifurcation Details (unchanged UI)
+// Bifurcation Details
 // -----------------------------------------------------------------------------
 const BifurcationDetails = ({ quote }: { quote: any }) => {
   const formatCurrency = (value: number | undefined) =>
@@ -1971,11 +2143,14 @@ const VendorResultCard = ({
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  const isSubscribed = Boolean((user as any)?.customer?.isSubscribed);
   const isSpecialVendor =
     quote.companyName === "LOCAL FTL" || quote.companyName === "Wheelseye FTL";
 
+  const cardPrice = getQuotePrice(quote);
+  if (!Number.isFinite(cardPrice) || cardPrice <= 0) return null;
+
   const handleMoreDetailsClick = () => {
-    const isSubscribed = (user as any)?.customer?.isSubscribed;
     if (isSubscribed) {
       const transporterId = quote.transporterData?._id;
       if (transporterId) navigate(`/transporterdetails/${transporterId}`);
@@ -1988,34 +2163,41 @@ const VendorResultCard = ({
     }
   };
 
-  if (quote.isHidden) {
+  // Hidden card (blurred gibberish, price visible)
+  if (quote.isHidden && !isSubscribed) {
     return (
       <div
         className={`relative p-5 rounded-2xl border-2 transition-all duration-300 ${
           isSpecialVendor
             ? "bg-yellow-50 border-yellow-300 shadow-lg"
-            : isBestValue
-            ? "bg-white border-green-400 shadow-lg"
             : "bg-white border-slate-200"
         }`}
       >
         <div className="grid grid-cols-1 md:grid-cols-12 items-center gap-4">
-          <div className="md:col-span-5">
-            <h3 className="font-bold text-lg text-slate-700">{quote.companyName}</h3>
-            <p className="text-sm text-slate-500">Time & Details are Hidden</p>
+          <div className="md:col-span-5 select-none">
+            <div className="h-6 w-52 rounded bg-slate-200/70 blur-[2px]" />
+            <p className="mt-2 text-sm text-slate-400 line-clamp-1 select-none">
+              ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░
+            </p>
           </div>
 
-          <div className="md:col-span-2 text-slate-500 text-sm">—</div>
+          <div className="md:col-span-2">
+            <div className="h-5 w-24 rounded bg-slate-200/70 blur-[2px]" />
+            <div className="text-xs text-slate-400 mt-1 select-none">▓ ▒ ░</div>
+          </div>
 
           <div className="md:col-span-3 text-right">
             <div className="flex items-center justify-end gap-1 font-bold text-3xl text-slate-900">
               <IndianRupee size={22} className="text-slate-600" />
-              <span>{formatINR0(quote.totalCharges || 0)}</span>
+              <span>{formatINR0(cardPrice)}</span>
             </div>
           </div>
 
           <div className="md:col-span-2 flex md:justify-end">
-            <button className="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors">
+            <button
+              onClick={() => navigate("/buy-subscription-plan")}
+              className="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors"
+            >
               Unlock to Book
             </button>
           </div>
@@ -2024,6 +2206,7 @@ const VendorResultCard = ({
     );
   }
 
+  // Normal (visible) card
   return (
     <div
       className={`p-5 rounded-2xl border-2 transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${
@@ -2062,8 +2245,8 @@ const VendorResultCard = ({
           <div className="flex items-center justify-center md:justify-start gap-2 font-semibold text-slate-700 text-lg">
             <Clock size={16} className="text-slate-500" />
             <span>
-              {Math.ceil(quote.estimatedTime ?? 0)}{" "}
-              {Math.ceil(quote.estimatedTime ?? 0) === 1 ? "Day" : "Days"}
+              {Math.ceil(quote.estimatedTime ?? 1)}{" "}
+              {Math.ceil(quote.estimatedTime ?? 1) === 1 ? "Day" : "Days"}
             </span>
           </div>
           <div className="text-xs text-slate-500 -mt-1">Estimated Delivery</div>
@@ -2072,7 +2255,7 @@ const VendorResultCard = ({
         <div className="md:col-span-3 text-right">
           <div className="flex items-center justify-end gap-1 font-bold text-3xl text-slate-900">
             <IndianRupee size={22} className="text-slate-600" />
-            <span>{formatINR0(quote.totalCharges || 0)}</span>
+            <span>{formatINR0(cardPrice)}</span>
           </div>
 
           <button

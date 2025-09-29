@@ -24,10 +24,23 @@ function getEnv(name: string): string | undefined {
 const raw =
   getEnv("VITE_API_BASE_URL") ||           // Vite
   getEnv("REACT_APP_URL") ||               // CRA (dev)
-  "https://tester-backend-4nxc.onrender.com"; // fallback
+  "https://backend-bcxr.onrender.com"; // fallback
 
-// always use https and remove trailing slash
-const baseURL = raw.replace(/^http:\/\//i, "https://").replace(/\/$/, "");
+// keep protocol as provided; just remove trailing slash
+const rawNoSlash = raw.replace(/\/$/, "");
+
+// In Vite dev, prefer same-origin requests and use server.proxy unless overridden
+let baseURL = rawNoSlash;
+try {
+  // @ts-ignore
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+    const env: any = (import.meta as any).env;
+    const useProxy = String(env.VITE_USE_PROXY ?? 'true').toLowerCase() !== 'false';
+    if (env.DEV && useProxy) {
+      baseURL = '';
+    }
+  }
+} catch {}
 
 export const http = axios.create({
   baseURL,

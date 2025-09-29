@@ -12,5 +12,13 @@ export default defineConfig({
     // Alternatively, you can specify a specific IP address:
     // host: '192.168.1.100',
     port: 3000, // Or your desired port
+    proxy: {
+      // Forward API calls to backend during development to avoid CORS
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
 });
