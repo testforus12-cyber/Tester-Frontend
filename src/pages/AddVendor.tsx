@@ -106,6 +106,9 @@ const DropdownField = ({
       required={required}
     >
       <option value="">Select {label}</option>
+
+
+      
       {options.map(option => (
         <option key={option.value} value={option.value}>
           {option.label}
@@ -115,6 +118,119 @@ const DropdownField = ({
     {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
   </div>
 );
+
+// HELPER COMPONENT: Combobox Field (Dropdown + Text Input)
+const ComboboxField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onInputChange,
+  options,
+  error,
+  required = true,
+  placeholder = "Type or select company name"
+}: {
+  name: string;
+  label: string;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+  onInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  options: { value: string; label: string }[];
+  error?: string;
+  required?: boolean;
+  placeholder?: string;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [inputValue, setInputValue] = useState(value);
+  const [filteredOptions, setFilteredOptions] = useState(options);
+
+  // Filter options based on input
+  useEffect(() => {
+    if (inputValue) {
+      const filtered = options.filter(option => 
+        option.label.toLowerCase().includes(inputValue.toLowerCase()) && option.value !== ""
+      );
+      setFilteredOptions([
+        { value: "", label: "Select Company Name" },
+        ...filtered
+      ]);
+    } else {
+      setFilteredOptions(options);
+    }
+  }, [inputValue, options]);
+
+  // Update input value when value prop changes
+  useEffect(() => {
+    setInputValue(value);
+  }, [value]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value;
+    setInputValue(newValue);
+    onInputChange(e);
+    setIsOpen(true);
+  };
+
+
+  const handleInputFocus = () => {
+    setIsOpen(true);
+  };
+
+  const handleInputBlur = () => {
+    // Delay closing to allow for option selection
+    setTimeout(() => setIsOpen(false), 200);
+  };
+
+  return (
+    <div className="relative">
+      <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+      
+      {/* Input Field */}
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={inputValue}
+        onChange={handleInputChange}
+        onFocus={handleInputFocus}
+        onBlur={handleInputBlur}
+        placeholder={placeholder}
+        className={`mt-1 block w-full bg-slate-50/70 border rounded-lg shadow-sm px-3 py-2 text-sm text-slate-800 placeholder-slate-400
+                   focus:outline-none focus:ring-1 focus:border-blue-500 transition
+                   ${error ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 focus:ring-blue-500'}`}
+        required={required}
+        autoComplete="off"
+      />
+      
+      {/* Dropdown Options */}
+      {isOpen && filteredOptions.length > 1 && (
+        <div className="absolute z-10 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+          {filteredOptions.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                setInputValue(option.value);
+                onChange({ target: { value: option.value } } as React.ChangeEvent<HTMLSelectElement>);
+                setIsOpen(false);
+              }}
+              className={`w-full px-3 py-2 text-left text-sm hover:bg-blue-100 focus:bg-blue-100 focus:outline-none ${
+                option.value === "" ? 'text-slate-500 italic' : 'text-slate-800'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+      
+      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+    </div>
+  );
+};
 
 // HELPER COMPONENT: RatingSlider
 const RatingSlider = ({
@@ -577,14 +693,6 @@ const DaccChargesField = ({
           <p className="mb-3">
             DACC is a value-added delivery service in which the consignee (receiver of the goods) must present their consignee copy of the Delivery Way Bill (DWB) before the shipment is handed over.
           </p>
-          <div className="bg-slate-50 p-3 rounded border-l-4 border-blue-500">
-            <p className="font-medium text-slate-800 mb-1">Key Points:</p>
-            <ul className="text-xs space-y-1">
-              <li>• This copy acts as an authorization document</li>
-              <li>• Ensures that the right person is collecting the goods</li>
-              <li>• Provides additional security for high-value shipments</li>
-            </ul>
-          </div>
         </div>
         <button
           type="button"
@@ -598,7 +706,7 @@ const DaccChargesField = ({
   </div>
 );
 
-// HELPER COMPONENT: FuelSurchargeField with Dropdown
+// HELPER COMPONENT: FuelSurchargeField with Dropdown and Info Tooltip
 const FuelSurchargeField = ({
   name,
   label,
@@ -608,6 +716,8 @@ const FuelSurchargeField = ({
   onKeyDown,
   showDropdown,
   onToggleDropdown,
+  showTooltip,
+  onToggleTooltip,
   error
 }: {
   name: string;
@@ -618,6 +728,8 @@ const FuelSurchargeField = ({
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   showDropdown: boolean;
   onToggleDropdown: () => void;
+  showTooltip: boolean;
+  onToggleTooltip: () => void;
   error?: string;
 }) => (
   <div className="relative" data-tooltip-container>
@@ -634,17 +746,24 @@ const FuelSurchargeField = ({
         onKeyDown={onKeyDown}
         min="1"
         max="40"
-        className={`block w-full bg-slate-50/70 border rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 transition
+        className={`block w-full bg-slate-50/70 border rounded-lg shadow-sm px-3 py-2 pr-20 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 transition
                    ${error ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 focus:ring-blue-500 focus:border-blue-500'}`}
         required
       />
-      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
         <button
           type="button"
           onClick={onToggleDropdown}
           className="text-slate-400 hover:text-blue-600 transition-colors"
         >
           <ChevronDownIcon className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="text-slate-400 hover:text-blue-600 transition-colors"
+        >
+          <InformationCircleIcon className="h-5 w-5" />
         </button>
       </div>
       
@@ -667,6 +786,36 @@ const FuelSurchargeField = ({
         </div>
       )}
     </div>
+    
+    {showTooltip && (
+      <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+        <div className="text-sm text-slate-700">
+          <h4 className="font-semibold text-slate-800 mb-2">Fuel Surcharge</h4>
+          <p className="mb-3">
+            A percentage markup that carriers apply (varies with diesel/ATF prices). Usually calculated on Base Freight (sometimes on base after minimums are enforced).
+          </p>
+          <div className="bg-slate-50 p-3 rounded border-l-4 border-blue-500">
+            <p className="font-medium text-slate-800 mb-1">Fuel Surcharge Formula:</p>
+            <div className="text-center text-sm font-mono">
+              <strong>Fuel Surcharge = Base Freight × (Fuel % / 100)</strong>
+            </div>
+          </div>
+          <div className="mt-3 space-y-1 text-xs">
+            <p><strong>Base Freight</strong> = the base shipping rate before fuel surcharge</p>
+            <p><strong>Fuel %</strong> = the fuel surcharge percentage (varies with fuel prices)</p>
+            <p><strong>Calculation Basis</strong> = usually on base freight, sometimes after minimums</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+        >
+          ×
+        </button>
+      </div>
+    )}
+    
     {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
   </div>
 );
@@ -784,6 +933,677 @@ const SavedVendorsTable = ({
     </div>
   );
 };
+
+// HELPER COMPONENT: MinWeightField with Info Tooltip
+const MinWeightField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onKeyDown,
+  showTooltip,
+  onToggleTooltip
+}: {
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showTooltip: boolean;
+  onToggleTooltip: () => void;
+}) => (
+  <div className="relative" data-tooltip-container>
+    <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+      {label} <span className="text-red-500">*</span>
+    </label>
+    <div className="mt-1 relative">
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        min="1"
+        max="1000"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        required
+      />
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="text-slate-400 hover:text-blue-600 transition-colors"
+        >
+          <InformationCircleIcon className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+    
+    {showTooltip && (
+      <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+        <div className="text-sm text-slate-700">
+          <h4 className="font-semibold text-slate-800 mb-2">Minimum Billable Weight</h4>
+          <p className="mb-3">
+            The minimum billable weight for a shipment (per docket/consignment, sometimes per piece depending on carrier rules). Even if your actual or volumetric weight is lower, you'll be billed for at least this much.
+          </p>
+          <div className="bg-slate-50 p-3 rounded border-l-4 border-blue-500">
+            <p className="font-medium text-slate-800 mb-1">Billable Weight Formula:</p>
+            <div className="text-center text-sm font-mono">
+              <strong>Billable Weight = max( Min. Weight, max(Actual Weight, Volumetric Weight) )</strong>
+            </div>
+          </div>
+          <div className="mt-3 space-y-1 text-xs">
+            <p><strong>Min. Weight</strong> = minimum billable weight set by carrier</p>
+            <p><strong>Actual Weight</strong> = physical weight of the package</p>
+            <p><strong>Volumetric Weight</strong> = calculated based on package dimensions</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+        >
+          ×
+        </button>
+      </div>
+    )}
+  </div>
+);
+
+// HELPER COMPONENT: DocketChargesField with Info Tooltip
+const DocketChargesField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onKeyDown,
+  showTooltip,
+  onToggleTooltip
+}: {
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showTooltip: boolean;
+  onToggleTooltip: () => void;
+}) => (
+  <div className="relative" data-tooltip-container>
+    <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+      {label} <span className="text-red-500">*</span>
+    </label>
+    <div className="mt-1 relative">
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        min="0"
+        max="500"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        required
+      />
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="text-slate-400 hover:text-blue-600 transition-colors"
+        >
+          <InformationCircleIcon className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+    
+    {showTooltip && (
+      <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+        <div className="text-sm text-slate-700">
+          <h4 className="font-semibold text-slate-800 mb-2">Docket Charges</h4>
+          <p className="mb-3">
+            A flat per-shipment admin charge for creating the waybill/AWB (booking paperwork + system entry). Applied once per docket, independent of weight or distance.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+        >
+          ×
+        </button>
+      </div>
+    )}
+  </div>
+);
+
+// HELPER COMPONENT: MinChargesField with Info Tooltip
+const MinChargesField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onKeyDown,
+  showTooltip,
+  onToggleTooltip
+}: {
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showTooltip: boolean;
+  onToggleTooltip: () => void;
+}) => (
+  <div className="relative" data-tooltip-container>
+    <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+      {label} <span className="text-red-500">*</span>
+    </label>
+    <div className="mt-1 relative">
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        min="1"
+        max="1000"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        required
+      />
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="text-slate-400 hover:text-blue-600 transition-colors"
+        >
+          <InformationCircleIcon className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+    
+    {showTooltip && (
+      <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+        <div className="text-sm text-slate-700">
+          <h4 className="font-semibold text-slate-800 mb-2">Minimum Charges</h4>
+          <p className="mb-3">
+            A floor on the Base Freight amount. If the computed base freight is below this value, the base is bumped up to this minimum before adding surcharges.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+        >
+          ×
+        </button>
+      </div>
+    )}
+  </div>
+);
+
+// HELPER COMPONENT: GreenTaxField with Info Tooltip
+const GreenTaxField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onKeyDown,
+  showTooltip,
+  onToggleTooltip
+}: {
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showTooltip: boolean;
+  onToggleTooltip: () => void;
+}) => (
+  <div className="relative" data-tooltip-container>
+    <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+      {label} <span className="text-red-500">*</span>
+    </label>
+    <div className="mt-1 relative">
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        min="0"
+        max="5000"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        required
+      />
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="text-slate-400 hover:text-blue-600 transition-colors"
+        >
+          <InformationCircleIcon className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+    
+    {showTooltip && (
+      <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+        <div className="text-sm text-slate-700">
+          <h4 className="font-semibold text-slate-800 mb-2">Green Tax</h4>
+          <p className="mb-3">
+            Environmental/municipal cess some lanes/cities levy, or a carrier's eco charge. Usually a flat per-shipment fee in domestic setups (can also be per kg with some carriers—your field is ₹, so treat as flat).
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+        >
+          ×
+        </button>
+      </div>
+    )}
+  </div>
+);
+
+// HELPER COMPONENT: MiscChargesField with Info Tooltip
+const MiscChargesField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onKeyDown,
+  showTooltip,
+  onToggleTooltip
+}: {
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showTooltip: boolean;
+  onToggleTooltip: () => void;
+}) => (
+  <div className="relative" data-tooltip-container>
+    <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+      {label} <span className="text-red-500">*</span>
+    </label>
+    <div className="mt-1 relative">
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        min="0"
+        max="10000"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        required
+      />
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="text-slate-400 hover:text-blue-600 transition-colors"
+        >
+          <InformationCircleIcon className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+    
+    {showTooltip && (
+      <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+        <div className="text-sm text-slate-700">
+          <h4 className="font-semibold text-slate-800 mb-2">Miscellaneous Charges</h4>
+          <p className="mb-3">
+            A catch-all bucket for any other fixed add-ons (e.g., remote area fee, label reprint, address correction). Flat per shipment unless you explicitly implement per-kg variants.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+        >
+          ×
+        </button>
+      </div>
+    )}
+  </div>
+);
+
+// HELPER COMPONENT: HandlingChargesField with Info Tooltip
+const HandlingChargesField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onKeyDown,
+  showTooltip,
+  onToggleTooltip
+}: {
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showTooltip: boolean;
+  onToggleTooltip: () => void;
+}) => (
+  <div className="relative" data-tooltip-container>
+    <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+      {label} <span className="text-red-500">*</span>
+    </label>
+    <div className="mt-1 relative">
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        min="0"
+        max="5000"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        required
+      />
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="text-slate-400 hover:text-blue-600 transition-colors"
+        >
+          <InformationCircleIcon className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+    
+    {showTooltip && (
+      <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+        <div className="text-sm text-slate-700">
+          <h4 className="font-semibold text-slate-800 mb-2">Handling Charges</h4>
+          <p className="mb-3">
+            Extra fee for fragile, heavy, or oversize items needing special care. Applied per shipment (sometimes per kg) when special handling is required.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+        >
+          ×
+        </button>
+      </div>
+    )}
+  </div>
+);
+
+// HELPER COMPONENT: ROVChargesField with Info Tooltip
+const ROVChargesField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onKeyDown,
+  showTooltip,
+  onToggleTooltip
+}: {
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showTooltip: boolean;
+  onToggleTooltip: () => void;
+}) => (
+  <div className="relative" data-tooltip-container>
+    <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+      {label} <span className="text-red-500">*</span>
+    </label>
+    <div className="mt-1 relative">
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        min="0"
+        max="5000"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        required
+      />
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="text-slate-400 hover:text-blue-600 transition-colors"
+        >
+          <InformationCircleIcon className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+    
+    {showTooltip && (
+      <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+        <div className="text-sm text-slate-700">
+          <h4 className="font-semibold text-slate-800 mb-2">ROV (Risk on Value) Charges</h4>
+          <p className="mb-3">
+            Protection premium on the declared invoice value against loss/damage. Charged as a % of value with a minimum amount.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+        >
+          ×
+        </button>
+      </div>
+    )}
+  </div>
+);
+
+// HELPER COMPONENT: CODChargesField with Info Tooltip
+const CODChargesField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onKeyDown,
+  showTooltip,
+  onToggleTooltip
+}: {
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showTooltip: boolean;
+  onToggleTooltip: () => void;
+}) => (
+  <div className="relative" data-tooltip-container>
+    <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+      {label} <span className="text-red-500">*</span>
+    </label>
+    <div className="mt-1 relative">
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        min="0"
+        max="2000"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        required
+      />
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="text-slate-400 hover:text-blue-600 transition-colors"
+        >
+          <InformationCircleIcon className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+    
+    {showTooltip && (
+      <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+        <div className="text-sm text-slate-700">
+          <h4 className="font-semibold text-slate-800 mb-2">COD Charges</h4>
+          <p className="mb-3">
+            Fee for collecting cash from the buyer and remitting it to you. Usually a % of COD amount, with a minimum/maximum cap.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+        >
+          ×
+        </button>
+      </div>
+    )}
+  </div>
+);
+
+// HELPER COMPONENT: ToPayChargesField with Info Tooltip
+const ToPayChargesField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onKeyDown,
+  showTooltip,
+  onToggleTooltip
+}: {
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showTooltip: boolean;
+  onToggleTooltip: () => void;
+}) => (
+  <div className="relative" data-tooltip-container>
+    <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+      {label} <span className="text-red-500">*</span>
+    </label>
+    <div className="mt-1 relative">
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        min="0"
+        max="2000"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        required
+      />
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="text-slate-400 hover:text-blue-600 transition-colors"
+        >
+          <InformationCircleIcon className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+    
+    {showTooltip && (
+      <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+        <div className="text-sm text-slate-700">
+          <h4 className="font-semibold text-slate-800 mb-2">To-Pay Charges</h4>
+          <p className="mb-3">
+            Surcharge when freight is paid by the consignee at destination. Covers destination billing/collection handling; flat or small %.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+        >
+          ×
+        </button>
+      </div>
+    )}
+  </div>
+);
+
+// HELPER COMPONENT: AppointmentChargesField with Info Tooltip
+const AppointmentChargesField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onKeyDown,
+  showTooltip,
+  onToggleTooltip
+}: {
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showTooltip: boolean;
+  onToggleTooltip: () => void;
+}) => (
+  <div className="relative" data-tooltip-container>
+    <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+      {label} <span className="text-red-500">*</span>
+    </label>
+    <div className="mt-1 relative">
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        min="0"
+        max="2000"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        required
+      />
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="text-slate-400 hover:text-blue-600 transition-colors"
+        >
+          <InformationCircleIcon className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+    
+    {showTooltip && (
+      <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+        <div className="text-sm text-slate-700">
+          <h4 className="font-semibold text-slate-800 mb-2">Appointment Charges</h4>
+          <p className="mb-3">
+            Fee for deliveries that need a fixed time slot or prior booking. Applied per appointment/attempt to cover coordination and waiting.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+        >
+          ×
+        </button>
+      </div>
+    )}
+  </div>
+);
 
 // HELPER COMPONENT: VolumetricDivisorField with Info Tooltip
 const VolumetricDivisorField = ({
@@ -930,9 +1750,20 @@ const AddTiedUpCompany = () => {
   // Loading state for pincode auto-fill
   const [isLoadingPincode, setIsLoadingPincode] = useState(false);
   const pincodeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showMinWeightTooltip, setShowMinWeightTooltip] = useState(false);
+  const [showDocketChargesTooltip, setShowDocketChargesTooltip] = useState(false);
+  const [showMinChargesTooltip, setShowMinChargesTooltip] = useState(false);
+  const [showGreenTaxTooltip, setShowGreenTaxTooltip] = useState(false);
+  const [showMiscChargesTooltip, setShowMiscChargesTooltip] = useState(false);
+  const [showHandlingChargesTooltip, setShowHandlingChargesTooltip] = useState(false);
+  const [showRovChargesTooltip, setShowRovChargesTooltip] = useState(false);
+  const [showCodChargesTooltip, setShowCodChargesTooltip] = useState(false);
+  const [showTopayChargesTooltip, setShowTopayChargesTooltip] = useState(false);
+  const [showAppointmentChargesTooltip, setShowAppointmentChargesTooltip] = useState(false);
   const [showVolumetricTooltip, setShowVolumetricTooltip] = useState(false);
   const [showVolumetricDropdown, setShowVolumetricDropdown] = useState(false);
   const [showDaccTooltip, setShowDaccTooltip] = useState(false);
+  const [showFuelTooltip, setShowFuelTooltip] = useState(false);
   const [showFuelDropdown, setShowFuelDropdown] = useState(false);
   const [showHandlingVariableDropdown, setShowHandlingVariableDropdown] = useState(false);
   const [showRovVariableDropdown, setShowRovVariableDropdown] = useState(false);
@@ -943,6 +1774,8 @@ const AddTiedUpCompany = () => {
 
   // Load pincodes dataset from public and derive state options
   const [pincodeData, setPincodeData] = useState<PincodeEntry[]>([]);
+  const [transporterList, setTransporterList] = useState<{ value: string; label: string }[]>([]);
+  const [isLoadingTransporters, setIsLoadingTransporters] = useState(false);
 
   useEffect(() => {
     // Fetch static JSON from public folder at runtime (respect base URL)
@@ -956,6 +1789,64 @@ const AddTiedUpCompany = () => {
         // Fail silently; state dropdown will just be empty
       });
   }, []);
+
+  // Fetch transporter list from backend
+  useEffect(() => {
+    const fetchTransporters = async () => {
+      setIsLoadingTransporters(true);
+      try {
+        const token = Cookies.get("authToken");
+        const response = await axios.get("/api/transporter/getalltransporter", {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        if (response.data.success && response.data.data) {
+          const transporters = response.data.data.map((transporter: any) => ({
+            value: transporter.companyName,
+            label: transporter.companyName
+          }));
+          // Add only the default option and transporter list
+          setTransporterList([
+            { value: "", label: "Select Company Name" },
+            ...transporters
+          ]);
+          toast.success(`Loaded ${transporters.length} transporters`);
+        }
+      } catch (error) {
+        console.error("Error fetching transporters:", error);
+        // Fallback: try alternative endpoint
+        try {
+          const response = await axios.get("https://tester-backend-4nxc.onrender.com/api/transporter/getalltransporter");
+          if (response.data.success && response.data.data) {
+            const transporters = response.data.data.map((transporter: any) => ({
+              value: transporter.companyName,
+              label: transporter.companyName
+            }));
+            // Add only the default option and transporter list
+            setTransporterList([
+              { value: "", label: "Select Company Name" },
+              ...transporters
+            ]);
+          }
+        } catch (fallbackError) {
+          console.error("Fallback transporter fetch failed:", fallbackError);
+        }
+      } finally {
+        setIsLoadingTransporters(false);
+      }
+    };
+
+    fetchTransporters();
+  }, []);
+
+  // Initialize transporter list with default option if empty
+  useEffect(() => {
+    if (transporterList.length === 0 && !isLoadingTransporters) {
+      setTransporterList([
+        { value: "", label: "Select Company Name" }
+      ]);
+    }
+  }, [transporterList.length, isLoadingTransporters]);
 
   // Fast lookup by pincode
   const pincodeMap = useMemo(() => {
@@ -1089,14 +1980,25 @@ const AddTiedUpCompany = () => {
   // Close tooltip and dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (showVolumetricTooltip || showVolumetricDropdown || showDaccTooltip || showFuelDropdown || 
+      if (showMinWeightTooltip || showDocketChargesTooltip || showMinChargesTooltip || showGreenTaxTooltip || showMiscChargesTooltip || showHandlingChargesTooltip || showRovChargesTooltip || showCodChargesTooltip || showTopayChargesTooltip || showAppointmentChargesTooltip || showVolumetricTooltip || showVolumetricDropdown || showDaccTooltip || showFuelTooltip || showFuelDropdown || 
           showHandlingVariableDropdown || showRovVariableDropdown || showCodVariableDropdown || 
           showTopayVariableDropdown || showAppointmentVariableDropdown) {
         const target = event.target as Element;
         if (!target.closest('[data-tooltip-container]') && !target.closest('[data-dropdown-container]')) {
+          setShowMinWeightTooltip(false);
+          setShowDocketChargesTooltip(false);
+          setShowMinChargesTooltip(false);
+          setShowGreenTaxTooltip(false);
+          setShowMiscChargesTooltip(false);
+          setShowHandlingChargesTooltip(false);
+          setShowRovChargesTooltip(false);
+          setShowCodChargesTooltip(false);
+          setShowTopayChargesTooltip(false);
+          setShowAppointmentChargesTooltip(false);
           setShowVolumetricTooltip(false);
           setShowVolumetricDropdown(false);
           setShowDaccTooltip(false);
+          setShowFuelTooltip(false);
           setShowFuelDropdown(false);
           setShowHandlingVariableDropdown(false);
           setShowRovVariableDropdown(false);
@@ -1109,7 +2011,7 @@ const AddTiedUpCompany = () => {
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showVolumetricTooltip, showVolumetricDropdown, showDaccTooltip, showFuelDropdown, 
+  }, [showMinWeightTooltip, showDocketChargesTooltip, showMinChargesTooltip, showGreenTaxTooltip, showMiscChargesTooltip, showHandlingChargesTooltip, showRovChargesTooltip, showCodChargesTooltip, showTopayChargesTooltip, showAppointmentChargesTooltip, showVolumetricTooltip, showVolumetricDropdown, showDaccTooltip, showFuelTooltip, showFuelDropdown, 
       showHandlingVariableDropdown, showRovVariableDropdown, showCodVariableDropdown, 
       showTopayVariableDropdown, showAppointmentVariableDropdown]);
   
@@ -1157,17 +2059,8 @@ const AddTiedUpCompany = () => {
       const truncatedValue = value.substring(0, 20);
       setForm(prev => ({ ...prev, [name]: truncatedValue }));
     } else if (name === 'companyName') {
-      // Allow any text for company name (user can type custom names) - limit to 20 characters
-      const truncatedValue = value.substring(0, 20);
-      setForm(prev => ({ ...prev, [name]: truncatedValue }));
-      
-      // Initialize zone matrix when company name is entered
-      if (truncatedValue.trim() === '') {
-        setSelectedZones([]);
-        setZoneMatrix({});
-      } else {
-        fetchZoneMatrix(truncatedValue);
-      }
+      // Company name is now handled by dropdown onChange, so this is just a fallback
+      setForm(prev => ({ ...prev, [name]: value }));
     } else if (name === 'vendorPhone') {
       // Since onKeyDown prevents non-digits, we just need to limit length
       const truncatedValue = value.substring(0, 10);
@@ -1959,6 +2852,8 @@ const AddTiedUpCompany = () => {
       subVendor: vendor.subVendor || ""
     });
 
+    // Company name will be set directly in the form
+
     // Populate price rate
     setPriceRate(vendor.priceRate || {});
 
@@ -2047,7 +2942,7 @@ const AddTiedUpCompany = () => {
               console.warn("Legacy route failed, trying direct new route:", legacyError.message);
               try {
                 // Try the new route directly
-                res = await axios.post("https://backend-bcxr.onrender.com/api/transporter/add-tied-up", payload, {
+                res = await axios.post("https://tester-backend-4nxc.onrender.com/api/transporter/add-tied-up", payload, {
                   headers: { Authorization: `Bearer ${token}` }
                 });
               } catch (directError: any) {
@@ -2070,7 +2965,7 @@ const AddTiedUpCompany = () => {
       }
 
       if (successCount > 0) {
-        toast.success(`Successfully saved ${successCount} vendor(s) to backend!`, { id: toastId, duration: 4000 });
+        toast.success(`Save ${successCount} Vendor(s) Successfully`, { id: toastId, duration: 4000 });
         
         // Clear saved vendors list after successful backend save
         setSavedVendors([]);
@@ -2111,6 +3006,46 @@ const AddTiedUpCompany = () => {
   };
 
 
+  const toggleMinWeightTooltip = () => {
+    setShowMinWeightTooltip(prev => !prev);
+  };
+
+  const toggleDocketChargesTooltip = () => {
+    setShowDocketChargesTooltip(prev => !prev);
+  };
+
+  const toggleMinChargesTooltip = () => {
+    setShowMinChargesTooltip(prev => !prev);
+  };
+
+  const toggleGreenTaxTooltip = () => {
+    setShowGreenTaxTooltip(prev => !prev);
+  };
+
+  const toggleMiscChargesTooltip = () => {
+    setShowMiscChargesTooltip(prev => !prev);
+  };
+
+  const toggleHandlingChargesTooltip = () => {
+    setShowHandlingChargesTooltip(prev => !prev);
+  };
+
+  const toggleRovChargesTooltip = () => {
+    setShowRovChargesTooltip(prev => !prev);
+  };
+
+  const toggleCodChargesTooltip = () => {
+    setShowCodChargesTooltip(prev => !prev);
+  };
+
+  const toggleTopayChargesTooltip = () => {
+    setShowTopayChargesTooltip(prev => !prev);
+  };
+
+  const toggleAppointmentChargesTooltip = () => {
+    setShowAppointmentChargesTooltip(prev => !prev);
+  };
+
   const toggleVolumetricTooltip = () => {
     setShowVolumetricTooltip(prev => !prev);
   };
@@ -2121,6 +3056,10 @@ const AddTiedUpCompany = () => {
 
   const toggleDaccTooltip = () => {
     setShowDaccTooltip(prev => !prev);
+  };
+
+  const toggleFuelTooltip = () => {
+    setShowFuelTooltip(prev => !prev);
   };
 
   const toggleFuelDropdown = () => {
@@ -2184,15 +3123,46 @@ const AddTiedUpCompany = () => {
         <div className="bg-white p-6 sm:p-8 rounded-xl shadow-sm transition-all">
           <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-4 mb-6">Company Information</h3>
           <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
-            {/* Company Name - Simple Text Input */}
-            <StyledInputField 
-              name="companyName" 
-              label="Company Name" 
-              value={form.companyName} 
-              onChange={handleChange} 
-              placeholder="Enter company name"
-              maxLength={20}
-            />
+            {/* Company Name - Combobox with Transporter List */}
+            <div className="relative">
+              <ComboboxField
+                name="companyName"
+                label="Company Name"
+                value={form.companyName}
+                onChange={(e) => {
+                  const selectedValue = e.target.value;
+                  setForm(prev => ({ ...prev, companyName: selectedValue }));
+                  
+                  // Initialize zone matrix when company name is selected
+                  if (selectedValue.trim() === '') {
+                    setSelectedZones([]);
+                    setZoneMatrix({});
+                  } else {
+                    fetchZoneMatrix(selectedValue);
+                  }
+                }}
+                onInputChange={(e) => {
+                  const inputValue = e.target.value;
+                  setForm(prev => ({ ...prev, companyName: inputValue }));
+                  
+                  // Initialize zone matrix when company name is entered
+                  if (inputValue.trim() === '') {
+                    setSelectedZones([]);
+                    setZoneMatrix({});
+                  } else {
+                    fetchZoneMatrix(inputValue);
+                  }
+                }}
+                options={transporterList}
+                required={true}
+                placeholder="Type or select company name"
+              />
+              {isLoadingTransporters && (
+                <div className="absolute right-3 top-8">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                </div>
+              )}
+            </div>
             
             {/* Sub Vendor - Optional Field */}
             <StyledInputField 
@@ -2316,8 +3286,24 @@ const AddTiedUpCompany = () => {
         <div className="bg-white p-6 sm:p-8 rounded-xl shadow-sm transition-all">
           <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-4 mb-6">Price Rate Configuration</h3>
           <div className="grid grid-cols-2 gap-x-6 gap-y-6 lg:grid-cols-4">
-            <StyledInputField name="minWeight" label="Min. Weight (kg)" type="text" onChange={handleNestedInputChange} onKeyDown={handleMinWeightKeyDown} min={1} max={1000} />
-            <StyledInputField name="docketCharges" label="Docket Charges (₹)" type="text" onChange={handleNestedInputChange} onKeyDown={handleDocketChargesKeyDown} min={0} max={500} />
+            <MinWeightField 
+              name="minWeight" 
+              label="Min. Weight (kg)" 
+              value={priceRate.minWeight || ""} 
+              onChange={handleNestedInputChange}
+              onKeyDown={handleMinWeightKeyDown}
+              showTooltip={showMinWeightTooltip}
+              onToggleTooltip={toggleMinWeightTooltip}
+            />
+            <DocketChargesField 
+              name="docketCharges" 
+              label="Docket Charges (₹)" 
+              value={priceRate.docketCharges || ""} 
+              onChange={handleNestedInputChange}
+              onKeyDown={handleDocketChargesKeyDown}
+              showTooltip={showDocketChargesTooltip}
+              onToggleTooltip={toggleDocketChargesTooltip}
+            />
             <FuelSurchargeField 
               name="fuel" 
               label="Fuel Surcharge (%)" 
@@ -2327,6 +3313,8 @@ const AddTiedUpCompany = () => {
               onKeyDown={handleFuelSurchargeKeyDown}
               showDropdown={showFuelDropdown}
               onToggleDropdown={toggleFuelDropdown}
+              showTooltip={showFuelTooltip}
+              onToggleTooltip={toggleFuelTooltip}
               error={errors.fuel}
             />
             <VolumetricDivisorField 
@@ -2341,8 +3329,24 @@ const AddTiedUpCompany = () => {
               showDropdown={showVolumetricDropdown}
               onToggleDropdown={toggleVolumetricDropdown}
             />
-            <StyledInputField name="minCharges" label="Min. Charges (₹)" type="text" onChange={handleNestedInputChange} onKeyDown={handleMinChargesKeyDown} min={1} max={1000} />
-            <StyledInputField name="greenTax" label="Green Tax (₹)" type="text" onChange={handleNestedInputChange} onKeyDown={handleGreenTaxKeyDown} min={0} max={5000} />
+            <MinChargesField 
+              name="minCharges" 
+              label="Min. Charges (₹)" 
+              value={priceRate.minCharges || ""} 
+              onChange={handleNestedInputChange}
+              onKeyDown={handleMinChargesKeyDown}
+              showTooltip={showMinChargesTooltip}
+              onToggleTooltip={toggleMinChargesTooltip}
+            />
+            <GreenTaxField 
+              name="greenTax" 
+              label="Green Tax (₹)" 
+              value={priceRate.greenTax || ""} 
+              onChange={handleNestedInputChange}
+              onKeyDown={handleGreenTaxKeyDown}
+              showTooltip={showGreenTaxTooltip}
+              onToggleTooltip={toggleGreenTaxTooltip}
+            />
             <DaccChargesField 
               name="daccCharges" 
               label="DACC Charges (₹)" 
@@ -2352,12 +3356,28 @@ const AddTiedUpCompany = () => {
               showTooltip={showDaccTooltip}
               onToggleTooltip={toggleDaccTooltip}
             />
-            <StyledInputField name="miscellanousCharges" label="Misc. Charges (₹)" type="text" onChange={handleNestedInputChange} onKeyDown={handleMiscChargesKeyDown} min={0} max={10000} />
+            <MiscChargesField 
+              name="miscellanousCharges" 
+              label="Misc. Charges (₹)" 
+              value={priceRate.miscellanousCharges || ""} 
+              onChange={handleNestedInputChange}
+              onKeyDown={handleMiscChargesKeyDown}
+              showTooltip={showMiscChargesTooltip}
+              onToggleTooltip={toggleMiscChargesTooltip}
+            />
           </div>
           <div className="mt-8 pt-6 border-t border-slate-200 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
                   <h4 className="font-medium text-slate-700">Handling Charges</h4>
-                  <StyledInputField name="handlingCharges.fixed" label="Fixed Rate (₹)" type="text" onChange={handleNestedInputChange} onKeyDown={(e) => handleChargeFixedKeyDown(e, 5000)} min={0} max={5000} />
+                  <HandlingChargesField 
+                    name="handlingCharges.fixed" 
+                    label="Fixed Rate (₹)" 
+                    value={priceRate.handlingCharges?.fixed || ""} 
+                    onChange={handleNestedInputChange} 
+                    onKeyDown={(e) => handleChargeFixedKeyDown(e, 5000)} 
+                    showTooltip={showHandlingChargesTooltip}
+                    onToggleTooltip={toggleHandlingChargesTooltip}
+                  />
                   <PercentageField 
                     name="handlingCharges.variable" 
                     label="Variable Rate (%)" 
@@ -2377,7 +3397,15 @@ const AddTiedUpCompany = () => {
               </div>
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
                 <h4 className="font-medium text-slate-700">ROV Charges (Risk on Value)</h4>
-                <StyledInputField name="rovCharges.fixed" label="Fixed Rate (₹)" type="text" onChange={handleNestedInputChange} onKeyDown={(e) => handleChargeFixedKeyDown(e, 5000)} min={0} max={5000} />
+                <ROVChargesField 
+                  name="rovCharges.fixed" 
+                  label="Fixed Rate (₹)" 
+                  value={priceRate.rovCharges?.fixed || ""} 
+                  onChange={handleNestedInputChange} 
+                  onKeyDown={(e) => handleChargeFixedKeyDown(e, 5000)} 
+                  showTooltip={showRovChargesTooltip}
+                  onToggleTooltip={toggleRovChargesTooltip}
+                />
                 <PercentageField 
                   name="rovCharges.variable" 
                   label="Variable Rate (%)" 
@@ -2396,7 +3424,15 @@ const AddTiedUpCompany = () => {
                 </div>
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
                 <h4 className="font-medium text-slate-700">COD Charges</h4>
-                <StyledInputField name="codCharges.fixed" label="Fixed Rate (₹)" type="text" onChange={handleNestedInputChange} onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} min={0} max={2000} />
+                <CODChargesField 
+                  name="codCharges.fixed" 
+                  label="Fixed Rate (₹)" 
+                  value={priceRate.codCharges?.fixed || ""} 
+                  onChange={handleNestedInputChange} 
+                  onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} 
+                  showTooltip={showCodChargesTooltip}
+                  onToggleTooltip={toggleCodChargesTooltip}
+                />
                 <PercentageField 
                   name="codCharges.variable" 
                   label="Variable Rate (%)" 
@@ -2414,8 +3450,16 @@ const AddTiedUpCompany = () => {
                 />
               </div>
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
-                <h4 className="font-medium text-slate-700">Topay Charges</h4>
-                <StyledInputField name="topayCharges.fixed" label="Fixed Rate (₹)" type="text" onChange={handleNestedInputChange} onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} min={0} max={2000} />
+                <h4 className="font-medium text-slate-700">To-Pay Charges</h4>
+                <ToPayChargesField 
+                  name="topayCharges.fixed" 
+                  label="Fixed Rate (₹)" 
+                  value={priceRate.topayCharges?.fixed || ""} 
+                  onChange={handleNestedInputChange} 
+                  onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} 
+                  showTooltip={showTopayChargesTooltip}
+                  onToggleTooltip={toggleTopayChargesTooltip}
+                />
                 <PercentageField 
                   name="topayCharges.variable" 
                   label="Variable Rate (%)" 
@@ -2434,7 +3478,15 @@ const AddTiedUpCompany = () => {
               </div>
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
                 <h4 className="font-medium text-slate-700">Appointment Charges</h4>
-                <StyledInputField name="appointmentCharges.fixed" label="Fixed Rate (₹)" type="text" onChange={handleNestedInputChange} onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} min={0} max={2000} />
+                <AppointmentChargesField 
+                  name="appointmentCharges.fixed" 
+                  label="Fixed Rate (₹)" 
+                  value={priceRate.appointmentCharges?.fixed || ""} 
+                  onChange={handleNestedInputChange} 
+                  onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} 
+                  showTooltip={showAppointmentChargesTooltip}
+                  onToggleTooltip={toggleAppointmentChargesTooltip}
+                />
                 <PercentageField 
                   name="appointmentCharges.variable" 
                   label="Variable Rate (%)" 

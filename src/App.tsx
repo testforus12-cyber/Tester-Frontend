@@ -29,6 +29,9 @@ import BiddingPage from './pages/BiddingPage';
 import VehicleInfoPage from './pages/VehicleInfoPage';
 import TestLab from './pages/TestLab';
 
+// ⬇️ NEW: buy page (supports /buy-subscription-plan and /buy-subscription-plan/:vendorSlug)
+import BuySubscriptionPage from './pages/BuySubscriptionPage';
+
 export const PrivateRoute: React.FC<React.PropsWithChildren> = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
 
@@ -214,6 +217,24 @@ function App() {
               element={
                 <MainLayout>
                   <TestLab />
+                </MainLayout>
+              }
+            />
+
+            {/* ⬇️ NEW PUBLIC ROUTES for the buy page (with optional vendor slug) */}
+            <Route
+              path="/buy-subscription-plan"
+              element={
+                <MainLayout>
+                  <BuySubscriptionPage />
+                </MainLayout>
+              }
+            />
+            <Route
+              path="/buy-subscription-plan/:vendorSlug"
+              element={
+                <MainLayout>
+                  <BuySubscriptionPage />
                 </MainLayout>
               }
             />

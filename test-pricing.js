@@ -91,3 +91,4 @@ console.log('- Pricing is based on weight ranges and distance ranges');
 console.log('- Vehicle selection is automatic based on weight');
 console.log('- Fallback mechanisms handle edge cases');
 console.log('- The system is now ready for use in the calculator!');
+

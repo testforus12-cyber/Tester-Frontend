@@ -49,7 +49,7 @@ function resolveApiBase(explicit?: string): string {
     : undefined;
   if (craBase) return stripTrailingSlash(String(craBase));
 
-  return "https://backend-bcxr.onrender.com";
+  return "https://tester-backend-4nxc.onrender.com";
 }
 
 // Shared fetch wrapper

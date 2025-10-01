@@ -1,17 +1,17 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import Cookies from 'js-cookie';
 import axios from 'axios';
+import http from '../lib/http';
 import { jwtDecode } from 'jwt-decode';
 
 // Define the TransporterJwtPayload type according to your JWT payload structure
 type TransporterJwtPayload = {
-  id: string;
+  _id: string;
   email: string;
-  // Add other fields as needed
-  phone: number,
-  companyName: string,
-  isAdmin: string,
-  isTransporter: string
+  phone: number;
+  companyName: string;
+  isAdmin: boolean;
+  isTransporter: boolean;
 };
 
 // Define the context type for TransporterAuth
@@ -52,7 +52,8 @@ export const TransporterAuthProvider = ({ children }: { children: ReactNode }) =
     pass: string
   ): Promise<{ success: boolean; error?: string }> => {
     try {
-      const response = await axios.post("https://backend-bcxr.onrender.com/api/transporter/auth/login", {
+      // Use dev proxy/baseURL via http client and correct backend route
+      const response = await http.post("/api/transporter/auth/signin", {
         email,
         password: pass,
       });
