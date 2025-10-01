@@ -248,7 +248,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const [invoiceValue, setInvoiceValue] = useState("");
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
 
-  // Field errors + validity (frontend-only)
+// Field errors + validity (frontend-only)
   const [fromPinError, setFromPinError] = useState<string | null>(null);
   const [toPinError, setToPinError] = useState<string | null>(null);
   const [isFromPincodeValid, setIsFromPincodeValid] = useState(false);
@@ -257,6 +257,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   // 🔒 Guards to avoid re-select loops when auto-selecting on 6 digits
   const fromAutoSelectedRef = useRef(false);
   const toAutoSelectedRef = useRef(false);
+
+  // 🎯 Track if user has interacted with pincode fields
+  const [fromPinTouched, setFromPinTouched] = useState(false);
+  const [toPinTouched, setToPinTouched] = useState(false);
 
   const [boxes, setBoxes] = useState<BoxDetails[]>([
     {
@@ -992,18 +996,22 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           </h2>
           <p className="text-sm text-slate-500 mb-6">Enter the pickup and destination pincodes.</p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <PincodeAutocomplete
               label="Origin Pincode"
               id="fromPincode"
               value={fromPincode}
               placeholder="e.g., 400001"
-              error={fromPinError || equalityError}
+              error={fromPinTouched ? (fromPinError || equalityError) : null}
               onChange={(value: string) => {
                 setFromPincode(value);
+                setFromPinTouched(true);
                 setFromPinError(null);
               }}
-              onBlur={() => validatePincodeField("from")}
+              onBlur={() => {
+                setFromPinTouched(true);
+                validatePincodeField("from");
+              }}
               onSelect={() => {}}
               onValidationChange={setIsFromPincodeValid}
             />
@@ -1012,12 +1020,16 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               id="toPincode"
               value={toPincode}
               placeholder="e.g., 110001"
-              error={toPinError || equalityError}
+              error={toPinTouched ? (toPinError || equalityError) : null}
               onChange={(value: string) => {
                 setToPincode(value);
+                setToPinTouched(true);
                 setToPinError(null);
               }}
-              onBlur={() => validatePincodeField("to")}
+              onBlur={() => {
+                setToPinTouched(true);
+                validatePincodeField("to");
+              }}
               onSelect={() => {}}
               onValidationChange={setIsToPincodeValid}
             />

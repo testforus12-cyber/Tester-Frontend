@@ -12,9 +12,9 @@ type PincodeEntry = { pincode: string; state: string; city: string; zone?: strin
 // Transport Mode Options
 const TRANSPORT_MODES = [
   { value: "road", label: "Road" },
-  { value: "air", label: "Air - Coming Soon", disabled: true },
-  { value: "rail", label: "Rail - Coming Soon", disabled: true },
-  { value: "ship", label: "Ship - Coming Soon", disabled: true }
+  { value: "air", label: "Air" },
+  { value: "rail", label: "Rail" },
+  { value: "ship", label: "Ship" }
 ];
 
 // HELPER COMPONENT: StyledInputField with Error Support
@@ -87,7 +87,7 @@ const DropdownField = ({
   label: string;
   value: string;
   onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
-  options: { value: string; label: string; disabled?: boolean }[];
+  options: { value: string; label: string }[];
   error?: string;
   required?: boolean;
 }) => (
@@ -110,12 +110,7 @@ const DropdownField = ({
 
       
       {options.map(option => (
-        <option 
-          key={option.value} 
-          value={option.value}
-          disabled={option.disabled}
-          className={option.disabled ? 'text-slate-400 bg-slate-100' : ''}
-        >
+        <option key={option.value} value={option.value}>
           {option.label}
         </option>
       ))}
@@ -278,20 +273,19 @@ const RatingSlider = ({
 const VOLUMETRIC_DIVISOR_OPTIONS = [
   { value: "2800", label: "2800" },
   { value: "3000", label: "3000" },
-  { value: "3250", label: "3250" },
+  { value: "3200", label: "3200" },
   { value: "3500", label: "3500" },
-  { value: "3750", label: "3750" },
+  { value: "3800", label: "3800" },
   { value: "4000", label: "4000" },
   { value: "4200", label: "4200" },
   { value: "4500", label: "4500" },
-  { value: "4750", label: "4750" },
+  { value: "4800", label: "4800" },
   { value: "5000", label: "5000" },
   { value: "5200", label: "5200" },
   { value: "5500", label: "5500" },
-  { value: "5750", label: "5750" },
+  { value: "5800", label: "5800" },
   { value: "6000", label: "6000" },
-  { value: "7000", label: "7000" },
-  { value: "7500", label: "7500" }
+  { value: "7000", label: "7000" }
 ];
 
 // Fuel Surcharge Options
@@ -306,40 +300,13 @@ const FUEL_SURCHARGE_OPTIONS = [
   { value: "40", label: "40" }
 ];
 
-// Docket Charges Options
-const DOCKET_CHARGES_OPTIONS = [
-  { value: "100", label: "₹ 100" },
-  { value: "150", label: "₹ 150" },
-  { value: "200", label: "₹ 200" },
-  { value: "250", label: "₹ 250" },
-  { value: "300", label: "₹ 300" },
-  { value: "350", label: "₹ 350" },
-  { value: "400", label: "₹ 400" },
-  { value: "450", label: "₹ 450" },
-  { value: "500", label: "₹ 500" }
-];
-
-// Percentage Options (0.1-5%)
+// Percentage Options (1-5%)
 const PERCENTAGE_OPTIONS = [
-  { value: "0.1", label: "0.1%" },
-  { value: "0.2", label: "0.2%" },
-  { value: "0.3", label: "0.3%" },
-  { value: "0.4", label: "0.4%" },
-  { value: "0.5", label: "0.5%" },
-  { value: "0.6", label: "0.6%" },
-  { value: "0.7", label: "0.7%" },
-  { value: "0.8", label: "0.8%" },
-  { value: "0.9", label: "0.9%" },
-  { value: "1", label: "1.00%" },
-  { value: "1.25", label: "1.25%" },
-  { value: "1.50", label: "1.50%" },
-  { value: "1.75", label: "1.75%" },
-  { value: "2.00", label: "2.00%" },
-  { value: "2.25", label: "2.25%" },
-  { value: "2.50", label: "2.50%" },
-  { value: "3.00", label: "3.00%" },
-  { value: "4.00", label: "4.00%" },
-  { value: "5.00", label: "5.00%" }
+  { value: "1", label: "1%" },
+  { value: "2", label: "2%" },
+  { value: "3", label: "3%" },
+  { value: "4", label: "4%" },
+  { value: "5", label: "5%" }
 ];
 
 // Zone Structure for Chart Zonal
@@ -648,7 +615,7 @@ const PercentageField = ({
           onClick={onToggleDropdown}
           className="text-slate-400 hover:text-blue-600 transition-colors"
         >
-          <ChevronDownIcon className="h-4 w-4 font-bold text-black" />
+          <ChevronDownIcon className="h-4 w-4" />
         </button>
       </div>
       
@@ -789,7 +756,7 @@ const FuelSurchargeField = ({
           onClick={onToggleDropdown}
           className="text-slate-400 hover:text-blue-600 transition-colors"
         >
-          <ChevronDownIcon className="h-4 w-4 font-bold text-black" />
+          <ChevronDownIcon className="h-4 w-4" />
         </button>
         <button
           type="button"
@@ -998,7 +965,7 @@ const MinWeightField = ({
         onChange={onChange}
         onKeyDown={onKeyDown}
         min="1"
-        max="10000"
+        max="1000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
@@ -1044,16 +1011,13 @@ const MinWeightField = ({
   </div>
 );
 
-// HELPER COMPONENT: DocketChargesField with Dropdown and Info Tooltip
+// HELPER COMPONENT: DocketChargesField with Info Tooltip
 const DocketChargesField = ({
   name,
   label,
   value,
   onChange,
-  onSelectChange,
   onKeyDown,
-  showDropdown,
-  onToggleDropdown,
   showTooltip,
   onToggleTooltip
 }: {
@@ -1061,10 +1025,7 @@ const DocketChargesField = ({
   label: string;
   value: string | number;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onSelectChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
-  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  showDropdown: boolean;
-  onToggleDropdown: () => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   showTooltip: boolean;
   onToggleTooltip: () => void;
 }) => (
@@ -1080,19 +1041,12 @@ const DocketChargesField = ({
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
-        min="100"
+        min="0"
         max="500"
-        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-20 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
-      <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
-        <button
-          type="button"
-          onClick={onToggleDropdown}
-          className="text-slate-400 hover:text-blue-600 transition-colors"
-        >
-          <ChevronDownIcon className="h-4 w-4 font-bold text-black" />
-        </button>
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
         <button
           type="button"
           onClick={onToggleTooltip}
@@ -1101,25 +1055,6 @@ const DocketChargesField = ({
           <InformationCircleIcon className="h-5 w-5" />
         </button>
       </div>
-      
-      {/* Dropdown Options */}
-      {showDropdown && (
-        <div className="absolute z-10 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-          {DOCKET_CHARGES_OPTIONS.map(option => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => {
-                onSelectChange({ target: { value: option.value } } as React.ChangeEvent<HTMLSelectElement>);
-                onToggleDropdown();
-              }}
-              className="w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-blue-100 focus:bg-blue-100 focus:outline-none"
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
     </div>
     
     {showTooltip && (
@@ -1173,7 +1108,7 @@ const MinChargesField = ({
         onChange={onChange}
         onKeyDown={onKeyDown}
         min="1"
-        max="10000"
+        max="1000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
@@ -1706,7 +1641,7 @@ const VolumetricDivisorField = ({
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
-        max="7500"
+        max="7000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-20 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
@@ -1716,7 +1651,7 @@ const VolumetricDivisorField = ({
           onClick={onToggleDropdown}
           className="text-slate-400 hover:text-blue-600 transition-colors"
         >
-          <ChevronDownIcon className="h-4 w-4 font-bold text-black" />
+          <ChevronDownIcon className="h-4 w-4" />
         </button>
         <button
           type="button"
@@ -1830,7 +1765,6 @@ const AddTiedUpCompany = () => {
   const [showDaccTooltip, setShowDaccTooltip] = useState(false);
   const [showFuelTooltip, setShowFuelTooltip] = useState(false);
   const [showFuelDropdown, setShowFuelDropdown] = useState(false);
-  const [showDocketDropdown, setShowDocketDropdown] = useState(false);
   const [showHandlingVariableDropdown, setShowHandlingVariableDropdown] = useState(false);
   const [showRovVariableDropdown, setShowRovVariableDropdown] = useState(false);
   const [showCodVariableDropdown, setShowCodVariableDropdown] = useState(false);
@@ -2046,7 +1980,7 @@ const AddTiedUpCompany = () => {
   // Close tooltip and dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (showMinWeightTooltip || showDocketChargesTooltip || showMinChargesTooltip || showGreenTaxTooltip || showMiscChargesTooltip || showHandlingChargesTooltip || showRovChargesTooltip || showCodChargesTooltip || showTopayChargesTooltip || showAppointmentChargesTooltip || showVolumetricTooltip || showVolumetricDropdown || showDaccTooltip || showFuelTooltip || showFuelDropdown || showDocketDropdown ||
+      if (showMinWeightTooltip || showDocketChargesTooltip || showMinChargesTooltip || showGreenTaxTooltip || showMiscChargesTooltip || showHandlingChargesTooltip || showRovChargesTooltip || showCodChargesTooltip || showTopayChargesTooltip || showAppointmentChargesTooltip || showVolumetricTooltip || showVolumetricDropdown || showDaccTooltip || showFuelTooltip || showFuelDropdown || 
           showHandlingVariableDropdown || showRovVariableDropdown || showCodVariableDropdown || 
           showTopayVariableDropdown || showAppointmentVariableDropdown) {
         const target = event.target as Element;
@@ -2066,7 +2000,6 @@ const AddTiedUpCompany = () => {
           setShowDaccTooltip(false);
           setShowFuelTooltip(false);
           setShowFuelDropdown(false);
-          setShowDocketDropdown(false);
           setShowHandlingVariableDropdown(false);
           setShowRovVariableDropdown(false);
           setShowCodVariableDropdown(false);
@@ -2078,7 +2011,7 @@ const AddTiedUpCompany = () => {
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showMinWeightTooltip, showDocketChargesTooltip, showMinChargesTooltip, showGreenTaxTooltip, showMiscChargesTooltip, showHandlingChargesTooltip, showRovChargesTooltip, showCodChargesTooltip, showTopayChargesTooltip, showAppointmentChargesTooltip, showVolumetricTooltip, showVolumetricDropdown, showDaccTooltip, showFuelTooltip, showFuelDropdown, showDocketDropdown,
+  }, [showMinWeightTooltip, showDocketChargesTooltip, showMinChargesTooltip, showGreenTaxTooltip, showMiscChargesTooltip, showHandlingChargesTooltip, showRovChargesTooltip, showCodChargesTooltip, showTopayChargesTooltip, showAppointmentChargesTooltip, showVolumetricTooltip, showVolumetricDropdown, showDaccTooltip, showFuelTooltip, showFuelDropdown, 
       showHandlingVariableDropdown, showRovVariableDropdown, showCodVariableDropdown, 
       showTopayVariableDropdown, showAppointmentVariableDropdown]);
   
@@ -2313,8 +2246,8 @@ const AddTiedUpCompany = () => {
     const newValue = currentValue + e.key;
     const numValue = parseFloat(newValue);
     
-    // Prevent typing if the new value would be outside 0-7500 range
-    if (numValue > 7500) {
+    // Prevent typing if the new value would be outside 0-7000 range
+    if (numValue > 7000) {
       e.preventDefault();
       return;
     }
@@ -2325,7 +2258,7 @@ const AddTiedUpCompany = () => {
     }
   };
 
-  // KeyDown handler for minCharges - only allow digits 1-10000 range
+  // KeyDown handler for minCharges - only allow digits 1-1000 range
   const handleMinChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
     if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
@@ -2346,19 +2279,19 @@ const AddTiedUpCompany = () => {
     const newValue = currentValue + e.key;
     const numValue = parseFloat(newValue);
     
-    // Prevent typing if the new value would be outside 1-10000 range
-    if (numValue > 10000) {
+    // Prevent typing if the new value would be outside 1-1000 range
+    if (numValue > 1000) {
       e.preventDefault();
       return;
     }
     
-    // Prevent more than 3 consecutive zeros at the beginning
-    if (e.key === '0' && currentValue.startsWith('000')) {
+    // Prevent more than 2 consecutive zeros at the beginning
+    if (e.key === '0' && currentValue.startsWith('00')) {
       e.preventDefault();
     }
   };
 
-  // KeyDown handler for greenTax - only allow digits 0-10000 range
+  // KeyDown handler for greenTax - only allow digits 0-5000 range
   const handleGreenTaxKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
     if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
@@ -2379,8 +2312,8 @@ const AddTiedUpCompany = () => {
     const newValue = currentValue + e.key;
     const numValue = parseFloat(newValue);
     
-    // Prevent typing if the new value would be outside 0-10000 range
-    if (numValue > 10000) {
+    // Prevent typing if the new value would be outside 0-5000 range
+    if (numValue > 5000) {
       e.preventDefault();
       return;
     }
@@ -2524,7 +2457,7 @@ const AddTiedUpCompany = () => {
     }
   };
 
-  // KeyDown handler for percentage fields - allow decimals 0.1-5.0 range
+  // KeyDown handler for percentage fields - only allow digits 0-5 range
   const handlePercentageKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
     if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
@@ -2534,8 +2467,8 @@ const AddTiedUpCompany = () => {
       return;
     }
     
-    // Allow digits (0-9) and decimal point
-    if (!/^[0-9.]$/.test(e.key)) {
+    // Allow only digits (0-9)
+    if (!/^[0-9]$/.test(e.key)) {
       e.preventDefault();
       return;
     }
@@ -2545,22 +2478,15 @@ const AddTiedUpCompany = () => {
     const newValue = currentValue + e.key;
     const numValue = parseFloat(newValue);
     
-    // Prevent typing if the new value would be outside 0.1-5.0 range
-    if (numValue > 5.0) {
+    // Prevent typing if the new value would be outside 0-5 range
+    if (numValue > 5) {
       e.preventDefault();
       return;
     }
     
-    // Prevent multiple decimal points
-    if (e.key === '.' && currentValue.includes('.')) {
+    // Prevent more than 1 consecutive zero at the beginning
+    if (e.key === '0' && currentValue.startsWith('0')) {
       e.preventDefault();
-      return;
-    }
-    
-    // Prevent more than 2 decimal places
-    if (currentValue.includes('.') && currentValue.split('.')[1]?.length >= 2) {
-      e.preventDefault();
-      return;
     }
   };
 
@@ -2617,8 +2543,8 @@ const AddTiedUpCompany = () => {
     const { name, value } = e.target;
     if (parseFloat(value) < 0) return;
     
-    // Special validation for divisor field - max value 7500
-    if (name === "divisor" && parseFloat(value) > 7500) return;
+    // Special validation for divisor field - max value 7000
+    if (name === "divisor" && parseFloat(value) > 7000) return;
     
     // Special validation for minWeight field - range 1-1000
     if (name === "minWeight" && value && (parseFloat(value) < 1 || parseFloat(value) > 1000)) return;
@@ -2629,11 +2555,11 @@ const AddTiedUpCompany = () => {
     // Special validation for fuel field - range 1-40 (but will show error for 1-4)
     if (name === "fuel" && value && (parseFloat(value) < 1 || parseFloat(value) > 40)) return;
     
-    // Special validation for minCharges field - range 1-10000
-    if (name === "minCharges" && value && (parseFloat(value) < 1 || parseFloat(value) > 10000)) return;
+    // Special validation for minCharges field - range 1-1000
+    if (name === "minCharges" && value && (parseFloat(value) < 1 || parseFloat(value) > 1000)) return;
     
-    // Special validation for greenTax field - range 0-10000
-    if (name === "greenTax" && value && (parseFloat(value) < 0 || parseFloat(value) > 10000)) return;
+    // Special validation for greenTax field - range 0-5000
+    if (name === "greenTax" && value && (parseFloat(value) < 0 || parseFloat(value) > 5000)) return;
     
     // Special validation for daccCharges field - range 0-1000
     if (name === "daccCharges" && value && (parseFloat(value) < 0 || parseFloat(value) > 1000)) return;
@@ -2653,26 +2579,26 @@ const AddTiedUpCompany = () => {
     // Special validation for rovCharges.fixed field - range 0-5000
     if (name === "rovCharges.fixed" && value && (parseFloat(value) < 0 || parseFloat(value) > 5000)) return;
     
-    // Special validation for rovCharges.variable field - range 0.1-5.0
-    if (name === "rovCharges.variable" && value && (parseFloat(value) < 0.1 || parseFloat(value) > 5.0)) return;
+    // Special validation for rovCharges.variable field - range 0-5
+    if (name === "rovCharges.variable" && value && (parseFloat(value) < 0 || parseFloat(value) > 5)) return;
     
     // Special validation for codCharges.fixed field - range 0-2000
     if (name === "codCharges.fixed" && value && (parseFloat(value) < 0 || parseFloat(value) > 2000)) return;
     
-    // Special validation for codCharges.variable field - range 0.1-5.0
-    if (name === "codCharges.variable" && value && (parseFloat(value) < 0.1 || parseFloat(value) > 5.0)) return;
+    // Special validation for codCharges.variable field - range 0-5
+    if (name === "codCharges.variable" && value && (parseFloat(value) < 0 || parseFloat(value) > 5)) return;
     
     // Special validation for topayCharges.fixed field - range 0-2000
     if (name === "topayCharges.fixed" && value && (parseFloat(value) < 0 || parseFloat(value) > 2000)) return;
     
-    // Special validation for topayCharges.variable field - range 0.1-5.0
-    if (name === "topayCharges.variable" && value && (parseFloat(value) < 0.1 || parseFloat(value) > 5.0)) return;
+    // Special validation for topayCharges.variable field - range 0-5
+    if (name === "topayCharges.variable" && value && (parseFloat(value) < 0 || parseFloat(value) > 5)) return;
     
     // Special validation for appointmentCharges.fixed field - range 0-2000
     if (name === "appointmentCharges.fixed" && value && (parseFloat(value) < 0 || parseFloat(value) > 2000)) return;
     
-    // Special validation for appointmentCharges.variable field - range 0.1-5.0
-    if (name === "appointmentCharges.variable" && value && (parseFloat(value) < 0.1 || parseFloat(value) > 5.0)) return;
+    // Special validation for appointmentCharges.variable field - range 0-5
+    if (name === "appointmentCharges.variable" && value && (parseFloat(value) < 0 || parseFloat(value) > 5)) return;
     
     const keys = name.split(".");
     setPriceRate((prev: any) => {
@@ -3140,10 +3066,6 @@ const AddTiedUpCompany = () => {
     setShowFuelDropdown(prev => !prev);
   };
 
-  const toggleDocketDropdown = () => {
-    setShowDocketDropdown(prev => !prev);
-  };
-
   const toggleHandlingVariableDropdown = () => {
     setShowHandlingVariableDropdown(prev => !prev);
   };
@@ -3185,16 +3107,6 @@ const AddTiedUpCompany = () => {
       }));
       // Clear error when valid option is selected
       setErrors(prev => ({ ...prev, fuel: "" }));
-    }
-  };
-
-  const handleDocketChargesSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value;
-    if (value) {
-      setPriceRate((prev: any) => ({
-        ...prev,
-        docketCharges: parseFloat(value)
-      }));
     }
   };
 
@@ -3388,10 +3300,7 @@ const AddTiedUpCompany = () => {
               label="Docket Charges (₹)" 
               value={priceRate.docketCharges || ""} 
               onChange={handleNestedInputChange}
-              onSelectChange={handleDocketChargesSelect}
               onKeyDown={handleDocketChargesKeyDown}
-              showDropdown={showDocketDropdown}
-              onToggleDropdown={toggleDocketDropdown}
               showTooltip={showDocketChargesTooltip}
               onToggleTooltip={toggleDocketChargesTooltip}
             />
@@ -3410,7 +3319,7 @@ const AddTiedUpCompany = () => {
             />
             <VolumetricDivisorField 
               name="divisor" 
-              label="Volumetric Divisor (L x B x H)/" 
+              label="Volumetric Divisor (L x B x H)" 
               value={priceRate.divisor || ""} 
               onChange={handleNestedInputChange}
               onSelectChange={handleVolumetricDivisorSelect}
