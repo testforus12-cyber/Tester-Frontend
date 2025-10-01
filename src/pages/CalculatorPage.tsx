@@ -254,6 +254,9 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const [isFromPincodeValid, setIsFromPincodeValid] = useState(false);
   const [isToPincodeValid, setIsToPincodeValid] = useState(false);
 
+  // NEW: render errors only after user tries to calculate
+  const [submitted, setSubmitted] = useState(false);
+
   // 🔒 Guards to avoid re-select loops when auto-selecting on 6 digits
   const fromAutoSelectedRef = useRef(false);
   const toAutoSelectedRef = useRef(false);
@@ -535,7 +538,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     setSearchTerm("");
   };
 
-  // -------------------- Frontend Pincode validation --------------------
+  // -------------------- Frontend Pincode validation (DEFERRED) --------------------
   const validatePincodeFormat = (pin: string): string | null => {
     if (!pin) return "Pincode is required.";
     if (!/^\d{6}$/.test(pin)) return "Enter a 6-digit pincode.";
@@ -543,16 +546,16 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     return null;
   };
 
-  const validatePincodeField = async (which: "from" | "to") => {
+  // Set field error only if we already attempted submit
+  const validatePincodeField = (which: "from" | "to"): boolean => {
     const pin = which === "from" ? fromPincode : toPincode;
-    const setErr = which === "from" ? setFromPinError : setToPinError;
-    const msg = validatePincodeFormat(pin);
-    if (msg) {
-      setErr(msg);
-      return false;
+    const err = validatePincodeFormat(pin);
+
+    if (submitted) {
+      if (which === "from") setFromPinError(err);
+      else setToPinError(err);
     }
-    setErr(null);
-    return true;
+    return !err;
   };
 
   // -------------------- Inline Save-as-Preset --------------------
@@ -650,6 +653,40 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const calculateQuotes = async () => {
     if (isCalculating) return;
 
+    // turn on error rendering and validate now
+    if (!submitted) setSubmitted(true);
+
+    const okFrom = validatePincodeField("from");
+    const okTo = validatePincodeField("to");
+
+    // same-pincode check only at submit-time
+    if (fromPincode && toPincode && fromPincode === toPincode) {
+      setFromPinError("Origin and Destination cannot be the same.");
+      setToPinError("Origin and Destination cannot be the same.");
+    }
+
+    // block early if format/serviceability not ok
+    if (
+      !okFrom ||
+      !okTo ||
+      !isFromPincodeValid ||
+      !isToPincodeValid ||
+      (fromPincode && toPincode && fromPincode === toPincode)
+    ) {
+      setError(
+        !okFrom && !okTo
+          ? "Origin and Destination pincodes are invalid."
+          : !okFrom
+          ? "Origin pincode is invalid."
+          : !okTo
+          ? "Destination pincode is invalid."
+          : fromPincode === toPincode
+          ? "Origin and Destination pincodes cannot be the same."
+          : "Selected pincodes are not serviceable."
+      );
+      return;
+    }
+
     setIsCalculating(true);
     setError(null);
     setData(null);
@@ -679,26 +716,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         height: box.height,
         weight: box.weight,
       });
-    }
-
-    const [okFrom, okTo] = await Promise.all([
-      validatePincodeField("from"),
-      validatePincodeField("to"),
-    ]);
-    if (!okFrom || !okTo || !isFromPincodeValid || !isToPincodeValid) {
-      setIsCalculating(false);
-      if (!okFrom && !okTo) setError("Origin and Destination pincodes are invalid.");
-      else if (!okFrom) setError("Origin pincode is invalid.");
-      else if (!okTo) setError("Destination pincode is invalid.");
-      else setError("Selected pincodes are not serviceable.");
-      return;
-    }
-
-    // 🚫 Same pincode check
-    if (isSamePincode) {
-      setIsCalculating(false);
-      setError("Origin and Destination pincodes cannot be the same.");
-      return;
     }
 
     // ✅ Invoice value: enforce 1 .. 10 crores
@@ -998,12 +1015,14 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               id="fromPincode"
               value={fromPincode}
               placeholder="e.g., 400001"
-              error={fromPinError || equalityError}
+              // show error ONLY after submit
+              error={submitted ? (fromPinError || equalityError) : null}
               onChange={(value: string) => {
                 setFromPincode(value);
-                setFromPinError(null);
+                if (submitted) setFromPinError(null);
               }}
-              onBlur={() => validatePincodeField("from")}
+              // no onBlur validation (we validate on Calculate)
+              onBlur={undefined}
               onSelect={() => {}}
               onValidationChange={setIsFromPincodeValid}
             />
@@ -1012,12 +1031,12 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               id="toPincode"
               value={toPincode}
               placeholder="e.g., 110001"
-              error={toPinError || equalityError}
+              error={submitted ? (toPinError || equalityError) : null}
               onChange={(value: string) => {
                 setToPincode(value);
-                setToPinError(null);
+                if (submitted) setToPinError(null);
               }}
-              onBlur={() => validatePincodeField("to")}
+              onBlur={undefined}
               onSelect={() => {}}
               onValidationChange={setIsToPincodeValid}
             />
@@ -1436,7 +1455,8 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               )}
               <button
                 onClick={calculateQuotes}
-                disabled={isCalculating || isAnyDimensionExceeded || hasPincodeIssues}
+                // allow click; validation happens inside handler
+                disabled={isCalculating || isAnyDimensionExceeded}
                 className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-indigo-600 text-white text-lg font-bold rounded-full shadow-lg shadow-indigo-500/50 hover:bg-indigo-700 transition-all duration-200 disabled:opacity-60 disabled:shadow-none disabled:cursor-not-allowed transform hover:scale-105 active:scale-95"
               >
                 {isCalculating ? <Loader2 className="animate-spin" /> : <CalculatorIcon />}
@@ -2191,67 +2211,65 @@ const VendorResultCard = ({
   };
 
   // Hidden card (LEFT side blurred; price + CTA visible)
-// Hidden card (LEFT side blurred; price + CTA visible)
-// ⬇️ Replace your current hidden-card return with this one
-if (quote.isHidden && !isSubscribed) {
-  const bestValueStyles = isBestValue
-    ? "border-green-400 shadow-lg"
-    : "border-slate-200";
+  if (quote.isHidden && !isSubscribed) {
+    const bestValueStyles = isBestValue
+      ? "border-green-400 shadow-lg"
+      : "border-slate-200";
 
-  return (
-    <div
-      className={`relative p-5 rounded-2xl border-2 transition-all duration-300 ${
-        isSpecialVendor
-          ? `bg-yellow-50 border-yellow-300 ${isBestValue ? "border-green-400" : ""}`
-          : `bg-white ${bestValueStyles}`
-      }`}
-    >
-      {/* Best Value badge stays visible (not blurred) */}
-      {isBestValue && (
-        <div className="absolute -top-2 -left-2">
-          <span className="inline-flex items-center gap-1.5 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full shadow">
-            Best Value
-          </span>
-        </div>
-      )}
+    return (
+      <div
+        className={`relative p-5 rounded-2xl border-2 transition-all duration-300 ${
+          isSpecialVendor
+            ? `bg-yellow-50 border-yellow-300 ${isBestValue ? "border-green-400" : ""}`
+            : `bg-white ${bestValueStyles}`
+        }`}
+      >
+        {/* Best Value badge stays visible (not blurred) */}
+        {isBestValue && (
+          <div className="absolute -top-2 -left-2">
+            <span className="inline-flex items-center gap-1.5 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full shadow">
+              Best Value
+            </span>
+          </div>
+        )}
 
-      <div className="grid grid-cols-1 md:grid-cols-12 items-center gap-4">
-        {/* LEFT: blurred / anonymized vendor info */}
-        <div className="md:col-span-5 select-none">
-          <div className="h-6 w-52 rounded bg-slate-200/70 blur-[2px]" />
-          <p className="mt-2 text-sm text-slate-400 line-clamp-1 select-none">
-            ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░
-          </p>
-        </div>
+        <div className="grid grid-cols-1 md:grid-cols-12 items-center gap-4">
+          {/* LEFT: blurred / anonymized vendor info */}
+          <div className="md:col-span-5 select-none">
+            <div className="h-6 w-52 rounded bg-slate-200/70 blur-[2px]" />
+            <p className="mt-2 text-sm text-slate-400 line-clamp-1 select-none">
+              ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░
+            </p>
+          </div>
 
-        {/* ETA placeholder stays blurred */}
-        <div className="md:col-span-2">
-          <div className="h-5 w-24 rounded bg-slate-200/70 blur-[2px]" />
-          <div className="text-xs text-slate-400 mt-1 select-none">▓ ▒ ░</div>
-        </div>
+          {/* ETA placeholder stays blurred */}
+          <div className="md:col-span-2">
+            <div className="h-5 w-24 rounded bg-slate-200/70 blur-[2px]" />
+            <div className="text-xs text-slate-400 mt-1 select-none">▓ ▒ ░</div>
+          </div>
 
-        {/* RIGHT: price visible */}
-        <div className="md:col-span-3 text-right">
-          <div className="flex items-center justify-end gap-1 font-bold text-3xl text-slate-900">
-            <IndianRupee size={22} className="text-slate-600" />
-            <span>{formatINR0(cardPrice)}</span>
+          {/* RIGHT: price visible */}
+          <div className="md:col-span-3 text-right">
+            <div className="flex items-center justify-end gap-1 font-bold text-3xl text-slate-900">
+              <IndianRupee size={22} className="text-slate-600" />
+              <span>{formatINR0(cardPrice)}</span>
+            </div>
+          </div>
+
+          {/* CTA visible with “Subscribe to Get Details” */}
+          <div className="md:col-span-2 flex md:justify-end">
+            <Link
+              to={BUY_ROUTE}
+              className="inline-flex items-center justify-center px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors"
+              aria-label="Subscribe to Get Details"
+            >
+              Subscribe to Get Details
+            </Link>
           </div>
         </div>
-
-        {/* CTA visible with “Subscribe to Get Details” */}
-        <div className="md:col-span-2 flex md:justify-end">
-          <Link
-            to={BUY_ROUTE}
-            className="inline-flex items-center justify-center px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors"
-            aria-label="Subscribe to Get Details"
-          >
-            Subscribe to Get Details
-          </Link>
-        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
   // Normal (visible) card
   return (

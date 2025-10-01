@@ -4,7 +4,6 @@ import { Truck, Package, Ruler, Weight, MapPin, Download, FileSpreadsheet } from
 interface VehicleType {
   name: string;
   capacity: number; // Upper limit in kg
-  dimensions: string;
   maxDistance: number; // In kilometers
   icon: React.ReactNode;
 }
@@ -14,62 +13,54 @@ const VehicleInfoPage: React.FC = () => {
     {
       name: "Tata Ace",
       capacity: 1000,
-      dimensions: "7 ft × 5 ft × 4 ft",
-      maxDistance: 500,
+      maxDistance: 1000,
       icon: <Truck className="w-6 h-6 text-blue-600" />
     },
     {
       name: "Pickup",
-      capacity: 1500,
-      dimensions: "8 ft × 6 ft × 4.5 ft",
-      maxDistance: 800,
+      capacity: 1200,
+      maxDistance: 1000,
       icon: <Truck className="w-6 h-6 text-green-600" />
     },
     {
       name: "10 ft Truck",
       capacity: 2000,
-      dimensions: "10 ft × 7 ft × 5 ft",
-      maxDistance: 1200,
+      maxDistance: 1500,
       icon: <Truck className="w-6 h-6 text-orange-600" />
     },
     {
       name: "Eicher 14 ft",
       capacity: 4000,
-      dimensions: "14 ft × 8 ft × 6 ft",
-      maxDistance: 2000,
+      maxDistance: 2200,
       icon: <Truck className="w-6 h-6 text-purple-600" />
     },
     {
       name: "Eicher 19 ft",
       capacity: 7000,
-      dimensions: "19 ft × 8.5 ft × 7 ft",
-      maxDistance: 3000,
+      maxDistance: 2700,
       icon: <Truck className="w-6 h-6 text-red-600" />
     },
     {
       name: "Eicher 20 ft",
       capacity: 10000,
-      dimensions: "20 ft × 9 ft × 7.5 ft",
-      maxDistance: 4000,
+      maxDistance: 3200,
       icon: <Truck className="w-6 h-6 text-indigo-600" />
     },
     {
       name: "Container 32 ft MXL",
       capacity: 18000,
-      dimensions: "32 ft × 8.5 ft × 8.5 ft",
-      maxDistance: 5000,
+      maxDistance: 3200,
       icon: <Package className="w-6 h-6 text-gray-600" />
     }
   ];
 
   const handleExportToCSV = () => {
-    const headers = ['Vehicle Name', 'Capacity (kg)', 'Dimensions', 'Max Distance (km)'];
+    const headers = ['Vehicle Name', 'Capacity (kg)', 'Max Distance (km)'];
     const csvContent = [
       headers.join(','),
       ...vehicleTypes.map(vehicle => [
         vehicle.name,
         vehicle.capacity,
-        vehicle.dimensions,
         vehicle.maxDistance
       ].join(','))
     ].join('\n');
@@ -129,9 +120,6 @@ const VehicleInfoPage: React.FC = () => {
                     Capacity (kg)
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Dimensions
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Max Distance (km)
                   </th>
                 </tr>
@@ -153,9 +141,6 @@ const VehicleInfoPage: React.FC = () => {
                       <div className="text-sm text-gray-900 font-medium">
                         {vehicle.capacity.toLocaleString()}
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{vehicle.dimensions}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900 font-medium">
