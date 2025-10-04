@@ -12,9 +12,9 @@ type PincodeEntry = { pincode: string; state: string; city: string; zone?: strin
 // Transport Mode Options
 const TRANSPORT_MODES = [
   { value: "road", label: "Road" },
-  { value: "air", label: "Air" },
-  { value: "rail", label: "Rail" },
-  { value: "ship", label: "Ship" }
+  { value: "air", label: "Air - Coming Soon", disabled: true },
+  { value: "rail", label: "Rail - Coming Soon", disabled: true },
+  { value: "ship", label: "Ship - Coming Soon", disabled: true }
 ];
 
 // HELPER COMPONENT: StyledInputField with Error Support
@@ -87,7 +87,7 @@ const DropdownField = ({
   label: string;
   value: string;
   onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; disabled?: boolean }[];
   error?: string;
   required?: boolean;
 }) => (
@@ -110,7 +110,12 @@ const DropdownField = ({
 
       
       {options.map(option => (
-        <option key={option.value} value={option.value}>
+        <option 
+          key={option.value} 
+          value={option.value}
+          disabled={option.disabled}
+          className={option.disabled ? 'text-slate-400 bg-slate-100' : ''}
+        >
           {option.label}
         </option>
       ))}
@@ -149,18 +154,15 @@ const ComboboxField = ({
   useEffect(() => {
     if (inputValue) {
       const filtered = options.filter(option => 
-        option.label.toLowerCase().includes(inputValue.toLowerCase()) && option.value !== ""
+        option.label.toLowerCase().includes(inputValue.toLowerCase())
       );
-      setFilteredOptions([
-        { value: "", label: "Select Company Name" },
-        ...filtered
-      ]);
+      setFilteredOptions(filtered);
     } else {
       setFilteredOptions(options);
     }
   }, [inputValue, options]);
 
-  // Update input value when value prop changes
+  // Update input value when dropdown selection changes
   useEffect(() => {
     setInputValue(value);
   }, [value]);
@@ -172,23 +174,27 @@ const ComboboxField = ({
     setIsOpen(true);
   };
 
+  const handleOptionSelect = (optionValue: string, optionLabel: string) => {
+    setInputValue(optionLabel);
+    onChange({ target: { value: optionValue } } as React.ChangeEvent<HTMLSelectElement>);
+    setIsOpen(false);
+  };
 
   const handleInputFocus = () => {
     setIsOpen(true);
   };
 
   const handleInputBlur = () => {
-    // Delay closing to allow for option selection
+    // Delay closing to allow option selection
     setTimeout(() => setIsOpen(false), 200);
   };
 
   return (
-    <div className="relative">
+    <div className="relative" data-combobox-container>
       <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
         {label} {required && <span className="text-red-500">*</span>}
       </label>
-      
-      {/* Input Field */}
+      <div className="mt-1 relative">
       <input
         type="text"
         id={name}
@@ -198,39 +204,42 @@ const ComboboxField = ({
         onFocus={handleInputFocus}
         onBlur={handleInputBlur}
         placeholder={placeholder}
-        className={`mt-1 block w-full bg-slate-50/70 border rounded-lg shadow-sm px-3 py-2 text-sm text-slate-800 placeholder-slate-400
+          className={`block w-full bg-slate-50/70 border rounded-lg shadow-sm px-3 py-2 text-sm text-slate-800 placeholder-slate-400
                    focus:outline-none focus:ring-1 focus:border-blue-500 transition
                    ${error ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 focus:ring-blue-500'}`}
         required={required}
-        autoComplete="off"
       />
       
       {/* Dropdown Options */}
-      {isOpen && filteredOptions.length > 1 && (
+        {isOpen && (
         <div className="absolute z-10 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-          {filteredOptions.map(option => (
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map(option => (
             <button
               key={option.value}
               type="button"
-              onClick={() => {
-                setInputValue(option.value);
-                onChange({ target: { value: option.value } } as React.ChangeEvent<HTMLSelectElement>);
-                setIsOpen(false);
+              onMouseDown={(e) => {
+                // Prevent input blur before selection on trackpads
+                e.preventDefault();
+                handleOptionSelect(option.value, option.label);
               }}
-              className={`w-full px-3 py-2 text-left text-sm hover:bg-blue-100 focus:bg-blue-100 focus:outline-none ${
-                option.value === "" ? 'text-slate-500 italic' : 'text-slate-800'
-              }`}
+              onClick={() => handleOptionSelect(option.value, option.label)}
+              className="w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-blue-100 focus:bg-blue-100 focus:outline-none"
             >
               {option.label}
             </button>
-          ))}
+              ))
+            ) : (
+              <div className="px-3 py-2 text-sm text-slate-500">No options found</div>
+            )}
         </div>
       )}
-      
+      </div>
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
     </div>
   );
 };
+
 
 // HELPER COMPONENT: RatingSlider
 const RatingSlider = ({
@@ -279,7 +288,7 @@ const VOLUMETRIC_DIVISOR_OPTIONS = [
   { value: "4000", label: "4000" },
   { value: "4200", label: "4200" },
   { value: "4500", label: "4500" },
-  { value: "4800", label: "4800" },
+  { value: "4750", label: "4750" },
   { value: "5000", label: "5000" },
   { value: "5200", label: "5200" },
   { value: "5500", label: "5500" },
@@ -300,13 +309,28 @@ const FUEL_SURCHARGE_OPTIONS = [
   { value: "40", label: "40" }
 ];
 
-// Percentage Options (1-5%)
+// Percentage Options (0-5% with decimal values)
 const PERCENTAGE_OPTIONS = [
-  { value: "1", label: "1%" },
-  { value: "2", label: "2%" },
-  { value: "3", label: "3%" },
-  { value: "4", label: "4%" },
-  { value: "5", label: "5%" }
+  { value: "0", label: "0%" },
+  { value: "0.1", label: "0.1%" },
+  { value: "0.2", label: "0.2%" },
+  { value: "0.3", label: "0.3%" },
+  { value: "0.4", label: "0.4%" },
+  { value: "0.5", label: "0.5%" },
+  { value: "0.6", label: "0.6%" },
+  { value: "0.7", label: "0.7%" },
+  { value: "0.8", label: "0.8%" },
+  { value: "0.9", label: "0.9%" },
+  { value: "1.0", label: "1.0%" },
+  { value: "1.25", label: "1.25%" },
+  { value: "1.50", label: "1.50%" },
+  { value: "1.75", label: "1.75%" },
+  { value: "2.0", label: "2.0%" },
+  { value: "2.25", label: "2.25%" },
+  { value: "2.50", label: "2.50%" },
+  { value: "3.0", label: "3.0%" },
+  { value: "4.0", label: "4.0%" },
+  { value: "5.0", label: "5.0%" }
 ];
 
 // Zone Structure for Chart Zonal
@@ -479,7 +503,7 @@ const ZoneSelectionComponent = ({
 const ZoneMatrixComponent = ({
   selectedZones,
   zoneMatrix,
-  onPriceChange
+  onPriceChange,
 }: {
   selectedZones: string[];
   zoneMatrix: { [fromZone: string]: { [toZone: string]: number } };
@@ -519,38 +543,35 @@ const ZoneMatrixComponent = ({
                 {selectedZones.map(toZone => (
                   <td key={toZone} className="px-3 py-3 border-r-2 border-slate-400 last:border-r-0">
                     <input
-                      type="text"
-                      value={zoneMatrix[fromZone]?.[toZone] === 0 ? '' : (zoneMatrix[fromZone]?.[toZone] || '')}
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      value={
+                        zoneMatrix?.[fromZone]?.[toZone] === undefined || zoneMatrix?.[fromZone]?.[toZone] === null
+                          ? ""
+                          : String(zoneMatrix[fromZone][toZone])
+                      }
                       onChange={(e) => {
-                        const value = e.target.value;
-                        
-                        // Allow empty string for complete removal
-                        if (value === '') {
+                        const v = e.target.value.trim();
+                        if (v === "") {
+                          // treat empty as 0 locally to keep structure consistent
                           onPriceChange(fromZone, toZone, 0);
                           return;
                         }
-                        
-                        // Only allow digits and limit to 4 characters
-                        const cleanValue = value.replace(/[^0-9]/g, '').substring(0, 4);
-                        const numValue = parseFloat(cleanValue);
-                        
-                        if (!isNaN(numValue) && numValue >= 0 && numValue <= 1000) {
-                          onPriceChange(fromZone, toZone, numValue);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        // Allow only digits (0-9) and control keys
-                        if (!/[0-9]/.test(e.key) && !['Backspace', 'Delete', 'Tab', 'Enter', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-                          e.preventDefault();
-                        }
+                        // allow floats (any decimals); we round to 2dp internally
+                        if (!/^\d+(?:\.\d*)?$/.test(v)) return;
+                        const num = parseFloat(v);
+                        if (!Number.isFinite(num) || num < 0) return;
+                        const rounded = Math.round(num * 100) / 100;
+                        onPriceChange(fromZone, toZone, rounded);
                       }}
                       className={`w-full h-10 px-4 py-2 text-sm font-normal border-2 rounded-lg shadow-sm transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-500 hover:border-blue-400 focus:scale-x-150 focus:scale-y-110 focus:text-sm focus:font-normal hover:scale-x-120 hover:scale-y-105 ${
                         fromZone === toZone 
                           ? 'border-blue-200 bg-blue-50 text-blue-800 placeholder-blue-400' 
                           : 'border-slate-300 bg-white text-slate-900 placeholder-slate-400 hover:bg-blue-50'
                       }`}
-                      placeholder="0"
-                      maxLength={4}
                     />
                   </td>
                 ))}
@@ -603,6 +624,9 @@ const PercentageField = ({
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
+        inputMode="decimal"
+        pattern="\d+(\.\d{1,2})?"
+        placeholder="0.00"
         min="0"
         max="5"
         className={`block w-full bg-slate-50/70 border rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 transition
@@ -964,8 +988,9 @@ const MinWeightField = ({
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
-        min="1"
-        max="1000"
+        inputMode="numeric"
+        min="0"
+        max="10000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
@@ -1041,6 +1066,7 @@ const DocketChargesField = ({
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
+        inputMode="numeric"
         min="0"
         max="500"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
@@ -1173,6 +1199,9 @@ const GreenTaxField = ({
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
+        inputMode="decimal"
+        pattern="\d+(\.\d{1,2})?"
+        placeholder="0.00"
         min="0"
         max="5000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
@@ -1305,6 +1334,9 @@ const HandlingChargesField = ({
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
+        inputMode="decimal"
+        pattern="\d+(\.\d{1,2})?"
+        placeholder="0.00"
         min="0"
         max="5000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
@@ -1371,6 +1403,9 @@ const ROVChargesField = ({
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
+        inputMode="decimal"
+        pattern="\d+(\.\d{1,2})?"
+        placeholder="0.00"
         min="0"
         max="5000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
@@ -1437,6 +1472,9 @@ const CODChargesField = ({
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
+        inputMode="decimal"
+        pattern="\d+(\.\d{1,2})?"
+        placeholder="0.00"
         min="0"
         max="2000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
@@ -1503,6 +1541,9 @@ const ToPayChargesField = ({
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
+        inputMode="decimal"
+        pattern="\d+(\.\d{1,2})?"
+        placeholder="0.00"
         min="0"
         max="2000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
@@ -1569,6 +1610,9 @@ const AppointmentChargesField = ({
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
+        inputMode="decimal"
+        pattern="\d+(\.\d{1,2})?"
+        placeholder="0.00"
         min="0"
         max="2000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
@@ -1716,6 +1760,50 @@ const VolumetricDivisorField = ({
   </div>
 );
 
+// HELPER COMPONENT: Rate Type Switch
+const RateTypeSwitch = ({
+  isFixed,
+  onToggle
+}: {
+  isFixed: boolean;
+  onToggle: () => void;
+}) => (
+  <div className="flex flex-col items-center gap-1">
+    <button
+      type="button"
+      onClick={onToggle}
+      className="relative inline-flex h-6 w-40 items-center rounded-full border-2 border-blue-600 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+    >
+      {/* Fixed Rate Section - Show symbol always */}
+      <div className={`absolute left-0 top-0 h-full w-1/2 flex items-center justify-center rounded-l-full transition-all duration-300 ${
+        !isFixed ? 'bg-white opacity-100' : 'bg-blue-600 opacity-100'
+      }`}>
+        <span className={`text-lg font-bold ${!isFixed ? 'text-blue-600' : 'text-white'}`}>₹</span>
+      </div>
+      
+      {/* Divider Line */}
+      <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-px h-4 bg-blue-300"></div>
+      
+      {/* Variable Rate Section - Show symbol always */}
+      <div className={`absolute right-0 top-0 h-full w-1/2 flex items-center justify-center rounded-r-full transition-all duration-300 ${
+        isFixed ? 'bg-white opacity-100' : 'bg-blue-600 opacity-100'
+      }`}>
+        <span className={`text-lg font-bold ${isFixed ? 'text-blue-600' : 'text-white'}`}>%</span>
+      </div>
+      
+    </button>
+    
+    {/* Text Labels Below Switch */}
+    <div className="flex w-32 justify-between text-xs font-medium">
+      <span className={`transition-colors ${isFixed ? 'text-blue-600' : 'text-slate-400'}`}>
+        Fixed
+      </span>
+      <span className={`transition-colors ${!isFixed ? 'text-blue-600' : 'text-slate-400'}`}>
+        Variable
+      </span>
+    </div>
+  </div>
+);
 
 // --- MAIN COMPONENT ---
 const AddTiedUpCompany = () => {
@@ -1771,11 +1859,52 @@ const AddTiedUpCompany = () => {
   const [showTopayVariableDropdown, setShowTopayVariableDropdown] = useState(false);
   const [showAppointmentVariableDropdown, setShowAppointmentVariableDropdown] = useState(false);
 
+  // Rate type switches (true = Fixed Rate, false = Variable Rate)
+  const [handlingRateType, setHandlingRateType] = useState(true); // true = Fixed, false = Variable
+  const [rovRateType, setRovRateType] = useState(true);
+  const [codRateType, setCodRateType] = useState(true);
+  const [topayRateType, setTopayRateType] = useState(true);
+  const [appointmentRateType, setAppointmentRateType] = useState(true);
+
+  // Temporary transporter options for dropdown
+  const [temporaryTransporters] = useState([
+    // Road freight (FTL/LTL) & express cargo
+    { value: "tci", label: "Transport Corporation of India (TCI)" },
+    { value: "tci_express", label: "TCI Express" },
+    { value: "vrl_logistics", label: "VRL Logistics" },
+    { value: "vtrans_india", label: "V-Trans (India)" },
+    { value: "gati_allcargo", label: "Gati (Allcargo group)" },
+    { value: "cj_darcl", label: "CJ Darcl Logistics" },
+    { value: "varuna_group", label: "Varuna Group" },
+    { value: "blr_logistiks", label: "BLR Logistiks" },
+    { value: "navata_road", label: "Navata Road Transport" },
+    { value: "patel_integrated", label: "Patel Integrated Logistics" },
+    
+    // Parcel/courier networks (pan-India linehaul + last-mile)
+    { value: "delhivery", label: "Delhivery" },
+    { value: "blue_dart", label: "Blue Dart Express" },
+    { value: "dtdc_express", label: "DTDC Express" },
+    { value: "xpressbees", label: "XpressBees" },
+    { value: "ecom_express", label: "Ecom Express" },
+    { value: "ekart_logistics", label: "Ekart Logistics" },
+    { value: "shadowfax", label: "Shadowfax" },
+    { value: "safexpress", label: "Safexpress" },
+    
+    // 3PL & contract logistics (often run road + multimodal)
+    { value: "allcargo_logistics", label: "Allcargo Logistics" },
+    { value: "mahindra_logistics", label: "Mahindra Logistics" },
+    { value: "tvs_supply_chain", label: "TVS Supply Chain Solutions" },
+    { value: "dhl_supply_chain", label: "DHL Supply Chain (India)" },
+    { value: "fedex_india", label: "FedEx (India)" },
+    
+    // Additional companies
+    { value: "rivigo", label: "Rivigo" },
+    { value: "dtdc", label: "DTDC" },
+    { value: "delhivery_lite", label: "DELHIVERY LITE" }
+  ]);
 
   // Load pincodes dataset from public and derive state options
   const [pincodeData, setPincodeData] = useState<PincodeEntry[]>([]);
-  const [transporterList, setTransporterList] = useState<{ value: string; label: string }[]>([]);
-  const [isLoadingTransporters, setIsLoadingTransporters] = useState(false);
 
   useEffect(() => {
     // Fetch static JSON from public folder at runtime (respect base URL)
@@ -1790,63 +1919,6 @@ const AddTiedUpCompany = () => {
       });
   }, []);
 
-  // Fetch transporter list from backend
-  useEffect(() => {
-    const fetchTransporters = async () => {
-      setIsLoadingTransporters(true);
-      try {
-        const token = Cookies.get("authToken");
-        const response = await axios.get("/api/transporter/getalltransporter", {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        
-        if (response.data.success && response.data.data) {
-          const transporters = response.data.data.map((transporter: any) => ({
-            value: transporter.companyName,
-            label: transporter.companyName
-          }));
-          // Add only the default option and transporter list
-          setTransporterList([
-            { value: "", label: "Select Company Name" },
-            ...transporters
-          ]);
-          toast.success(`Loaded ${transporters.length} transporters`);
-        }
-      } catch (error) {
-        console.error("Error fetching transporters:", error);
-        // Fallback: try alternative endpoint
-        try {
-          const response = await axios.get("https://tester-backend-4nxc.onrender.com/api/transporter/getalltransporter");
-          if (response.data.success && response.data.data) {
-            const transporters = response.data.data.map((transporter: any) => ({
-              value: transporter.companyName,
-              label: transporter.companyName
-            }));
-            // Add only the default option and transporter list
-            setTransporterList([
-              { value: "", label: "Select Company Name" },
-              ...transporters
-            ]);
-          }
-        } catch (fallbackError) {
-          console.error("Fallback transporter fetch failed:", fallbackError);
-        }
-      } finally {
-        setIsLoadingTransporters(false);
-      }
-    };
-
-    fetchTransporters();
-  }, []);
-
-  // Initialize transporter list with default option if empty
-  useEffect(() => {
-    if (transporterList.length === 0 && !isLoadingTransporters) {
-      setTransporterList([
-        { value: "", label: "Select Company Name" }
-      ]);
-    }
-  }, [transporterList.length, isLoadingTransporters]);
 
   // Fast lookup by pincode
   const pincodeMap = useMemo(() => {
@@ -1899,10 +1971,12 @@ const AddTiedUpCompany = () => {
   };
 
   const validateFuel = (fuel: string | number): string => {
-    if (!fuel) return "";
-    const numValue = parseFloat(fuel.toString());
-    if (numValue < 5) return "Minimum value should be 5";
-    if (numValue > 40) return "Maximum value should be 40";
+    if (fuel === "" || fuel === null || fuel === undefined) return "";
+    const s = fuel.toString();
+    if (!/^\d+$/.test(s)) return "Must be an integer";
+    const numValue = parseInt(s, 10);
+    if (numValue < 0) return "Minimum value should be 0";
+    if (numValue > 100) return "Maximum value should be 100";
     return "";
   };
 
@@ -1984,7 +2058,7 @@ const AddTiedUpCompany = () => {
           showHandlingVariableDropdown || showRovVariableDropdown || showCodVariableDropdown || 
           showTopayVariableDropdown || showAppointmentVariableDropdown) {
         const target = event.target as Element;
-        if (!target.closest('[data-tooltip-container]') && !target.closest('[data-dropdown-container]')) {
+        if (!target.closest('[data-tooltip-container]') && !target.closest('[data-dropdown-container]') && !target.closest('[data-combobox-container]')) {
           setShowMinWeightTooltip(false);
           setShowDocketChargesTooltip(false);
           setShowMinChargesTooltip(false);
@@ -2111,284 +2185,374 @@ const AddTiedUpCompany = () => {
   };
 
   // KeyDown handler for pincode - only allow digits and control keys
-  const handlePincodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
-    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
-        e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
-        e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
-        e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
-      return;
-    }
-    
-    // Allow only digits (0-9)
-    if (!/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-    }
-  };
 
-  // KeyDown handler for minWeight - only allow digits 1-1000 range
-  const handleMinWeightKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
-    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
-        e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
-        e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
-        e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
-      return;
-    }
-    
-    // Allow only digits (0-9)
-    if (!/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Get current value and the new value that would be created
-    const currentValue = (e.target as HTMLInputElement).value;
-    const newValue = currentValue + e.key;
-    const numValue = parseFloat(newValue);
-    
-    // Prevent typing if the new value would be outside 1-1000 range
-    if (numValue > 1000) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Prevent more than 3 consecutive zeros at the beginning
-    if (e.key === '0' && currentValue.startsWith('000')) {
-      e.preventDefault();
-    }
-  };
+// Helper functions for decimal field validation
+// Allow empty string while typing; otherwise digits with optional . and up to 2 decimals
+const isTwoDecimal = (s: string) => /^(\d+(\.\d{0,2})?)?$/.test(s);
 
-  // KeyDown handler for docketCharges - only allow digits 0-500 range
-  const handleDocketChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
-    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
-        e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
-        e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
-        e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
-      return;
-    }
-    
-    // Allow only digits (0-9)
-    if (!/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Get current value and the new value that would be created
-    const currentValue = (e.target as HTMLInputElement).value;
-    const newValue = currentValue + e.key;
-    const numValue = parseFloat(newValue);
-    
-    // Prevent typing if the new value would be outside 0-500 range
-    if (numValue > 500) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Prevent more than 2 consecutive zeros at the beginning
-    if (e.key === '0' && currentValue.startsWith('00')) {
-      e.preventDefault();
-    }
-  };
+const DECIMAL_FIELDS = new Set([
+  "handlingCharges.fixed",
+  "handlingCharges.variable",
+  "rovCharges.fixed",
+  "rovCharges.variable",
+  "codCharges.fixed",
+  "codCharges.variable",
+  "topayCharges.fixed",
+  "topayCharges.variable",
+  "appointmentCharges.fixed",
+  "appointmentCharges.variable",
+]);
 
-  // KeyDown handler for fuel surcharge - allow digits 1-40 range
-  const handleFuelSurchargeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
-    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
-        e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
-        e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
-        e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
-      return;
-    }
-    
-    // Allow only digits (0-9)
-    if (!/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Get current value and the new value that would be created
-    const currentValue = (e.target as HTMLInputElement).value;
-    const newValue = currentValue + e.key;
-    const numValue = parseFloat(newValue);
-    
-    // Prevent typing if the new value would be outside 1-40 range
-    if (numValue > 40) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Prevent more than 1 zero at the beginning
-    if (e.key === '0' && currentValue.startsWith('0')) {
-      e.preventDefault();
-    }
-  };
+const rangeFor = (name: string): [number, number] => {
+  switch (name) {
+    case "handlingCharges.fixed": return [0, 5000];
+    case "handlingCharges.variable": return [0, 50];
 
-  // KeyDown handler for volumetric divisor - only allow digits 0-7000 range
-  const handleVolumetricDivisorKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
-    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
-        e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
-        e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
-        e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
-      return;
-    }
-    
-    // Allow only digits (0-9)
-    if (!/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Get current value and the new value that would be created
-    const currentValue = (e.target as HTMLInputElement).value;
-    const newValue = currentValue + e.key;
-    const numValue = parseFloat(newValue);
-    
-    // Prevent typing if the new value would be outside 0-7000 range
-    if (numValue > 7000) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Prevent more than 4 consecutive zeros at the beginning
-    if (e.key === '0' && currentValue.startsWith('0000')) {
-      e.preventDefault();
-    }
-  };
+    case "rovCharges.fixed":
+    case "codCharges.fixed":
+    case "topayCharges.fixed":
+    case "appointmentCharges.fixed":
+      return [0, 2000];
 
-  // KeyDown handler for minCharges - only allow digits 1-1000 range
-  const handleMinChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
-    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
-        e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
-        e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
-        e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
-      return;
-    }
-    
-    // Allow only digits (0-9)
-    if (!/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Get current value and the new value that would be created
-    const currentValue = (e.target as HTMLInputElement).value;
-    const newValue = currentValue + e.key;
-    const numValue = parseFloat(newValue);
-    
-    // Prevent typing if the new value would be outside 1-1000 range
-    if (numValue > 1000) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Prevent more than 2 consecutive zeros at the beginning
-    if (e.key === '0' && currentValue.startsWith('00')) {
-      e.preventDefault();
-    }
-  };
+    case "rovCharges.variable":
+    case "codCharges.variable":
+    case "topayCharges.variable":
+    case "appointmentCharges.variable":
+      return [0, 5];
 
-  // KeyDown handler for greenTax - only allow digits 0-5000 range
-  const handleGreenTaxKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
-    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
-        e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
-        e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
-        e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
-      return;
-    }
-    
-    // Allow only digits (0-9)
-    if (!/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Get current value and the new value that would be created
-    const currentValue = (e.target as HTMLInputElement).value;
-    const newValue = currentValue + e.key;
-    const numValue = parseFloat(newValue);
-    
-    // Prevent typing if the new value would be outside 0-5000 range
-    if (numValue > 5000) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Prevent more than 3 consecutive zeros at the beginning
-    if (e.key === '0' && currentValue.startsWith('000')) {
-      e.preventDefault();
-    }
-  };
+    default: return [0, 1000000]; // fallback, shouldn't hit for the listed fields
+  }
+};
 
-  // KeyDown handler for daccCharges - only allow digits 0-1000 range
-  const handleDaccChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
-    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
-        e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
-        e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
-        e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
-      return;
-    }
-    
-    // Allow only digits (0-9)
-    if (!/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Get current value and the new value that would be created
-    const currentValue = (e.target as HTMLInputElement).value;
-    const newValue = currentValue + e.key;
-    const numValue = parseFloat(newValue);
-    
-    // Prevent typing if the new value would be outside 0-1000 range
-    if (numValue > 1000) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Prevent more than 2 consecutive zeros at the beginning
-    if (e.key === '0' && currentValue.startsWith('00')) {
-      e.preventDefault();
-    }
-  };
+// Helper function to coerce values to numbers with 2 decimal places
+const toNumberOrZero = (v: unknown) => {
+  const n = typeof v === "string" ? parseFloat(v) : Number(v);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+};
 
-  // KeyDown handler for miscellanousCharges - only allow digits 0-10000 range
-  const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
-    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
-        e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
-        e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
-        e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
-      return;
+// ✅ Zone Matrix Helper Functions
+
+// ✅ detect a Zone→Zone field path like "zoneRates.N1.N2"
+const isZoneRateField = (name: string) => name.startsWith("zoneRates.");
+
+// ✅ immutable dot-path setter (no lodash needed)
+const setByPath = <T extends Record<string, any>>(obj: T, path: string, val: any): T => {
+  const parts = path.split(".");
+  const root: any = Array.isArray(obj) ? [...obj] : { ...obj };
+  let cur: any = root;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const k = parts[i];
+    cur[k] = Array.isArray(cur[k]) ? [...cur[k]] : { ...(cur[k] || {}) };
+    cur = cur[k];
+  }
+  cur[parts[parts.length - 1]] = val;
+  return root;
+};
+
+// ✅ 2dp normalizer for payload
+const to2dp = (v: unknown) => {
+  const n = typeof v === "string" ? parseFloat(v) : Number(v);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+};
+
+// ✅ normalize whole matrix to numbers with 2dp
+const normalizeZoneRates = (zoneRates: Record<string, Record<string, any>>) => {
+  const out: Record<string, Record<string, number>> = {};
+  for (const from in zoneRates || {}) {
+    out[from] = {};
+    for (const to in (zoneRates[from] || {})) {
+      out[from][to] = to2dp(zoneRates[from][to]);
     }
-    
-    // Allow only digits (0-9)
-    if (!/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Get current value and the new value that would be created
-    const currentValue = (e.target as HTMLInputElement).value;
-    const newValue = currentValue + e.key;
-    const numValue = parseFloat(newValue);
-    
-    // Prevent typing if the new value would be outside 0-10000 range
-    if (numValue > 10000) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Prevent more than 3 consecutive zeros at the beginning
-    if (e.key === '0' && currentValue.startsWith('000')) {
-      e.preventDefault();
-    }
-  };
+  }
+  return out;
+};
+
+ // KeyDown handler - only allow positive integers (including zero)
+const handleMinWeightKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
+  if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
+      e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
+      e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+      e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
+    return;
+  }
+  
+  // Allow only digits (0-9) - no decimal points
+  if (!/^[0-9]$/.test(e.key)) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Get current value and the new value that would be created
+  const currentValue = (e.target as HTMLInputElement).value;
+  const newValue = currentValue + e.key;
+  const numValue = parseInt(newValue, 10);
+  
+  // Prevent typing if the new value would be outside 0-10000 range
+  if (numValue > 10000) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Prevent more than 4 consecutive zeros at the beginning
+  if (e.key === '0' && currentValue.startsWith('0000')) {
+    e.preventDefault();
+  }
+};
+
+// KeyDown handler for pincode - only allow digits and control keys
+const handlePincodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
+  if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
+      e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
+      e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+      e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
+    return;
+  }
+  
+  // Allow only digits (0-9)
+  if (!/^[0-9]$/.test(e.key)) {
+    e.preventDefault();
+  }
+};
+
+  // KeyDown handler - only allow positive integers (including zero)
+const handleDocketChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Allow control keys
+  if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
+      e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
+      e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+      e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
+    return;
+  }
+  
+  // Allow only digits (0-9) - no decimal points
+  if (!/^[0-9]$/.test(e.key)) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Get current value and the new value that would be created
+  const currentValue = (e.target as HTMLInputElement).value;
+  const newValue = currentValue + e.key;
+  const numValue = parseInt(newValue, 10);
+  
+  // Prevent typing if the new value would be outside 0-500 range
+  if (numValue > 500) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Prevent more than 3 consecutive zeros at the beginning (but allow first zero)
+  if (e.key === '0' && currentValue.length > 0 && currentValue.startsWith('000')) {
+    e.preventDefault();
+  }
+};
+
+
+ // KeyDown handler - only allow positive integers (including zero)
+const handleFuelSurchargeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Allow control keys
+  if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
+      e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
+      e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+      e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
+    return;
+  }
+  
+  // Allow only digits (0-9) - no decimal points
+  if (!/^[0-9]$/.test(e.key)) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Get current value and the new value that would be created
+  const currentValue = (e.target as HTMLInputElement).value;
+  const newValue = currentValue + e.key;
+  const numValue = parseInt(newValue, 10);
+  
+  // Prevent typing if the new value would be outside 0-40 range
+  if (numValue > 40) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Prevent more than 2 consecutive zeros at the beginning (but allow first zero)
+  if (e.key === '0' && currentValue.length > 0 && currentValue.startsWith('00')) {
+    e.preventDefault();
+  }
+};
+
+ 
+// KeyDown handler - only allow positive integers (including zero)
+const handleVolumetricDivisorKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Allow control keys
+  if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
+      e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
+      e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+      e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
+    return;
+  }
+  
+  // Allow only digits (0-9) - no decimal points
+  if (!/^[0-9]$/.test(e.key)) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Get current value and the new value that would be created
+  const currentValue = (e.target as HTMLInputElement).value;
+  const newValue = currentValue + e.key;
+  const numValue = parseInt(newValue, 10);
+  
+  // Prevent typing if the new value would be outside 0-10000 range
+  if (numValue > 10000) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Prevent more than 4 consecutive zeros at the beginning (but allow first zero)
+  if (e.key === '0' && currentValue.length > 0 && currentValue.startsWith('0000')) {
+    e.preventDefault();
+  }
+};
+
+
+  // KeyDown handler - only allow positive integers (including zero)
+const handleMinChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Allow control keys
+  if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
+      e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
+      e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+      e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
+    return;
+  }
+  
+  // Allow only digits (0-9) - no decimal points
+  if (!/^[0-9]$/.test(e.key)) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Get current value and the new value that would be created
+  const currentValue = (e.target as HTMLInputElement).value;
+  const newValue = currentValue + e.key;
+  const numValue = parseInt(newValue, 10);
+  
+  // Prevent typing if the new value would be outside 0-10000 range
+  if (numValue > 10000) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Prevent more than 4 consecutive zeros at the beginning (but allow first zero)
+  if (e.key === '0' && currentValue.length > 0 && currentValue.startsWith('0000')) {
+    e.preventDefault();
+  }
+};
+
+// Input change handler
+
+  // KeyDown handler - only allow positive integers (including zero)
+const handleGreenTaxKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Allow control keys
+  if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
+      e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
+      e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+      e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
+    return;
+  }
+  
+  // Allow only digits (0-9) - no decimal points
+  if (!/^[0-9]$/.test(e.key)) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Get current value and the new value that would be created
+  const currentValue = (e.target as HTMLInputElement).value;
+  const newValue = currentValue + e.key;
+  const numValue = parseInt(newValue, 10);
+  
+  // Prevent typing if the new value would be outside 0-10000 range
+  if (numValue > 10000) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Prevent more than 4 consecutive zeros at the beginning (but allow first zero)
+  if (e.key === '0' && currentValue.length > 0 && currentValue.startsWith('0000')) {
+    e.preventDefault();
+  }
+};
+
+
+ // KeyDown handler - only allow positive integers (including zero)
+const handleDaccChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Allow control keys
+  if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
+      e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
+      e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+      e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
+    return;
+  }
+  
+  // Allow only digits (0-9) - no decimal points
+  if (!/^[0-9]$/.test(e.key)) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Get current value and the new value that would be created
+  const currentValue = (e.target as HTMLInputElement).value;
+  const newValue = currentValue + e.key;
+  const numValue = parseInt(newValue, 10);
+  
+  // Prevent typing if the new value would be outside 0-1000 range
+  if (numValue > 1000) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Prevent more than 3 consecutive zeros at the beginning (but allow first zero)
+  if (e.key === '0' && currentValue.length > 0 && currentValue.startsWith('000')) {
+    e.preventDefault();
+  }
+};
+
+  /// KeyDown handler - only allow positive integers (including zero)
+const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Allow control keys
+  if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
+      e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
+      e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+      e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
+    return;
+  }
+  
+  // Allow only digits (0-9) - no decimal points
+  if (!/^[0-9]$/.test(e.key)) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Get current value and the new value that would be created
+  const currentValue = (e.target as HTMLInputElement).value;
+  const newValue = currentValue + e.key;
+  const numValue = parseInt(newValue, 10);
+  
+  // Prevent typing if the new value would be outside 0-10000 range
+  if (numValue > 10000) {
+    e.preventDefault();
+    return;
+  }
+  
+  // Prevent more than 4 consecutive zeros at the beginning (but allow first zero)
+  if (e.key === '0' && currentValue.length > 0 && currentValue.startsWith('0000')) {
+    e.preventDefault();
+  }
+};
+
 
 
   // KeyDown handler for handlingCharges.threshholdweight - only allow digits 1-20000 range
@@ -2434,8 +2598,8 @@ const AddTiedUpCompany = () => {
       return;
     }
     
-    // Allow only digits (0-9)
-    if (!/^[0-9]$/.test(e.key)) {
+    // Allow digits (0-9) and decimal point
+    if (!/^[0-9.]$/.test(e.key)) {
       e.preventDefault();
       return;
     }
@@ -2443,21 +2607,34 @@ const AddTiedUpCompany = () => {
     // Get current value and the new value that would be created
     const currentValue = (e.target as HTMLInputElement).value;
     const newValue = currentValue + e.key;
-    const numValue = parseFloat(newValue);
     
-    // Prevent typing if the new value would be outside 0-maxValue range
-    if (numValue > maxValue) {
+    // Prevent multiple decimal points
+    if (e.key === '.' && currentValue.includes('.')) {
       e.preventDefault();
       return;
     }
     
-    // Prevent more than 2 consecutive zeros at the beginning
-    if (e.key === '0' && currentValue.startsWith('00')) {
+    // Check if the new value would be a valid decimal format
+    if (!isTwoDecimal(newValue)) {
+      e.preventDefault();
+      return;
+    }
+    
+    const numValue = parseFloat(newValue);
+    
+    // Prevent typing if the new value would be outside 0-maxValue range
+    if (!isNaN(numValue) && numValue > maxValue) {
+      e.preventDefault();
+      return;
+    }
+    
+    // Prevent more than 2 consecutive zeros at the beginning (but allow first zero)
+    if (e.key === '0' && currentValue.length > 0 && currentValue.startsWith('00')) {
       e.preventDefault();
     }
   };
 
-  // KeyDown handler for percentage fields - only allow digits 0-5 range
+  // KeyDown handler for percentage fields - allow decimals 0-5 range
   const handlePercentageKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
     if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
@@ -2467,8 +2644,8 @@ const AddTiedUpCompany = () => {
       return;
     }
     
-    // Allow only digits (0-9)
-    if (!/^[0-9]$/.test(e.key)) {
+    // Allow digits (0-9) and decimal point
+    if (!/^[0-9.]$/.test(e.key)) {
       e.preventDefault();
       return;
     }
@@ -2476,21 +2653,34 @@ const AddTiedUpCompany = () => {
     // Get current value and the new value that would be created
     const currentValue = (e.target as HTMLInputElement).value;
     const newValue = currentValue + e.key;
-    const numValue = parseFloat(newValue);
     
-    // Prevent typing if the new value would be outside 0-5 range
-    if (numValue > 5) {
+    // Prevent multiple decimal points
+    if (e.key === '.' && currentValue.includes('.')) {
       e.preventDefault();
       return;
     }
     
-    // Prevent more than 1 consecutive zero at the beginning
-    if (e.key === '0' && currentValue.startsWith('0')) {
+    // Check if the new value would be a valid decimal format
+    if (!isTwoDecimal(newValue)) {
+      e.preventDefault();
+      return;
+    }
+    
+    const numValue = parseFloat(newValue);
+    
+    // Prevent typing if the new value would be outside 0-5 range
+    if (!isNaN(numValue) && numValue > 5) {
+      e.preventDefault();
+      return;
+    }
+    
+    // Prevent more than 1 consecutive zero at the beginning (but allow first zero)
+    if (e.key === '0' && currentValue.length > 0 && currentValue.startsWith('0')) {
       e.preventDefault();
     }
   };
 
-  // KeyDown handler for handling variable percentage - only allow digits 0-50 range
+  // KeyDown handler for handling variable percentage - allow decimals 0-50 range
   const handleHandlingVariableKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
     if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
@@ -2500,8 +2690,8 @@ const AddTiedUpCompany = () => {
       return;
     }
     
-    // Allow only digits (0-9)
-    if (!/^[0-9]$/.test(e.key)) {
+    // Allow digits (0-9) and decimal point
+    if (!/^[0-9.]$/.test(e.key)) {
       e.preventDefault();
       return;
     }
@@ -2509,16 +2699,29 @@ const AddTiedUpCompany = () => {
     // Get current value and the new value that would be created
     const currentValue = (e.target as HTMLInputElement).value;
     const newValue = currentValue + e.key;
-    const numValue = parseFloat(newValue);
     
-    // Prevent typing if the new value would be outside 0-50 range
-    if (numValue > 50) {
+    // Prevent multiple decimal points
+    if (e.key === '.' && currentValue.includes('.')) {
       e.preventDefault();
       return;
     }
     
-    // Prevent more than 1 consecutive zero at the beginning
-    if (e.key === '0' && currentValue.startsWith('0')) {
+    // Check if the new value would be a valid decimal format
+    if (!isTwoDecimal(newValue)) {
+      e.preventDefault();
+      return;
+    }
+    
+    const numValue = parseFloat(newValue);
+    
+    // Prevent typing if the new value would be outside 0-50 range
+    if (!isNaN(numValue) && numValue > 50) {
+      e.preventDefault();
+      return;
+    }
+    
+    // Prevent more than 1 consecutive zero at the beginning (but allow first zero)
+    if (e.key === '0' && currentValue.length > 0 && currentValue.startsWith('0')) {
       e.preventDefault();
     }
   };
@@ -2541,65 +2744,90 @@ const AddTiedUpCompany = () => {
 
   const handleNestedInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    if (parseFloat(value) < 0) return;
-    
-    // Special validation for divisor field - max value 7000
-    if (name === "divisor" && parseFloat(value) > 7000) return;
-    
-    // Special validation for minWeight field - range 1-1000
-    if (name === "minWeight" && value && (parseFloat(value) < 1 || parseFloat(value) > 1000)) return;
-    
-    // Special validation for docketCharges field - range 0-500
-    if (name === "docketCharges" && value && (parseFloat(value) < 0 || parseFloat(value) > 500)) return;
-    
-    // Special validation for fuel field - range 1-40 (but will show error for 1-4)
-    if (name === "fuel" && value && (parseFloat(value) < 1 || parseFloat(value) > 40)) return;
-    
-    // Special validation for minCharges field - range 1-1000
-    if (name === "minCharges" && value && (parseFloat(value) < 1 || parseFloat(value) > 1000)) return;
-    
-    // Special validation for greenTax field - range 0-5000
-    if (name === "greenTax" && value && (parseFloat(value) < 0 || parseFloat(value) > 5000)) return;
-    
-    // Special validation for daccCharges field - range 0-1000
+
+    // ---------- ZONE-TO-ZONE (accept decimals up to 2dp) ----------
+    if (isZoneRateField(name)) {
+      // allow clearing mid-typing
+      if (value === "") {
+        setPriceRate((prev: any) => setByPath(prev, name, "")); // keep empty string while typing
+        return;
+      }
+      // format: digits with optional "." and up to 2 decimals
+      if (!isTwoDecimal(value)) return;
+
+      const num = parseFloat(value);
+      if (!Number.isFinite(num) || num < 0 || num > 100000) return; // tweak max if needed
+
+      // keep raw string so "12." is allowed while typing
+      setPriceRate((prev: any) => setByPath(prev, name, value));
+      return;
+    }
+
+    // ---------- DECIMAL FIELDS (2dp) ----------
+    if (DECIMAL_FIELDS.has(name)) {
+      // allow user to clear field
+      if (value === "") {
+        const keys = name.split(".");
+        setPriceRate((prev: any) => {
+          const updated = JSON.parse(JSON.stringify(prev));
+          let nested = updated;
+          for (let i = 0; i < keys.length - 1; i++) {
+            nested[keys[i]] = nested[keys[i]] || {};
+            nested = nested[keys[i]];
+          }
+          nested[keys[keys.length - 1]] = "";
+          return updated;
+        });
+        return;
+      }
+
+      // block bad formats (more than 2 decimals, multiple dots, etc.)
+      if (!isTwoDecimal(value)) return;
+
+      const num = parseFloat(value);
+      if (Number.isNaN(num) || num < 0) return;
+
+      const [min, max] = rangeFor(name);
+      if (num < min || num > max) return;
+
+      // Update state with the raw string to preserve typing
+      const keys = name.split(".");
+      setPriceRate((prev: any) => {
+        const updated = JSON.parse(JSON.stringify(prev));
+        let nested = updated;
+        for (let i = 0; i < keys.length - 1; i++) {
+          nested[keys[i]] = nested[keys[i]] || {};
+          nested = nested[keys[i]];
+        }
+        nested[keys[keys.length - 1]] = value;
+        return updated;
+      });
+      return;
+    }
+
+    // ---------- EXISTING INTEGER FIELDS ----------
+    // Keep your current logic for other fields, but prefer parseFloat-safe checks
+    if (value && parseFloat(value) < 0) return;
+
+    if (name === "divisor" && value && parseFloat(value) > 10000) return;
+
+    // Min Weight should allow 0 (changed from <1 to <0)
+    if (name === "minWeight" && value && (parseFloat(value) < 0 || parseFloat(value) > 10000)) return;
+
+    if (name === "docketCharges" && value && (parseFloat(value) < 0 || parseFloat(value) > 10000)) return;
+
+    if (name === "fuel" && value && (parseFloat(value) < 0 || parseFloat(value) > 100)) return;
+
+    if (name === "minCharges" && value && (parseFloat(value) < 0 || parseFloat(value) > 10000)) return;
+
+    if (name === "greenTax" && value && (parseFloat(value) < 0 || parseFloat(value) > 10000)) return;
+
     if (name === "daccCharges" && value && (parseFloat(value) < 0 || parseFloat(value) > 1000)) return;
-    
-    // Special validation for miscellanousCharges field - range 0-10000
+
     if (name === "miscellanousCharges" && value && (parseFloat(value) < 0 || parseFloat(value) > 10000)) return;
-    
-    // Special validation for handlingCharges.fixed field - range 0-5000
-    if (name === "handlingCharges.fixed" && value && (parseFloat(value) < 0 || parseFloat(value) > 5000)) return;
-    
-    // Special validation for handlingCharges.threshholdweight field - range 1-20000
-    if (name === "handlingCharges.threshholdweight" && value && (parseFloat(value) < 1 || parseFloat(value) > 20000)) return;
-    
-    // Special validation for handlingCharges.variable field - range 0-50
-    if (name === "handlingCharges.variable" && value && (parseFloat(value) < 0 || parseFloat(value) > 50)) return;
-    
-    // Special validation for rovCharges.fixed field - range 0-5000
-    if (name === "rovCharges.fixed" && value && (parseFloat(value) < 0 || parseFloat(value) > 5000)) return;
-    
-    // Special validation for rovCharges.variable field - range 0-5
-    if (name === "rovCharges.variable" && value && (parseFloat(value) < 0 || parseFloat(value) > 5)) return;
-    
-    // Special validation for codCharges.fixed field - range 0-2000
-    if (name === "codCharges.fixed" && value && (parseFloat(value) < 0 || parseFloat(value) > 2000)) return;
-    
-    // Special validation for codCharges.variable field - range 0-5
-    if (name === "codCharges.variable" && value && (parseFloat(value) < 0 || parseFloat(value) > 5)) return;
-    
-    // Special validation for topayCharges.fixed field - range 0-2000
-    if (name === "topayCharges.fixed" && value && (parseFloat(value) < 0 || parseFloat(value) > 2000)) return;
-    
-    // Special validation for topayCharges.variable field - range 0-5
-    if (name === "topayCharges.variable" && value && (parseFloat(value) < 0 || parseFloat(value) > 5)) return;
-    
-    // Special validation for appointmentCharges.fixed field - range 0-2000
-    if (name === "appointmentCharges.fixed" && value && (parseFloat(value) < 0 || parseFloat(value) > 2000)) return;
-    
-    // Special validation for appointmentCharges.variable field - range 0-5
-    if (name === "appointmentCharges.variable" && value && (parseFloat(value) < 0 || parseFloat(value) > 5)) return;
-    
+
+    if (name === "handlingCharges.threshholdweight" && value && (parseFloat(value) < 0 || parseFloat(value) > 20000)) return;
+
     const keys = name.split(".");
     setPriceRate((prev: any) => {
       const updated = JSON.parse(JSON.stringify(prev));
@@ -2608,7 +2836,7 @@ const AddTiedUpCompany = () => {
         nested[keys[i]] = nested[keys[i]] || {};
         nested = nested[keys[i]];
       }
-      nested[keys[keys.length - 1]] = value ? parseFloat(value) : undefined;
+      nested[keys[keys.length - 1]] = value ? parseInt(value) : undefined;
       return updated;
     });
 
@@ -2917,12 +3145,39 @@ const AddTiedUpCompany = () => {
       // Save each vendor to the backend
       for (const vendor of vendorsToSave) {
         try {
-          const payload = { 
-            ...vendor,
-            // Remove local fields that shouldn't be sent to backend
-            id: undefined,
-            addedAt: undefined
-          };
+        const payload = { 
+          ...vendor,
+          // Remove local fields that shouldn't be sent to backend
+          id: undefined,
+          addedAt: undefined,
+          // Coerce decimal fields to numbers with 2 decimal places
+          priceRate: {
+            ...vendor.priceRate,
+            handlingCharges: {
+              fixed: toNumberOrZero(vendor.priceRate?.handlingCharges?.fixed),
+              variable: toNumberOrZero(vendor.priceRate?.handlingCharges?.variable),
+              threshholdweight: toNumberOrZero(vendor.priceRate?.handlingCharges?.threshholdweight)
+            },
+            rovCharges: {
+              fixed: toNumberOrZero(vendor.priceRate?.rovCharges?.fixed),
+              variable: toNumberOrZero(vendor.priceRate?.rovCharges?.variable)
+            },
+            codCharges: {
+              fixed: toNumberOrZero(vendor.priceRate?.codCharges?.fixed),
+              variable: toNumberOrZero(vendor.priceRate?.codCharges?.variable)
+            },
+            topayCharges: {
+              fixed: toNumberOrZero(vendor.priceRate?.topayCharges?.fixed),
+              variable: toNumberOrZero(vendor.priceRate?.topayCharges?.variable)
+            },
+            appointmentCharges: {
+              fixed: toNumberOrZero(vendor.priceRate?.appointmentCharges?.fixed),
+              variable: toNumberOrZero(vendor.priceRate?.appointmentCharges?.variable)
+            },
+            // Normalize zone rates to numbers with 2 decimal places
+            zoneRates: normalizeZoneRates(vendor.priceRate?.zoneRates || {})
+          }
+        };
 
           // Try multiple approaches: proxy, then legacy, then new endpoint
           let res;
@@ -3123,46 +3378,38 @@ const AddTiedUpCompany = () => {
         <div className="bg-white p-6 sm:p-8 rounded-xl shadow-sm transition-all">
           <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-4 mb-6">Company Information</h3>
           <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
-            {/* Company Name - Combobox with Transporter List */}
-            <div className="relative">
-              <ComboboxField
-                name="companyName"
-                label="Company Name"
-                value={form.companyName}
-                onChange={(e) => {
-                  const selectedValue = e.target.value;
-                  setForm(prev => ({ ...prev, companyName: selectedValue }));
-                  
-                  // Initialize zone matrix when company name is selected
-                  if (selectedValue.trim() === '') {
-                    setSelectedZones([]);
-                    setZoneMatrix({});
-                  } else {
-                    fetchZoneMatrix(selectedValue);
-                  }
-                }}
-                onInputChange={(e) => {
-                  const inputValue = e.target.value;
-                  setForm(prev => ({ ...prev, companyName: inputValue }));
-                  
-                  // Initialize zone matrix when company name is entered
-                  if (inputValue.trim() === '') {
-                    setSelectedZones([]);
-                    setZoneMatrix({});
-                  } else {
-                    fetchZoneMatrix(inputValue);
-                  }
-                }}
-                options={transporterList}
-                required={true}
-                placeholder="Type or select company name"
-              />
-              {isLoadingTransporters && (
-                <div className="absolute right-3 top-8">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                </div>
-              )}
-            </div>
+            {/* Company Name - Combobox with Temporary Transporters */}
+            <ComboboxField
+              name="companyName"
+              label="Company Name"
+              value={form.companyName}
+              onChange={(e) => {
+                const selectedValue = e.target.value;
+                setForm(prev => ({ ...prev, companyName: selectedValue }));
+                
+                // Initialize zone matrix when company name is selected
+                if (selectedValue.trim() === '') {
+                  setSelectedZones([]);
+                  setZoneMatrix({});
+                } else {
+                  fetchZoneMatrix(selectedValue);
+                }
+              }}
+              onInputChange={(e) => {
+                const inputValue = e.target.value;
+                setForm(prev => ({ ...prev, companyName: inputValue }));
+                
+                // Initialize zone matrix when company name is entered
+                if (inputValue.trim() === '') {
+                  setSelectedZones([]);
+                  setZoneMatrix({});
+                } else {
+                  fetchZoneMatrix(inputValue);
+                }
+              }}
+              options={temporaryTransporters}
+              placeholder="Type or select company name"
+            />
             
             {/* Sub Vendor - Optional Field */}
             <StyledInputField 
@@ -3289,7 +3536,7 @@ const AddTiedUpCompany = () => {
             <MinWeightField 
               name="minWeight" 
               label="Min. Weight (kg)" 
-              value={priceRate.minWeight || ""} 
+              value={priceRate.minWeight ?? ""} 
               onChange={handleNestedInputChange}
               onKeyDown={handleMinWeightKeyDown}
               showTooltip={showMinWeightTooltip}
@@ -3298,7 +3545,7 @@ const AddTiedUpCompany = () => {
             <DocketChargesField 
               name="docketCharges" 
               label="Docket Charges (₹)" 
-              value={priceRate.docketCharges || ""} 
+              value={priceRate.docketCharges ?? ""} 
               onChange={handleNestedInputChange}
               onKeyDown={handleDocketChargesKeyDown}
               showTooltip={showDocketChargesTooltip}
@@ -3307,7 +3554,7 @@ const AddTiedUpCompany = () => {
             <FuelSurchargeField 
               name="fuel" 
               label="Fuel Surcharge (%)" 
-              value={priceRate.fuel || ""} 
+              value={priceRate.fuel ?? ""} 
               onChange={handleNestedInputChange}
               onSelectChange={handleFuelSurchargeSelect}
               onKeyDown={handleFuelSurchargeKeyDown}
@@ -3320,7 +3567,7 @@ const AddTiedUpCompany = () => {
             <VolumetricDivisorField 
               name="divisor" 
               label="Volumetric Divisor (L x B x H)" 
-              value={priceRate.divisor || ""} 
+              value={priceRate.divisor ?? ""} 
               onChange={handleNestedInputChange}
               onSelectChange={handleVolumetricDivisorSelect}
               onKeyDown={handleVolumetricDivisorKeyDown}
@@ -3332,7 +3579,7 @@ const AddTiedUpCompany = () => {
             <MinChargesField 
               name="minCharges" 
               label="Min. Charges (₹)" 
-              value={priceRate.minCharges || ""} 
+              value={priceRate.minCharges ?? ""} 
               onChange={handleNestedInputChange}
               onKeyDown={handleMinChargesKeyDown}
               showTooltip={showMinChargesTooltip}
@@ -3341,7 +3588,7 @@ const AddTiedUpCompany = () => {
             <GreenTaxField 
               name="greenTax" 
               label="Green Tax (₹)" 
-              value={priceRate.greenTax || ""} 
+              value={priceRate.greenTax ?? ""} 
               onChange={handleNestedInputChange}
               onKeyDown={handleGreenTaxKeyDown}
               showTooltip={showGreenTaxTooltip}
@@ -3350,7 +3597,7 @@ const AddTiedUpCompany = () => {
             <DaccChargesField 
               name="daccCharges" 
               label="DACC Charges (₹)" 
-              value={priceRate.daccCharges || ""} 
+              value={priceRate.daccCharges ?? ""} 
               onChange={handleNestedInputChange}
               onKeyDown={handleDaccChargesKeyDown}
               showTooltip={showDaccTooltip}
@@ -3359,7 +3606,7 @@ const AddTiedUpCompany = () => {
             <MiscChargesField 
               name="miscellanousCharges" 
               label="Misc. Charges (₹)" 
-              value={priceRate.miscellanousCharges || ""} 
+              value={priceRate.miscellanousCharges ?? ""} 
               onChange={handleNestedInputChange}
               onKeyDown={handleMiscChargesKeyDown}
               showTooltip={showMiscChargesTooltip}
@@ -3368,20 +3615,28 @@ const AddTiedUpCompany = () => {
           </div>
           <div className="mt-8 pt-6 border-t border-slate-200 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
+                <div className="flex items-center justify-between gap-4">
                   <h4 className="font-medium text-slate-700">Handling Charges</h4>
+                  <RateTypeSwitch
+                    isFixed={handlingRateType}
+                    onToggle={() => setHandlingRateType(!handlingRateType)}
+                  />
+                </div>
+                {handlingRateType ? (
                   <HandlingChargesField 
                     name="handlingCharges.fixed" 
                     label="Fixed Rate (₹)" 
-                    value={priceRate.handlingCharges?.fixed || ""} 
+                    value={priceRate.handlingCharges?.fixed ?? ""} 
                     onChange={handleNestedInputChange} 
                     onKeyDown={(e) => handleChargeFixedKeyDown(e, 5000)} 
                     showTooltip={showHandlingChargesTooltip}
                     onToggleTooltip={toggleHandlingChargesTooltip}
                   />
+                ) : (
                   <PercentageField 
                     name="handlingCharges.variable" 
                     label="Variable Rate (%)" 
-                    value={priceRate.handlingCharges?.variable || ""} 
+                    value={priceRate.handlingCharges?.variable ?? ""} 
                     onChange={handleNestedInputChange} 
                     onSelectChange={(e) => {
                       setPriceRate((prev: any) => ({
@@ -3393,23 +3648,32 @@ const AddTiedUpCompany = () => {
                     showDropdown={showHandlingVariableDropdown}
                     onToggleDropdown={toggleHandlingVariableDropdown}
                   />
+                )}
                   <StyledInputField name="handlingCharges.threshholdweight" label="Weight Threshold (Kg)" type="text" onChange={handleNestedInputChange} onKeyDown={handleHandlingWeightKeyDown} min={1} max={20000} />
               </div>
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
-                <h4 className="font-medium text-slate-700">ROV Charges (Risk on Value)</h4>
+                <div className="flex items-center justify-between gap-4">
+                  <h4 className="font-medium text-slate-700">ROV Charges</h4>
+                  <RateTypeSwitch
+                    isFixed={rovRateType}
+                    onToggle={() => setRovRateType(!rovRateType)}
+                  />
+                </div>
+                {rovRateType ? (
                 <ROVChargesField 
                   name="rovCharges.fixed" 
                   label="Fixed Rate (₹)" 
-                  value={priceRate.rovCharges?.fixed || ""} 
+                  value={priceRate.rovCharges?.fixed ?? ""} 
                   onChange={handleNestedInputChange} 
                   onKeyDown={(e) => handleChargeFixedKeyDown(e, 5000)} 
                   showTooltip={showRovChargesTooltip}
                   onToggleTooltip={toggleRovChargesTooltip}
                 />
+                ) : (
                 <PercentageField 
                   name="rovCharges.variable" 
                   label="Variable Rate (%)" 
-                  value={priceRate.rovCharges?.variable || ""} 
+                  value={priceRate.rovCharges?.variable ?? ""} 
                   onChange={handleNestedInputChange} 
                   onSelectChange={(e) => {
                     setPriceRate((prev: any) => ({
@@ -3421,22 +3685,31 @@ const AddTiedUpCompany = () => {
                   showDropdown={showRovVariableDropdown}
                   onToggleDropdown={toggleRovVariableDropdown}
                 />
+                )}
                 </div>
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
+                <div className="flex items-center justify-between gap-4">
                 <h4 className="font-medium text-slate-700">COD Charges</h4>
+                  <RateTypeSwitch
+                    isFixed={codRateType}
+                    onToggle={() => setCodRateType(!codRateType)}
+                  />
+                </div>
+                {codRateType ? (
                 <CODChargesField 
                   name="codCharges.fixed" 
                   label="Fixed Rate (₹)" 
-                  value={priceRate.codCharges?.fixed || ""} 
+                  value={priceRate.codCharges?.fixed ?? ""} 
                   onChange={handleNestedInputChange} 
                   onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} 
                   showTooltip={showCodChargesTooltip}
                   onToggleTooltip={toggleCodChargesTooltip}
                 />
+                ) : (
                 <PercentageField 
                   name="codCharges.variable" 
                   label="Variable Rate (%)" 
-                  value={priceRate.codCharges?.variable || ""} 
+                  value={priceRate.codCharges?.variable ?? ""} 
                   onChange={handleNestedInputChange} 
                   onSelectChange={(e) => {
                     setPriceRate((prev: any) => ({
@@ -3448,22 +3721,31 @@ const AddTiedUpCompany = () => {
                   showDropdown={showCodVariableDropdown}
                   onToggleDropdown={toggleCodVariableDropdown}
                 />
+                )}
               </div>
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
+                <div className="flex items-center justify-between gap-4">
                 <h4 className="font-medium text-slate-700">To-Pay Charges</h4>
+                  <RateTypeSwitch
+                    isFixed={topayRateType}
+                    onToggle={() => setTopayRateType(!topayRateType)}
+                  />
+                </div>
+                {topayRateType ? (
                 <ToPayChargesField 
                   name="topayCharges.fixed" 
                   label="Fixed Rate (₹)" 
-                  value={priceRate.topayCharges?.fixed || ""} 
+                  value={priceRate.topayCharges?.fixed ?? ""} 
                   onChange={handleNestedInputChange} 
                   onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} 
                   showTooltip={showTopayChargesTooltip}
                   onToggleTooltip={toggleTopayChargesTooltip}
                 />
+                ) : (
                 <PercentageField 
                   name="topayCharges.variable" 
                   label="Variable Rate (%)" 
-                  value={priceRate.topayCharges?.variable || ""} 
+                  value={priceRate.topayCharges?.variable ?? ""} 
                   onChange={handleNestedInputChange} 
                   onSelectChange={(e) => {
                     setPriceRate((prev: any) => ({
@@ -3475,22 +3757,31 @@ const AddTiedUpCompany = () => {
                   showDropdown={showTopayVariableDropdown}
                   onToggleDropdown={toggleTopayVariableDropdown}
                 />
+                )}
               </div>
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
+                <div className="flex items-center justify-between gap-4">
                 <h4 className="font-medium text-slate-700">Appointment Charges</h4>
+                  <RateTypeSwitch
+                    isFixed={appointmentRateType}
+                    onToggle={() => setAppointmentRateType(!appointmentRateType)}
+                  />
+                </div>
+                {appointmentRateType ? (
                 <AppointmentChargesField 
                   name="appointmentCharges.fixed" 
                   label="Fixed Rate (₹)" 
-                  value={priceRate.appointmentCharges?.fixed || ""} 
+                  value={priceRate.appointmentCharges?.fixed ?? ""} 
                   onChange={handleNestedInputChange} 
                   onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} 
                   showTooltip={showAppointmentChargesTooltip}
                   onToggleTooltip={toggleAppointmentChargesTooltip}
                 />
+                ) : (
                 <PercentageField 
                   name="appointmentCharges.variable" 
                   label="Variable Rate (%)" 
-                  value={priceRate.appointmentCharges?.variable || ""} 
+                  value={priceRate.appointmentCharges?.variable ?? ""} 
                   onChange={handleNestedInputChange} 
                   onSelectChange={(e) => {
                     setPriceRate((prev: any) => ({
@@ -3502,6 +3793,7 @@ const AddTiedUpCompany = () => {
                   showDropdown={showAppointmentVariableDropdown}
                   onToggleDropdown={toggleAppointmentVariableDropdown}
                 />
+                )}
               </div>
           </div>
         </div>
@@ -3552,7 +3844,7 @@ const AddTiedUpCompany = () => {
               className="group inline-flex items-center justify-center gap-2 py-3 px-8 text-sm font-semibold tracking-wide rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-100 focus:ring-blue-500 disabled:bg-blue-400 disabled:cursor-wait transition-all ease-in-out duration-300"
             >
               <CheckCircleIcon className="h-5 w-5 transform group-hover:scale-110 transition-transform"/>
-              {isSubmitting ? "Saving to Backend..." : `Save All Vendors (${savedVendors.length + (validateCurrentForm() && savedVendors.length === 0 ? 1 : 0)})`}
+              {`Save All Vendors (${savedVendors.length + (validateCurrentForm() && savedVendors.length === 0 ? 1 : 0)})`}
             </button>
           </div>
         </div>
