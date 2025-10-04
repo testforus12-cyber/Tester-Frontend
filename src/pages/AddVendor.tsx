@@ -1807,6 +1807,16 @@ const RateTypeSwitch = ({
 
 // --- MAIN COMPONENT ---
 const AddTiedUpCompany = () => {
+  const fieldsTopRef = useRef<HTMLDivElement>(null); // keep if referenced elsewhere
+
+  // scroll entire page to the very top
+  const scrollToFieldsTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    // fallbacks for browsers that ignore the smooth option or use <html>/<body> scrolling
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  };
+
   const { user } = useAuth();
   const customerID = (user as any)?.customer?._id;
   
@@ -3373,7 +3383,7 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">Add Tied-Up Company</h1>
           <p className="mt-2 text-md text-slate-500">Create a new partner profile with detailed pricing information.</p>
         </header>
-        
+        <div ref={fieldsTopRef} />
         {/* Section 1: Company Details */}
         <div className="bg-white p-6 sm:p-8 rounded-xl shadow-sm transition-all">
           <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-4 mb-6">Company Information</h3>
@@ -3830,13 +3840,18 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         <div className="flex justify-between pt-4">
           <button
             type="button"
-            onClick={handleAddVendor}
+            onClick={() => {
+              handleAddVendor();
+              // hard scroll to the very top of the page
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
             disabled={isAddingVendor}
             className="group inline-flex items-center justify-center gap-2 py-3 px-8 text-sm font-semibold tracking-wide rounded-lg text-black bg-sky-200 hover:bg-sky-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-100 focus:ring-sky-500 disabled:bg-sky-100 disabled:cursor-wait transition-all ease-in-out duration-300"
           >
             <PlusCircleIcon className="h-5 w-5 transform group-hover:scale-110 transition-transform"/>
             {isAddingVendor ? "Adding..." : "Add Vendor"}
           </button>
+
           <div className="flex gap-4">
             <button
               type="submit"
@@ -3854,3 +3869,4 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
 };
 
 export default AddTiedUpCompany;
+
