@@ -336,10 +336,19 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   // ---------------------------------------------------------------------------
   // Effects
   // ---------------------------------------------------------------------------
-  useEffect(() => {
-    const pin = (user as any)?.customer?.pincode;
-    if (pin && !fromPincode) setFromPincode(String(pin));
-  }, [user, fromPincode]);
+// ✅ Autofill only once per mount (or first render), not after user clears
+const didAutofillFromProfile = React.useRef(false);
+
+useEffect(() => {
+  if (didAutofillFromProfile.current) return;
+  const pin = (user as any)?.customer?.pincode;
+  if (pin && (fromPincode === "" || fromPincode == null)) {
+    setFromPincode(String(pin));
+    didAutofillFromProfile.current = true;
+  }
+  // purposely NOT depending on fromPincode to avoid re-autofill loops
+}, [user]); 
+
 
   useEffect(() => {
     clearStaleCache();
