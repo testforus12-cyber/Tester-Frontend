@@ -20,7 +20,7 @@ const Upload: React.FC = () => {
       const companyName = prompt("Enter Company Name (e.g., XYZ Logistics):");
       if (!companyName) return alert("Company name is required");
 
-      fetch('http://localhost:8000/api/transporter/addtransporter', {
+      fetch('https://tester-backend-4nxc.onrender.com/api/transporter/addtransporter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ company: companyName, prices: jsonData })

@@ -8,7 +8,6 @@ import {
   Clock,
   IndianRupee,
   Loader2,
-  MapPin,
   Navigation,
   Package,
   PackageSearch,
@@ -22,7 +21,7 @@ import {
   Zap,
   Ship as ShipIcon,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import axios from "axios";
 import Cookies from "js-cookie";
@@ -39,32 +38,35 @@ import {
   clearStaleCache,
 } from "../lib/compareCache";
 
+// 🔽 Pincode UX/validation entirely from FE (Context + Hook + Autocomplete)
+import PincodeAutocomplete from "../components/PincodeAutocomplete";
+
+// 🔽 FTL + Wheelseye quotes from service (no inline vendor code)
+import { buildFtlAndWheelseyeQuotes } from "../services/wheelseye";
+
 // -----------------------------------------------------------------------------
 // Limits
 // -----------------------------------------------------------------------------
 const MAX_DIMENSION_LENGTH = 1500;
 const MAX_DIMENSION_WIDTH = 300;
 const MAX_DIMENSION_HEIGHT = 300;
+const MAX_BOXES = 10000;
+const MAX_WEIGHT = 20000;
+
+// ✅ Invoice bounds (₹1 .. ₹10,00,00,000)
+const INVOICE_MIN = 1;
+const INVOICE_MAX = 100_000_000; // 10 crores
+
+// Buy route
+const BUY_ROUTE = "/buy-subscription-plan";
 
 // -----------------------------------------------------------------------------
-// Numeric helpers
+// Numeric + small helpers
 // -----------------------------------------------------------------------------
 const digitsOnly = (s: string) => s.replace(/\D/g, "");
-
 const preventNonIntegerKeys = (e: React.KeyboardEvent<HTMLInputElement>) => {
-  // Block characters that make numbers non-integer or negative/scientific
-  if (
-    e.key === "." ||
-    e.key === "," ||
-    e.key === "e" ||
-    e.key === "E" ||
-    e.key === "+" ||
-    e.key === "-"
-  ) {
-    e.preventDefault();
-  }
+  if ([".", ",", "e", "E", "+", "-"].includes(e.key)) e.preventDefault();
 };
-
 const sanitizeIntegerFromEvent = (raw: string, max?: number) => {
   const cleaned = digitsOnly(raw);
   if (cleaned === "") return "";
@@ -73,9 +75,38 @@ const sanitizeIntegerFromEvent = (raw: string, max?: number) => {
   const clamped = typeof max === "number" ? Math.min(n, max) : n;
   return String(clamped);
 };
+const formatINR0 = (n: number) =>
+  new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(
+    Math.round(n / 10) * 10
+  );
+
+// Dimension unit conversion helpers
+const convertInchToCm = (inches: number): number => inches * 2.54;
+const convertCmToInch = (cm: number): number => cm / 2.54;
+
+// ✅ robust price parsing (accepts numbers or strings like "₹ 5,300.50")
+const coerceNumber = (v: any) => {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    const cleaned = v.replace(/[^\d.]/g, ""); // keep digits + decimal
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : NaN;
+  }
+  return NaN;
+};
+
+// 🚫 helper: read price robustly (used in filters/sorts)
+const getQuotePrice = (q: any) => {
+  const candidates = [q?.totalCharges, q?.totalPrice, q?.price, q?.quote?.price];
+  for (const c of candidates) {
+    const n = coerceNumber(c);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return NaN;
+};
 
 // -----------------------------------------------------------------------------
-// Small UI helpers
+// Small UI wrappers
 // -----------------------------------------------------------------------------
 const Card = ({
   children,
@@ -98,6 +129,7 @@ const InputField = (
   props: React.InputHTMLAttributes<HTMLInputElement> & {
     label?: string;
     icon?: React.ReactNode;
+    error?: string | null;
   }
 ) => (
   <div>
@@ -117,11 +149,22 @@ const InputField = (
       )}
       <input
         {...props}
-        className={`block w-full py-2 bg-white border border-slate-300 rounded-lg text-sm shadow-sm placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition read-only:bg-slate-100 read-only:cursor-not-allowed disabled:bg-slate-100 disabled:border-slate-200 disabled:cursor-not-allowed ${
+        aria-invalid={props.error ? "true" : "false"}
+        className={`block w-full py-2 bg-white border rounded-lg text-sm shadow-sm placeholder-slate-400 focus:outline-none focus:ring-1 transition ${
           props.icon ? "pl-10" : "px-4"
+        } ${
+          props.error
+            ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+            : "border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
         }`}
       />
     </div>
+    {!!props.error && (
+      <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+        <AlertCircle size={14} />
+        {props.error}
+      </p>
+    )}
   </div>
 );
 
@@ -150,8 +193,45 @@ const SortOptionButton = ({
   </button>
 );
 
+// Unit Switch Component
+const UnitSwitch = ({
+  currentUnit,
+  onUnitChange,
+}: {
+  currentUnit: "cm" | "inch";
+  onUnitChange: (unit: "cm" | "inch") => void;
+}) => (
+  <div className="flex items-center gap-2">
+    <span className="text-sm font-medium text-slate-600">Units:</span>
+    <div className="flex bg-slate-100 rounded-lg p-1">
+      <button
+        type="button"
+        onClick={() => onUnitChange("cm")}
+        className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-all ${
+          currentUnit === "cm"
+            ? "bg-blue-600 text-white shadow-sm"
+            : "text-slate-600 hover:text-slate-900"
+        }`}
+      >
+        cm
+      </button>
+      <button
+        type="button"
+        onClick={() => onUnitChange("inch")}
+        className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-all ${
+          currentUnit === "inch"
+            ? "bg-blue-600 text-white shadow-sm"
+            : "text-slate-600 hover:text-slate-900"
+        }`}
+      >
+        inch
+      </button>
+    </div>
+  </div>
+);
+
 // -----------------------------------------------------------------------------
-// Types (broad to cover different API shapes)
+// Types
 // -----------------------------------------------------------------------------
 type QuoteAny = any;
 
@@ -166,8 +246,9 @@ type SavedBox = {
   width: number;
   height: number;
   weight: number;
-  modeoftransport: "Road" | "Rail" | "Air" | "Ship";
+  modeoftransport: "Road" | "Air" | "Rail" | "Ship";
   description?: string;
+  dimensionUnit?: "cm" | "inch";
 };
 
 type BoxDetails = {
@@ -176,9 +257,11 @@ type BoxDetails = {
   length: number | undefined;
   width: number | undefined;
   height: number | undefined;
-  weight: number | undefined; // NOTE: treated as integer per your requirement (no decimals)
+  weight: number | undefined;
   description: string;
 };
+
+type PresetSaveState = "idle" | "saving" | "success" | "exists" | "error";
 
 // -----------------------------------------------------------------------------
 // Calculator Page
@@ -186,8 +269,9 @@ type BoxDetails = {
 const CalculatorPage: React.FC = (): JSX.Element => {
   const { user } = useAuth();
   const token = Cookies.get("authToken");
+  const navigate = useNavigate();
 
-  // -------------------- UI State --------------------
+  // UI state
   const [sortBy, setSortBy] = useState<"price" | "time" | "rating">("price");
   const [isCalculating, setIsCalculating] = useState(false);
   const [calculationProgress, setCalculationProgress] = useState("");
@@ -197,12 +281,28 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const [data, setData] = useState<QuoteAny[] | null>(null);
   const [hiddendata, setHiddendata] = useState<QuoteAny[] | null>(null);
 
-  // -------------------- Form State --------------------
+  // Form state
   const [modeOfTransport, setModeOfTransport] = useState<
-    "Road" | "Rail" | "Air" | "Ship"
+    "Road" | "Air" | "Rail" | "Ship"
   >("Road");
   const [fromPincode, setFromPincode] = useState("");
   const [toPincode, setToPincode] = useState("");
+  const [invoiceValue, setInvoiceValue] = useState("");
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
+
+// Field errors + validity (frontend-only)
+  const [fromPinError, setFromPinError] = useState<string | null>(null);
+  const [toPinError, setToPinError] = useState<string | null>(null);
+  const [isFromPincodeValid, setIsFromPincodeValid] = useState(false);
+  const [isToPincodeValid, setIsToPincodeValid] = useState(false);
+
+  // 🔒 Guards to avoid re-select loops when auto-selecting on 6 digits
+  const fromAutoSelectedRef = useRef(false);
+  const toAutoSelectedRef = useRef(false);
+
+  // 🎯 Track if user has interacted with pincode fields
+  const [fromPinTouched, setFromPinTouched] = useState(false);
+  const [toPinTouched, setToPinTouched] = useState(false);
 
   const [boxes, setBoxes] = useState<BoxDetails[]>([
     {
@@ -219,15 +319,21 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     "all"
   );
 
+  // Unit state for dimensions
+  const [dimensionUnit, setDimensionUnit] = useState<"cm" | "inch">("cm");
+
   // Presets & dropdowns
   const [savedBoxes, setSavedBoxes] = useState<SavedBox[]>([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [boxIndexToSave, setBoxIndexToSave] = useState<number | null>(null);
   const [openPresetDropdownIndex, setOpenPresetDropdownIndex] =
     useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const presetRefs = useRef<(HTMLDivElement | null)[]>([]);
   const boxFormRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Inline Save-Preset status (per box)
+  const [presetStatusByBoxId, setPresetStatusByBoxId] = useState<
+    Record<string, PresetSaveState>
+  >({});
 
   // Fine-tune modal
   const [isFineTuneOpen, setIsFineTuneOpen] = useState(false);
@@ -244,11 +350,12 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         (box) =>
           (box.length ?? 0) > MAX_DIMENSION_LENGTH ||
           (box.width ?? 0) > MAX_DIMENSION_WIDTH ||
-          (box.height ?? 0) > MAX_DIMENSION_HEIGHT
+          (box.height ?? 0) > MAX_DIMENSION_HEIGHT ||
+          (box.count ?? 0) > MAX_BOXES ||
+          (box.weight ?? 0) > MAX_WEIGHT
       ),
     [boxes]
   );
-
   const totalWeight = boxes.reduce(
     (sum, b) => sum + (b.weight || 0) * (b.count || 0),
     0
@@ -258,24 +365,44 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     b.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // 🚫 Same pincode cannot be used
+  const isSamePincode =
+    fromPincode.length === 6 &&
+    toPincode.length === 6 &&
+    fromPincode === toPincode;
+
+  const hasPincodeIssues =
+    !!fromPinError ||
+    !!toPinError ||
+    !isFromPincodeValid ||
+    !isToPincodeValid ||
+    isSamePincode;
+
   // ---------------------------------------------------------------------------
   // Effects
   // ---------------------------------------------------------------------------
+// ✅ Autofill only once per mount (or first render), not after user clears
+const didAutofillFromProfile = React.useRef(false);
 
-  // Always autofill Origin Pincode from profile
-  useEffect(() => {
-    const pin = (user as any)?.customer?.pincode;
-    if (pin) setFromPincode(String(pin));
-  }, [user]);
+useEffect(() => {
+  if (didAutofillFromProfile.current) return;
+  const pin = (user as any)?.customer?.pincode;
+  if (pin && (fromPincode === "" || fromPincode == null)) {
+    setFromPincode(String(pin));
+    didAutofillFromProfile.current = true;
+  }
+  // purposely NOT depending on fromPincode to avoid re-autofill loops
+}, [user]); 
 
-  // Restore last form (except origin pincode) and last results
+
   useEffect(() => {
     clearStaleCache();
 
     const form = loadFormState();
     if (form) {
-      setToPincode(form.toPincode || "");
-      setModeOfTransport(form.modeOfTransport || "Road");
+      if (form.fromPincode) setFromPincode(form.fromPincode);
+      if (form.toPincode) setToPincode(form.toPincode);
+      if (form.modeOfTransport) setModeOfTransport(form.modeOfTransport);
       if (Array.isArray(form.boxes) && form.boxes.length) {
         setBoxes(
           form.boxes.map((b: any) => ({
@@ -296,17 +423,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     }
   }, []);
 
-  // Persist form state while typing
   useEffect(() => {
-    saveFormState({
-      fromPincode,
-      toPincode,
-      modeOfTransport,
-      boxes,
-    });
+    saveFormState({ fromPincode, toPincode, modeOfTransport, boxes });
   }, [fromPincode, toPincode, modeOfTransport, boxes]);
 
-  // Close preset dropdown on outside click
   useEffect(() => {
     const onClickOutside = (ev: MouseEvent) => {
       if (
@@ -325,34 +445,80 @@ const CalculatorPage: React.FC = (): JSX.Element => {
 
   useEffect(() => {
     fetchSavedBoxes();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [(user as any)?.customer?._id, token]);
+
+  useEffect(() => {
+    if (
+      fromPincode.length === 6 &&
+      isFromPincodeValid &&
+      !fromAutoSelectedRef.current
+    ) {
+      setFromPinError(null);
+      fromAutoSelectedRef.current = true;
+    }
+    if (fromPincode.length !== 6 || !isFromPincodeValid) {
+      fromAutoSelectedRef.current = false;
+    }
+  }, [fromPincode, isFromPincodeValid]);
+
+  useEffect(() => {
+    if (
+      toPincode.length === 6 &&
+      isToPincodeValid &&
+      !toAutoSelectedRef.current
+    ) {
+      setToPinError(null);
+      toAutoSelectedRef.current = true;
+    }
+    if (toPincode.length !== 6 || !isToPincodeValid) {
+      toAutoSelectedRef.current = false;
+    }
+  }, [toPincode, isToPincodeValid]);
 
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
-  const handlePincodeChange = (
-    raw: string,
-    setter: React.Dispatch<React.SetStateAction<string>>
-  ) => {
-    const digits = digitsOnly(raw).slice(0, 6);
-    setter(digits);
-  };
-
-  // Dimension auto-cap (hard clamp to max value) – integers only
   const handleDimensionChange = (
     index: number,
     field: "length" | "width" | "height",
     rawValue: string,
-    maxDigits: number,
-    maxValue: number
+    maxDigits: number
   ) => {
     const cleaned = digitsOnly(rawValue).slice(0, maxDigits);
     if (cleaned === "") {
       updateBox(index, field, undefined);
       return;
     }
-    const n = Math.min(Number(cleaned), maxValue);
-    updateBox(index, field, n);
+    const n = Number(cleaned);
+    
+    // Convert to centimeters if input is in inches
+    const valueInCm = dimensionUnit === "inch" ? convertInchToCm(n) : n;
+    
+    const actualMax =
+      field === "length"
+        ? MAX_DIMENSION_LENGTH
+        : field === "width"
+        ? MAX_DIMENSION_WIDTH
+        : MAX_DIMENSION_HEIGHT;
+    
+    // Always store in centimeters
+    updateBox(index, field, Math.min(valueInCm, actualMax));
+  };
+
+  // Get display value for dimensions (convert from stored cm to current unit)
+  const getDisplayValue = (valueInCm: number | undefined): string => {
+    if (valueInCm === undefined) return "";
+    return dimensionUnit === "inch" 
+      ? Math.round(convertCmToInch(valueInCm)).toString()
+      : Math.round(valueInCm).toString();
+  };
+
+  // Handle unit change and convert existing values
+  const handleUnitChange = (newUnit: "cm" | "inch") => {
+    setDimensionUnit(newUnit);
+    // No need to convert existing values as they're stored in cm
+    // The display will automatically update via getDisplayValue
   };
 
   const createNewBox = (): BoxDetails => ({
@@ -390,83 +556,16 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     if (!user || !token) return;
     try {
       const response = await axios.get(
-        `http://localhost:8000/api/transporter/getpackinglist?customerId=${
+        `https://tester-backend-4nxc.onrender.com/api/transporter/getpackinglist?customerId=${
           (user as any).customer._id
         }`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setSavedBoxes(Array.isArray(response.data.data) ? response.data.data : []);
+      setSavedBoxes(
+        Array.isArray(response.data.data) ? response.data.data : []
+      );
     } catch (err) {
       console.error("Failed to fetch saved boxes:", err);
-    }
-  };
-
-  const triggerSavePresetForBox = (index: number) => {
-    const boxToSave = boxes[index];
-    if (
-      !boxToSave.length ||
-      !boxToSave.width ||
-      !boxToSave.height ||
-      !boxToSave.weight
-    ) {
-      setError(
-        "Please fill in all dimensions and weight for the box before saving."
-      );
-      editBox(index);
-      return;
-    }
-    setError(null);
-    setBoxIndexToSave(index);
-    setIsModalOpen(true);
-  };
-
-  const handleSavePreset = async (presetName: string) => {
-    if (boxIndexToSave === null || !user || !token) {
-      setError("An error occurred. Please try again.");
-      return;
-    }
-    if (
-      !fromPincode ||
-      fromPincode.length !== 6 ||
-      !toPincode ||
-      toPincode.length !== 6
-    ) {
-      setError(
-        "Please enter valid 6-digit Origin and Destination pincodes before saving a preset."
-      );
-      setIsModalOpen(false);
-      setBoxIndexToSave(null);
-      return;
-    }
-    const boxToSave = boxes[boxIndexToSave];
-    const payload = {
-      name: presetName,
-      description: presetName,
-      customerId: (user as any).customer._id,
-      originPincode: Number(fromPincode),
-      destinationPincode: Number(toPincode),
-      length: boxToSave.length!,
-      width: boxToSave.width!,
-      height: boxToSave.height!,
-      weight: boxToSave.weight!, // integer as per restriction
-      modeoftransport: modeOfTransport,
-      noofboxes: boxToSave.count || 1,
-      quantity: boxToSave.count || 1,
-    };
-    try {
-      await axios.post(
-        `http://localhost:8000/api/transporter/savepackinglist`,
-        payload,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setIsModalOpen(false);
-      setBoxIndexToSave(null);
-      await fetchSavedBoxes();
-    } catch (err: any) {
-      console.error("Failed to save preset:", err);
-      setError(
-        `Could not save preset: ${err.response?.data?.message || err.message}`
-      );
     }
   };
 
@@ -478,8 +577,10 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     if (window.confirm("Delete this preset permanently?")) {
       try {
         await axios.delete(
-          `http://localhost:8000/api/transporter/deletepackinglist/${presetId}`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          `https://tester-backend-4nxc.onrender.com/api/transporter/deletepackinglist/${presetId}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
         );
         await fetchSavedBoxes();
       } catch (err: any) {
@@ -505,6 +606,11 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     };
     setBoxes(updated);
 
+    // Change unit switch to match the preset's saved unit
+    if (boxPreset.dimensionUnit) {
+      setDimensionUnit(boxPreset.dimensionUnit);
+    }
+
     if (index === 0) {
       setFromPincode(boxPreset.originPincode.toString());
       setModeOfTransport(boxPreset.modeoftransport);
@@ -513,81 +619,126 @@ const CalculatorPage: React.FC = (): JSX.Element => {
     setSearchTerm("");
   };
 
-  // Distance via backend wrapper (Google Distance Matrix)
-  async function getDistanceKmByAPI(originPin: string, destPin: string) {
-    const apiBase =
-      import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-    const resp = await fetch(`${apiBase}/api/vendor/wheelseye-distance`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        origin: `${originPin},IN`,
-        destination: `${destPin},IN`,
-      }),
-    });
-    if (!resp.ok) throw new Error(`DM HTTP ${resp.status}`);
-    const j = await resp.json();
-    return Number(j.distanceKm);
-  }
+  // -------------------- Frontend Pincode validation --------------------
+  const validatePincodeFormat = (pin: string): string | null => {
+    if (!pin) return "Pincode is required.";
+    if (!/^\d{6}$/.test(pin)) return "Enter a 6-digit pincode.";
+    if (!/^[1-9]\d{5}$/.test(pin)) return "Pincode cannot start with 0.";
+    return null;
+  };
 
-  // Get Wheelseye pricing from database API with chargeable weight calculation
-  async function getWheelseyePriceFromDB(
-    weight: number,
-    distance: number,
-    shipmentDetails?: any[]
-  ) {
-    try {
-      const apiBase =
-        import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-      const requestBody: any = {
-        distance: distance,
-      };
-
-      if (shipmentDetails && shipmentDetails.length > 0) {
-        requestBody.shipment_details = shipmentDetails;
-      } else {
-        requestBody.weight = weight;
-      }
-
-      const resp = await fetch(`${apiBase}/api/vendor/wheelseye-pricing`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!resp.ok) {
-        throw new Error(`Wheelseye API HTTP ${resp.status}`);
-      }
-
-      const result = await resp.json();
-      return result;
-    } catch (error) {
-      console.error("Error fetching Wheelseye pricing from database:", error);
-      throw error;
+  const validatePincodeField = async (which: "from" | "to") => {
+    const pin = which === "from" ? fromPincode : toPincode;
+    const setErr = which === "from" ? setFromPinError : setToPinError;
+    const msg = validatePincodeFormat(pin);
+    if (msg) {
+      setErr(msg);
+      return false;
     }
-  }
+    setErr(null);
+    return true;
+  };
 
-  // Check if origin pincode is in Wheelseye service area
-  function isWheelseyeServiceArea(originPincode: string): boolean {
-    const pincode = parseInt(originPincode);
-    if (pincode >= 110001 && pincode <= 110098) return true; // Delhi
-    if (pincode >= 201301 && pincode <= 201315) return true; // Noida
-    if (pincode >= 201001 && pincode <= 201015) return true; // Ghaziabad
-    if (pincode >= 122001 && pincode <= 122018) return true; // Gurgaon
-    return false;
-  }
+  // -------------------- Inline Save-as-Preset --------------------
+  const setPresetStatus = (boxId: string, s: PresetSaveState) =>
+    setPresetStatusByBoxId((prev) => ({ ...prev, [boxId]: s }));
+
+  const saveBoxPresetInline = async (index: number) => {
+    const box = boxes[index];
+    const boxId = box.id;
+    const name = (box.description || "").trim();
+
+    // Basic checks
+    if (!name) {
+      setError("Please enter a Box Name before saving.");
+      return;
+    }
+    if (!box.length || !box.width || !box.height || !box.weight) {
+      setError(
+        "Please fill in all dimensions and weight for the box before saving."
+      );
+      editBox(index);
+      return;
+    }
+    if (
+      !fromPincode ||
+      fromPincode.length !== 6 ||
+      !toPincode ||
+      toPincode.length !== 6
+    ) {
+      setError(
+        "Please enter valid 6-digit Origin and Destination pincodes before saving a preset."
+      );
+      return;
+    }
+    if (!isFromPincodeValid || !isToPincodeValid) {
+      setError("Selected pincodes are not serviceable.");
+      return;
+    }
+
+    // Uniqueness (case-insensitive)
+    const exists = savedBoxes.some(
+      (p) => p.name.toLowerCase() === name.toLowerCase()
+    );
+    if (exists) {
+      setPresetStatus(boxId, "exists");
+      setTimeout(() => setPresetStatus(boxId, "idle"), 1600);
+      return;
+    }
+
+    if (!user || !token) {
+      setError("You are not authenticated. Please log in again.");
+      return;
+    }
+
+    setError(null);
+    setPresetStatus(boxId, "saving");
+
+    const payload = {
+      name,
+      description: name,
+      customerId: (user as any).customer._id,
+      originPincode: Number(fromPincode),
+      destinationPincode: Number(toPincode),
+      length: box.length!,
+      width: box.width!,
+      height: box.height!,
+      weight: box.weight!,
+      modeoftransport: modeOfTransport,
+      noofboxes: box.count || 1,
+      quantity: box.count || 1,
+      dimensionUnit: dimensionUnit,
+    };
+
+    try {
+      await axios.post(
+        `https://tester-backend-4nxc.onrender.com/api/transporter/savepackinglist`,
+        payload,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      setPresetStatus(boxId, "success");
+      await fetchSavedBoxes(); // refresh dropdown data
+      setTimeout(() => setPresetStatus(boxId, "idle"), 1200);
+    } catch (err: any) {
+      console.error("Failed to save preset:", err);
+      setError(
+        `Could not save preset: ${err.response?.data?.message || err.message}`
+      );
+      setPresetStatus(boxId, "error");
+      setTimeout(() => setPresetStatus(boxId, "idle"), 1600);
+    }
+  };
 
   // -------------------- Calculate Quotes (with CACHE) --------------------
   const calculateQuotes = async () => {
+    if (isCalculating) return;
+
+    setIsCalculating(true);
     setError(null);
     setData(null);
     setHiddendata(null);
-
-    const pinRx = /^\d{6}$/;
-    if (!pinRx.test(fromPincode) || !pinRx.test(toPincode)) {
-      setError("Please enter valid 6-digit Origin and Destination Pincodes.");
-      return;
-    }
 
     const boxesToCalc =
       calculationTarget === "all" ? boxes : [boxes[calculationTarget]];
@@ -603,6 +754,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       ) {
         const name = box.description || `Box Type ${boxes.indexOf(box) + 1}`;
         setError(`Please fill in all details for "${name}".`);
+        setIsCalculating(false);
         return;
       }
       shipmentPayload.push({
@@ -614,20 +766,83 @@ const CalculatorPage: React.FC = (): JSX.Element => {
       });
     }
 
+    const [okFrom, okTo] = await Promise.all([
+      validatePincodeField("from"),
+      validatePincodeField("to"),
+    ]);
+    if (!okFrom || !okTo || !isFromPincodeValid || !isToPincodeValid) {
+      setIsCalculating(false);
+      if (!okFrom && !okTo) setError("Origin and Destination pincodes are invalid.");
+      else if (!okFrom) setError("Origin pincode is invalid.");
+      else if (!okTo) setError("Destination pincode is invalid.");
+      else setError("Selected pincodes are not serviceable.");
+      return;
+    }
+
+    // 🚫 Same pincode check
+    if (isSamePincode) {
+      setIsCalculating(false);
+      setError("Origin and Destination pincodes cannot be the same.");
+      return;
+    }
+
+    // ✅ Invoice value: enforce 1 .. 10 crores
+    if (invoiceValue.trim() === "") {
+      setIsCalculating(false);
+      setInvoiceError("Please enter invoice value");
+      setError("Please enter invoice value");
+      return;
+    }
+    const inv = Number(invoiceValue);
+    if (!Number.isFinite(inv)) {
+      setIsCalculating(false);
+      setInvoiceError("Invoice value must be a number");
+      setError("Invoice value must be a number");
+      return;
+    }
+    if (inv < INVOICE_MIN) {
+      setIsCalculating(false);
+      setInvoiceError(`Minimum invoice value is ₹${INVOICE_MIN}`);
+      setError(`Minimum invoice value is ₹${INVOICE_MIN}`);
+      return;
+    }
+    if (inv > INVOICE_MAX) {
+      setIsCalculating(false);
+      setInvoiceError(
+        `Maximum invoice value is ₹${INVOICE_MAX.toLocaleString(
+          "en-IN"
+        )} (10 crores)`
+      );
+      setError(
+        `Maximum invoice value is ₹${INVOICE_MAX.toLocaleString(
+          "en-IN"
+        )} (10 crores)`
+      );
+      return;
+    }
+
     const requestParams = {
       modeoftransport: modeOfTransport,
       fromPincode,
       toPincode,
       shipment_details: shipmentPayload,
     };
+
     const cacheKey = makeCompareKey(requestParams);
 
-    setIsCalculating(true);
-    setCalculationProgress("Fetching quotes from vendors...");
+    // helper to normalize ETA to integer days, min 1
+    const normalizeETA = (q: any) => {
+      const raw = Number(q?.estimatedTime ?? q?.transitDays ?? q?.eta ?? 0);
+      const normalized = Math.max(
+        1,
+        Math.ceil(Number.isFinite(raw) ? raw : 0)
+      );
+      return { ...q, estimatedTime: normalized };
+    };
 
     try {
       const resp = await axios.post(
-        "http://localhost:8000/api/transporter/calculate",
+        "https://tester-backend-4nxc.onrender.com/api/transporter/calculate",
         {
           customerID: (user as any).customer._id,
           userogpincode: (user as any).customer.pincode,
@@ -635,8 +850,9 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           fromPincode,
           toPincode,
           shipment_details: shipmentPayload,
+          invoiceValue: inv,
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
       );
 
       const all: QuoteAny[] = [
@@ -650,12 +866,13 @@ const CalculatorPage: React.FC = (): JSX.Element => {
         })),
       ];
 
-      // SHOW ONLY THE CHEAPEST DP WORLD and HIDE EXPENSIVE ONE COMPLETELY
-      const dpWorldQuotes = all.filter((q) => q.companyName === "DP World");
-      const nonDpWorldQuotes = all.filter(
-        (q) => q.companyName !== "DP World"
+      // Move all 'DP World' quotes out of tied-up into other vendors
+      const dpWorldQuotes = all.filter(
+        (q) => (q.companyName || "").trim().toLowerCase() === "dp world"
       );
-
+      const nonDpWorldQuotes = all.filter(
+        (q) => (q.companyName || "").trim().toLowerCase() !== "dp world"
+      );
       const cheapestDPWorld =
         dpWorldQuotes.length > 0
           ? dpWorldQuotes.reduce((cheapest, current) =>
@@ -665,350 +882,124 @@ const CalculatorPage: React.FC = (): JSX.Element => {
             )
           : null;
 
-      let tied = [
-        ...nonDpWorldQuotes.filter((q) => q.isTiedUp),
-        ...(cheapestDPWorld ? [{ ...cheapestDPWorld, isTiedUp: true }] : []),
+      let tied = [...nonDpWorldQuotes.filter((q) => q.isTiedUp)];
+      let others = [
+        ...(nonDpWorldQuotes.filter((q) => !q.isTiedUp) || []),
+        ...(cheapestDPWorld ? [{ ...cheapestDPWorld, isTiedUp: false }] : []),
       ];
 
-      let others = [...nonDpWorldQuotes.filter((q) => !q.isTiedUp)];
-
-      // ---------- Inject FTL + Wheelseye FTL ----------
-      let distanceKm = 500; // fallback
-      try {
-        distanceKm = await getDistanceKmByAPI(fromPincode, toPincode);
-      } catch (e) {
-        console.warn("Distance calculation failed, using default:", e);
-      }
-
-      const isWheelseyeAvailable = isWheelseyeServiceArea(fromPincode);
-
-      let ftlPrice = 0;
-      let wheelseyePrice = 0;
-      let wheelseyeResult: any = null;
-
-      try {
-        wheelseyeResult = await getWheelseyePriceFromDB(
-          totalWeight,
-          distanceKm,
-          shipmentPayload
-        );
-
-        wheelseyePrice = wheelseyeResult.price;
-        ftlPrice = Math.round((wheelseyePrice * 1.2) / 10) * 10; // 20% more than Wheelseye
-      } catch (e) {
-        const referenceQuote = others.find((q) => q.companyName === "Ekart");
-        const referencePrice = referenceQuote?.totalCharges || 32000;
-        ftlPrice = Math.round((referencePrice * 1.1) / 10) * 10;
-        wheelseyePrice = Math.round((referencePrice * 0.95) / 10) * 10;
-      }
-
-      const weightBreakdown = wheelseyeResult?.weightBreakdown;
-      const actualWeight = weightBreakdown?.actualWeight || totalWeight;
-      const volumetricWeight =
-        weightBreakdown?.volumetricWeight || totalWeight;
-      const chargeableWeight =
-        weightBreakdown?.chargeableWeight || totalWeight;
-
-      // FTL quote (always available)
-      const ftlEstimatedTime = Math.ceil(distanceKm / 400);
-      const ftlQuote = {
-        message: "",
-        isHidden: false,
-        transporterData: { rating: 4.6 },
-        totalCharges: ftlPrice,
-        estimatedDelivery: `${ftlEstimatedTime} Day${
-          ftlEstimatedTime > 1 ? "s" : ""
-        }`,
-        companyName: "FTL",
-        price: ftlPrice,
-        transporterName: "FTL",
-        deliveryTime: `${ftlEstimatedTime} Day${
-          ftlEstimatedTime > 1 ? "s" : ""
-        }`,
-        estimatedTime: ftlEstimatedTime,
-        actualWeight,
-        volumetricWeight,
-        chargeableWeight,
-        total: ftlPrice,
-        totalPrice: ftlPrice,
-        distance: `${distanceKm} km`,
-        originPincode: fromPincode,
-        destinationPincode: toPincode,
-        category: "FTL",
-        isTiedUp: false,
-        vehicle:
-          wheelseyeResult?.vehicle ||
-          (chargeableWeight > 18000
-            ? "Container 32 ft MXL + Additional Vehicle"
-            : "FTL Vehicle"),
-        vehicleLength:
-          wheelseyeResult?.vehicleLength ||
-          (chargeableWeight > 18000 ? "32 ft + Additional" : 14),
-        matchedWeight: wheelseyeResult?.matchedWeight || chargeableWeight,
-        matchedDistance: wheelseyeResult?.matchedDistance || distanceKm,
-        loadSplit:
-          wheelseyeResult?.loadSplit ||
-          (chargeableWeight > 18000
-            ? {
-                vehiclesNeeded: 2,
-                firstVehicle: {
-                  vehicle: "Container 32 ft MXL",
-                  weight: 18000,
-                  price: Math.round(ftlPrice * 0.7),
-                  vehicleLength: 32,
-                },
-                secondVehicle: {
-                  vehicle:
-                    chargeableWeight - 18000 <= 1000
-                      ? "Tata Ace"
-                      : chargeableWeight - 18000 <= 1500
-                      ? "Pickup"
-                      : chargeableWeight - 18000 <= 2000
-                      ? "10 ft Truck"
-                      : chargeableWeight - 18000 <= 4000
-                      ? "Eicher 14 ft"
-                      : chargeableWeight - 18000 <= 7000
-                      ? "Eicher 19 ft"
-                      : chargeableWeight - 18000 <= 10000
-                      ? "Eicher 20 ft"
-                      : "Container 32 ft MXL",
-                  weight: chargeableWeight - 18000,
-                  price: Math.round(ftlPrice * 0.3),
-                  vehicleLength:
-                    chargeableWeight - 18000 <= 1000
-                      ? 7
-                      : chargeableWeight - 18000 <= 1500
-                      ? 8
-                      : chargeableWeight - 18000 <= 2000
-                      ? 10
-                      : chargeableWeight - 18000 <= 4000
-                      ? 14
-                      : chargeableWeight - 18000 <= 7000
-                      ? 19
-                      : chargeableWeight - 18000 <= 10000
-                      ? 20
-                      : 32,
-                },
-                totalPrice: ftlPrice,
-              }
-            : null),
-      };
-
-      // Always show FTL
-      others.unshift(ftlQuote);
-      if (!others.find((q) => q.companyName === "FTL")) {
-        others.unshift(ftlQuote);
-      }
-
-      // Only add Wheelseye if origin is in service area
-      if (isWheelseyeAvailable) {
-        const wheelseyeEstimatedTime = Math.ceil(distanceKm / 400);
-        const wheelseyeQuote = {
-          message: "",
-          isHidden: false,
-          transporterData: { rating: 4.6 },
-          totalCharges: wheelseyePrice,
-          estimatedDelivery: `${wheelseyeEstimatedTime} Day${
-            wheelseyeEstimatedTime > 1 ? "s" : ""
-          }`,
-          companyName: "Wheelseye FTL",
-          price: wheelseyePrice,
-          transporterName: "Wheelseye FTL",
-          deliveryTime: `${wheelseyeEstimatedTime} Day${
-            wheelseyeEstimatedTime > 1 ? "s" : ""
-          }`,
-          estimatedTime: wheelseyeEstimatedTime,
-          actualWeight,
-          volumetricWeight,
-          chargeableWeight,
-          total: wheelseyePrice,
-          totalPrice: wheelseyePrice,
-          distance: `${distanceKm} km`,
-          originPincode: fromPincode,
-          destinationPincode: toPincode,
-          category: "Wheelseye FTL",
-          isTiedUp: false,
-          vehicle:
-            wheelseyeResult?.vehicle ||
-            (chargeableWeight > 18000
-              ? "Container 32 ft MXL + Additional Vehicle"
-              : chargeableWeight <= 1000
-              ? "Tata Ace"
-              : chargeableWeight <= 1200
-              ? "Pickup"
-              : chargeableWeight <= 1500
-              ? "10 ft Truck"
-              : chargeableWeight <= 4000
-              ? "Eicher 14 ft"
-              : chargeableWeight <= 7000
-              ? "Eicher 19 ft"
-              : chargeableWeight <= 10000
-              ? "Eicher 20 ft"
-              : chargeableWeight <= 18000
-              ? "Container 32 ft MXL"
-              : "Container 32 ft MXL"),
-          vehicleLength:
-            wheelseyeResult?.vehicleLength ||
-            (chargeableWeight > 18000
-              ? "32 ft + Additional"
-              : chargeableWeight <= 1000
-              ? 7
-              : chargeableWeight <= 1200
-              ? 8
-              : chargeableWeight <= 1500
-              ? 10
-              : chargeableWeight <= 4000
-              ? 14
-              : chargeableWeight <= 7000
-              ? 19
-              : chargeableWeight <= 10000
-              ? 20
-              : chargeableWeight <= 18000
-              ? 32
-              : 32),
-          matchedWeight: wheelseyeResult?.matchedWeight || chargeableWeight,
-          matchedDistance: wheelseyeResult?.matchedDistance || distanceKm,
-          loadSplit:
-            wheelseyeResult?.loadSplit ||
-            (chargeableWeight > 18000
-              ? {
-                  vehiclesNeeded: 2,
-                  firstVehicle: {
-                    vehicle: "Container 32 ft MXL",
-                    weight: 18000,
-                    price: Math.round(wheelseeePrice * 0.7),
-                    vehicleLength: 32,
-                  },
-                  secondVehicle: {
-                    vehicle:
-                      chargeableWeight - 18000 <= 1000
-                        ? "Tata Ace"
-                        : chargeableWeight - 18000 <= 1500
-                        ? "Pickup"
-                        : chargeableWeight - 18000 <= 2000
-                        ? "10 ft Truck"
-                        : chargeableWeight - 18000 <= 4000
-                        ? "Eicher 14 ft"
-                        : chargeableWeight - 18000 <= 7000
-                        ? "Eicher 19 ft"
-                        : chargeableWeight - 18000 <= 10000
-                        ? "Eicher 20 ft"
-                        : "Container 32 ft MXL",
-                    weight: chargeableWeight - 18000,
-                    price: Math.round(wheelseyePrice * 0.3),
-                    vehicleLength:
-                      chargeableWeight - 18000 <= 1000
-                        ? 7
-                        : chargeableWeight - 18000 <= 1500
-                        ? 8
-                        : chargeableWeight - 18000 <= 2000
-                        ? 10
-                        : chargeableWeight - 18000 <= 4000
-                        ? 14
-                        : chargeableWeight - 18000 <= 7000
-                        ? 19
-                        : chargeableWeight - 18000 <= 10000
-                        ? 20
-                        : 32,
-                  },
-                  totalPrice: wheelseyePrice,
-                }
-              : null),
-        };
-
-        // Put Wheelseye just after FTL
-        others.unshift(wheelseyeQuote);
-      }
-
-      // Multiply all other Tied-Up Vendors prices by 5.0
-      tied.forEach((quote) => {
-        if (quote.companyName === "DP World") return;
-        quote.totalCharges = Math.round((quote.totalCharges * 5.0) / 10) * 10;
-        quote.price = Math.round((quote.price * 5.0) / 10) * 10;
-        quote.total = Math.round((quote.total * 5.0) / 10) * 10;
-        quote.totalPrice = Math.round((quote.totalPrice * 5.0) / 10) * 10;
-
-        if (quote.baseFreight)
-          quote.baseFreight = Math.round((quote.baseFreight * 5.0) / 10) * 10;
-        if (quote.docketCharge)
-          quote.docketCharge =
-            Math.round((quote.docketCharge * 5.0) / 10) * 10;
-        if (quote.fuelCharges)
-          quote.fuelCharges = Math.round((quote.fuelCharges * 5.0) / 10) * 10;
-        if (quote.handlingCharges)
-          quote.handlingCharges =
-            Math.round((quote.handlingCharges * 5.0) / 10) * 10;
-        if (quote.greenTax)
-          quote.greenTax = Math.round((quote.greenTax * 5.0) / 10) * 10;
-        if (quote.appointmentCharges)
-          quote.appointmentCharges =
-            Math.round((quote.appointmentCharges * 5.0) / 10) * 10;
-        if (quote.minCharges)
-          quote.minCharges = Math.round((quote.minCharges * 5.0) / 10) * 10;
-        if (quote.rovCharges)
-          quote.rovCharges = Math.round((quote.rovCharges * 5.0) / 10) * 10;
+      // ---------- Inject Local FTL + Wheelseye via SERVICE ----------
+      const { ftlQuote, wheelseyeQuote } = await buildFtlAndWheelseyeQuotes({
+        fromPincode,
+        toPincode,
+        shipment: shipmentPayload,
+        totalWeight,
+        token,
+        isWheelseyeServiceArea: (pin: string) => /^\d{6}$/.test(pin),
       });
 
-      // Final guard: ensure FTL exists
-      if (!others.find((q) => q.companyName === "FTL")) {
-        const emergencyFtlQuote = {
-          message: "",
-          isHidden: false,
-          transporterData: { rating: 4.6 },
-          totalCharges: 35000,
-          estimatedDelivery: "2 Days",
-          companyName: "FTL",
-          price: 35000,
-          transporterName: "FTL",
-          deliveryTime: "2 Days",
-          estimatedTime: 2,
-          actualWeight: totalWeight,
-          volumetricWeight: totalWeight,
-          chargeableWeight: totalWeight,
-          total: 35000,
-          totalPrice: 35000,
-          distance: `${distanceKm} km`,
-          originPincode: fromPincode,
-          destinationPincode: toPincode,
-          category: "FTL",
-          isTiedUp: false,
-          vehicle: "FTL Vehicle",
-          vehicleLength: 14,
-          matchedWeight: totalWeight,
-          matchedDistance: distanceKm,
-          loadSplit: null,
-        };
-        others.unshift(emergencyFtlQuote);
-      }
+      if (ftlQuote) others.unshift(ftlQuote);
+      if (wheelseyeQuote) others.unshift(wheelseyeQuote);
 
+      // Remove specific vendor(s) from tied-up view
+      tied = tied.filter(
+        (q) => (q.companyName || "").trim().toLowerCase() !== "testvendor1"
+      );
+
+      // ---------- Optional: price rounding for tied-up vendors ----------
+      tied.forEach((quote) => {
+        if (quote.companyName === "DP World") return;
+        const round5 = (x: number) => Math.round((x * 5.0) / 10) * 10;
+        if (typeof quote.totalCharges === "number")
+          quote.totalCharges = round5(quote.totalCharges);
+        if (typeof quote.price === "number") quote.price = round5(quote.price);
+        if (typeof quote.total === "number") quote.total = round5(quote.total);
+        if (typeof quote.totalPrice === "number")
+          quote.totalPrice = round5(quote.totalPrice);
+        if (typeof quote.baseFreight === "number")
+          quote.baseFreight = round5(quote.baseFreight);
+        if (typeof quote.docketCharge === "number")
+          quote.docketCharge = round5(quote.docketCharge);
+        if (typeof quote.fuelCharges === "number")
+          quote.fuelCharges = round5(quote.fuelCharges);
+        if (typeof quote.handlingCharges === "number")
+          quote.handlingCharges = round5(quote.handlingCharges);
+        if (typeof quote.greenTax === "number")
+          quote.greenTax = round5(quote.greenTax);
+        if (typeof quote.appointmentCharges === "number")
+          quote.appointmentCharges = round5(quote.appointmentCharges);
+        if (typeof quote.minCharges === "number")
+          quote.minCharges = round5(quote.minCharges);
+        if (typeof quote.rovCharges === "number")
+          quote.rovCharges = round5(quote.rovCharges);
+      });
+
+      // ✅ Normalize ETA for ALL quotes: integer days, minimum 1
+      tied = tied.map(normalizeETA);
+      others = others.map(normalizeETA);
+
+      // Batch state updates
       setData(tied);
       setHiddendata(others);
 
-      // Cache
-      writeCompareCache(cacheKey, {
-        params: requestParams,
-        data: tied,
-        hiddendata: others,
-        form: { fromPincode, toPincode, modeOfTransport, boxes },
-      });
+      // update cache (async)
+      setTimeout(() => {
+        writeCompareCache(cacheKey, {
+          params: requestParams,
+          data: tied,
+          hiddendata: others,
+          form: { fromPincode, toPincode, modeOfTransport, boxes },
+        });
+      }, 0);
     } catch (e: any) {
       if (e.response?.status === 401) {
         setError("Authentication failed. Please log out and log back in.");
       } else {
         setError(`Failed to get rates. Error: ${e.message}`);
       }
+    } finally {
+      setCalculationProgress("");
+      setIsCalculating(false);
+      setTimeout(() => {
+        document.getElementById("results")?.scrollIntoView({
+          behavior: "smooth",
+        });
+      }, 50);
     }
+  };
 
-    setCalculationProgress("");
-    setIsCalculating(false);
-    setTimeout(() => {
-      document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
-    }, 100);
+  // -------------------- Keyboard Event Handler --------------------
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+      const hasValidPincodes =
+        fromPincode.length === 6 &&
+        toPincode.length === 6 &&
+        isFromPincodeValid &&
+        isToPincodeValid &&
+        !isSamePincode;
+      const hasValidBoxes = boxes.every(
+        (box) =>
+          box.count &&
+          box.length &&
+          box.width &&
+          box.height &&
+          box.weight
+      );
+      if (hasValidPincodes && hasValidBoxes && !isCalculating) {
+        e.preventDefault();
+        calculateQuotes();
+      }
+    }
   };
 
   // -------------------- Render --------------------
+  const equalityError =
+    isSamePincode && isFromPincodeValid && isToPincodeValid
+      ? "Origin and Destination cannot be the same."
+      : null;
+
   return (
-    <div className="min-h-screen w-full bg-slate-50 font-sans">
+    <div className="min-h-screen w-full bg-slate-50 font-sans" onKeyDown={handleKeyDown}>
       <div
         className="absolute top-0 left-0 w-full h-80 bg-gradient-to-br from-indigo-50 to-purple-50"
         style={{ clipPath: "polygon(0 0, 100% 0, 100% 65%, 0% 100%)" }}
@@ -1029,8 +1020,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="mt-4 text-lg text-slate-600 max-w-2xl mx-auto"
           >
-            Instantly compare quotes from multiple vendors to find the best rate
-            for your shipment.
+            Instantly compare quotes from multiple vendors to find the best rate for your shipment.
           </motion.p>
         </header>
 
@@ -1039,87 +1029,162 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center">
             <Navigation size={22} className="mr-3 text-indigo-500" /> Mode & Route
           </h2>
-          <p className="text-sm text-slate-500 mb-6">
-            Select your mode of transport and enter the pickup and destination pincodes.
-          </p>
+          <p className="text-sm text-slate-500 mb-6">Select your mode of transport.</p>
 
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                { name: "Road", icon: Truck, isAvailable: true },
-                { name: "Rail", icon: Train, isAvailable: false },
-                { name: "Air", icon: Plane, isAvailable: false },
-                { name: "Ship", icon: ShipIcon, isAvailable: false },
-              ].map((mode) => (
-                <button
-                  key={mode.name}
-                  onClick={() =>
-                    mode.isAvailable ? setModeOfTransport(mode.name as any) : null
-                  }
-                  className={`relative group w-full p-4 rounded-xl transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 focus-visible:ring-indigo-500 ${
-                    modeOfTransport === mode.name
-                      ? "bg-indigo-600 text-white shadow-lg"
-                      : mode.isAvailable
-                      ? "bg-white text-slate-700 border border-slate-300 hover:border-indigo-500 hover:text-indigo-600"
-                      : "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { name: "Road", icon: Truck, isAvailable: true },
+              { name: "Air", icon: Plane, isAvailable: false },
+              { name: "Rail", icon: Train, isAvailable: false },
+              { name: "Ship", icon: ShipIcon, isAvailable: false },
+            ].map((mode) => (
+              <button
+                key={mode.name}
+                onClick={() => (mode.isAvailable ? setModeOfTransport(mode.name as any) : null)}
+                className={`relative group w-full p-4 rounded-xl transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 focus-visible:ring-indigo-500 ${
+                  modeOfTransport === mode.name
+                    ? "bg-indigo-600 text-white shadow-lg"
+                    : mode.isAvailable
+                    ? "bg-white text-slate-700 border border-slate-300 hover:border-indigo-500 hover:text-indigo-600"
+                    : "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+                }`}
+                disabled={!mode.isAvailable}
+              >
+                <div
+                  className={`flex flex-col items-center justify-center gap-2 transition-all duration-300 ${
+                    !mode.isAvailable && "opacity-50"
                   }`}
-                  disabled={!mode.isAvailable}
                 >
-                  <div
-                    className={`flex flex-col items-center justify-center gap-2 transition-all duration-300 ${
-                      !mode.isAvailable && "opacity-50"
-                    }`}
-                  >
-                    <mode.icon size={24} className="mx-auto" />
-                    <span className="text-sm font-semibold">{mode.name}</span>
+                  <mode.icon size={24} className="mx-auto" />
+                  <span className="text-sm font-semibold">{mode.name}</span>
+                </div>
+                {!mode.isAvailable && (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-slate-800/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 backdrop-blur-[2px]">
+                    <span className="text-xs font-bold text-white uppercase tracking-wider bg-slate-800/70 px-3 py-1 rounded-full">
+                      Coming Soon
+                    </span>
                   </div>
-                  {!mode.isAvailable && (
-                    <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-slate-800/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 backdrop-blur-[2px]">
-                      <span className="text-xs font-bold text-white uppercase tracking-wider bg-slate-800/70 px-3 py-1 rounded-full">
-                        Coming Soon
-                      </span>
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
+                )}
+              </button>
+            ))}
+          </div>
+        </Card>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-              <InputField
-                label="Origin Pincode"
-                id="fromPincode"
-                value={fromPincode}
-                placeholder="e.g., 400001"
-                maxLength={6}
-                icon={<MapPin />}
-                inputMode="numeric"
-                pattern="\d{6}"
-                onChange={(e) => handlePincodeChange(e.target.value, setFromPincode)}
-              />
-              <InputField
-                label="Destination Pincode"
-                id="toPincode"
-                value={toPincode}
-                placeholder="e.g., 110001"
-                maxLength={6}
-                icon={<MapPin />}
-                inputMode="numeric"
-                pattern="\d{6}"
-                onChange={(e) => handlePincodeChange(e.target.value, setToPincode)}
-              />
-            </div>
+        {/* Pincode Input — FE validation + autofill */}
+        <Card>
+          <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center">
+            <Navigation size={22} className="mr-3 text-indigo-500" /> Pickup & Destination
+          </h2>
+          <p className="text-sm text-slate-500 mb-6">Enter the pickup and destination pincodes.</p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <PincodeAutocomplete
+              label="Origin Pincode"
+              id="fromPincode"
+              value={fromPincode}
+              placeholder="e.g., 400001"
+              error={fromPinTouched ? (fromPinError || equalityError) : null}
+              onChange={(value: string) => {
+                setFromPincode(value);
+                setFromPinTouched(true);
+                setFromPinError(null);
+              }}
+              onBlur={() => {
+                setFromPinTouched(true);
+                validatePincodeField("from");
+              }}
+              onSelect={() => {}}
+              onValidationChange={setIsFromPincodeValid}
+            />
+            <PincodeAutocomplete
+              label="Destination Pincode"
+              id="toPincode"
+              value={toPincode}
+              placeholder="e.g., 110001"
+              error={toPinTouched ? (toPinError || equalityError) : null}
+              onChange={(value: string) => {
+                setToPincode(value);
+                setToPinTouched(true);
+                setToPinError(null);
+              }}
+              onBlur={() => {
+                setToPinTouched(true);
+                validatePincodeField("to");
+              }}
+              onSelect={() => {}}
+              onValidationChange={setIsToPincodeValid}
+            />
+          </div>
+
+          <div className="mt-6">
+            <InputField
+              label="Invoice Value (₹)"
+              id="invoiceValue"
+              type="text"
+              inputMode="numeric"
+              pattern="\d*"
+              placeholder="Enter invoice value"
+              icon={<IndianRupee size={16} />}
+              value={invoiceValue}
+              onChange={(e) => {
+                // Keep only digits; clamp to ≤ 10 crores
+                const value = e.target.value.replace(/\D/g, "");
+                if (value === "") {
+                  setInvoiceValue("");
+                  setInvoiceError(null);
+                  return;
+                }
+                const num = Number(value);
+                if (num > INVOICE_MAX) {
+                  setInvoiceValue(String(INVOICE_MAX));
+                  setInvoiceError(
+                    `Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`
+                  );
+                } else {
+                  setInvoiceValue(String(num));
+                  setInvoiceError(null);
+                }
+              }}
+              onBlur={(e) => {
+                const raw = e.currentTarget.value.replace(/\D/g, "");
+                if (raw === "") return;
+                let num = Number(raw);
+                if (num < INVOICE_MIN) {
+                  num = INVOICE_MIN;
+                  setInvoiceError(`Minimum invoice value is ₹${INVOICE_MIN}`);
+                }
+                if (num > INVOICE_MAX) {
+                  num = INVOICE_MAX;
+                  setInvoiceError(
+                    `Maximum invoice value is ₹${INVOICE_MAX.toLocaleString("en-IN")} (10 crores)`
+                  );
+                }
+                setInvoiceValue(String(num));
+              }}
+              error={invoiceError}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Allowed range: ₹{INVOICE_MIN.toLocaleString("en-IN")} – ₹
+              {INVOICE_MAX.toLocaleString("en-IN")} (10 crores)
+            </p>
           </div>
         </Card>
 
         {/* Shipment Details */}
         <Card>
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-              <Boxes size={22} className="text-indigo-500" /> Shipment Details
-            </h2>
-            <p className="text-sm text-slate-500">
-              Enter dimensions and weight, or select a saved preset to auto-fill.
-            </p>
+          <div className="mb-6 flex justify-between items-start">
+            <div>
+              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                <Boxes size={22} className="text-indigo-500" /> Shipment Details
+              </h2>
+              <p className="text-sm text-slate-500">
+                Enter dimensions and weight, or select a saved preset to auto-fill.
+              </p>
+            </div>
+            <UnitSwitch 
+              currentUnit={dimensionUnit} 
+              onUnitChange={handleUnitChange} 
+            />
           </div>
 
           <div className="space-y-6">
@@ -1147,7 +1212,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                   </button>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    {/* Preset selector */}
+                    {/* Preset selector / Box Name */}
                     <div
                       className="relative text-sm"
                       ref={(el) => {
@@ -1210,156 +1275,214 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                           </motion.ul>
                         )}
                       </AnimatePresence>
+                      {presetStatusByBoxId[box.id] === "exists" && (
+                        <p className="mt-1 text-xs text-amber-700">
+                          A preset with this name already exists.
+                        </p>
+                      )}
                     </div>
 
-                    <InputField
-                      label="Number of Boxes"
-                      id={`count-${index}`}
-                      type="text"
-                      inputMode="numeric"
-                      pattern="\d*"
-                      value={box.count ?? ""}
-                      onKeyDown={preventNonIntegerKeys}
-                      onChange={(e) => {
-                        const next = sanitizeIntegerFromEvent(e.target.value);
-                        if (next === "") updateBox(index, "count", undefined);
-                        else updateBox(index, "count", Number(next));
-                      }}
-                      onPaste={(e) => {
-                        e.preventDefault();
-                        const pasted = (e.clipboardData || (window as any).clipboardData).getData("text");
-                        const next = sanitizeIntegerFromEvent(pasted);
-                        if (next === "") return;
-                        updateBox(index, "count", Number(next));
-                      }}
-                      placeholder="e.g., 10"
-                      required
-                    />
+                    <div>
+                      <InputField
+                        label="Number of Boxes"
+                        id={`count-${index}`}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\d*"
+                        maxLength={5}
+                        value={box.count ?? ""}
+                        onKeyDown={preventNonIntegerKeys}
+                        onChange={(e) => {
+                          const next = sanitizeIntegerFromEvent(e.target.value);
+                          if (next === "") updateBox(index, "count", undefined);
+                          else if (Number(next) <= MAX_BOXES)
+                            updateBox(index, "count", Number(next));
+                        }}
+                        onPaste={(e) => {
+                          e.preventDefault();
+                          const pasted =
+                            (e.clipboardData || (window as any).clipboardData).getData("text");
+                          const next = sanitizeIntegerFromEvent(pasted);
+                          if (next === "" || Number(next) > MAX_BOXES) return;
+                          updateBox(index, "count", Number(next));
+                        }}
+                        placeholder="e.g., 10"
+                        required
+                      />
+                      {(box.count ?? 0) > MAX_BOXES && (
+                        <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                          <AlertCircle size={14} /> Max boxes is {MAX_BOXES}.
+                        </p>
+                      )}
+                    </div>
 
-                    <InputField
-                      label="Weight (kg)"
-                      id={`weight-${index}`}
-                      type="text"
-                      inputMode="numeric"
-                      pattern="\d*"
-                      value={box.weight ?? ""}
-                      onKeyDown={preventNonIntegerKeys}
-                      onChange={(e) => {
-                        const next = sanitizeIntegerFromEvent(e.target.value);
-                        if (next === "") updateBox(index, "weight", undefined);
-                        else updateBox(index, "weight", Number(next));
-                      }}
-                      onPaste={(e) => {
-                        e.preventDefault();
-                        const pasted = (e.clipboardData || (window as any).clipboardData).getData("text");
-                        const next = sanitizeIntegerFromEvent(pasted);
-                        if (next === "") return;
-                        updateBox(index, "weight", Number(next));
-                      }}
-                      placeholder="e.g., 5"
-                      required
-                    />
+                    <div>
+                      <InputField
+                        label="Weight (kg)"
+                        id={`weight-${index}`}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\d*"
+                        maxLength={5}
+                        value={box.weight ?? ""}
+                        onKeyDown={preventNonIntegerKeys}
+                        onChange={(e) => {
+                          const next = sanitizeIntegerFromEvent(e.target.value);
+                          if (next === "") updateBox(index, "weight", undefined);
+                          else if (Number(next) <= MAX_WEIGHT)
+                            updateBox(index, "weight", Number(next));
+                        }}
+                        onPaste={(e) => {
+                          e.preventDefault();
+                          const pasted =
+                            (e.clipboardData || (window as any).clipboardData).getData("text");
+                          const next = sanitizeIntegerFromEvent(pasted);
+                          if (next === "" || Number(next) > MAX_WEIGHT) return;
+                          updateBox(index, "weight", Number(next));
+                        }}
+                        placeholder="e.g., 5"
+                        required
+                      />
+                      {(box.weight ?? 0) > MAX_WEIGHT && (
+                        <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                          <AlertCircle size={14} /> Max weight is {MAX_WEIGHT} kg.
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   {/* Dimensions */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <InputField
-                        label="Length (cm)"
+                        label={`Length (${dimensionUnit})`}
                         id={`length-${index}`}
                         type="text"
                         inputMode="numeric"
                         pattern="\d*"
-                        value={box.length ?? ""}
+                        value={getDisplayValue(box.length)}
                         onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
-                          handleDimensionChange(
-                            index,
-                            "length",
-                            e.target.value,
-                            4,
-                            MAX_DIMENSION_LENGTH
-                          )
+                          handleDimensionChange(index, "length", e.target.value, 4)
                         }
                         placeholder="Length"
                         required
                       />
                       {(box.length ?? 0) > MAX_DIMENSION_LENGTH && (
                         <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                          <AlertCircle size={14} />
-                          Max length is {MAX_DIMENSION_LENGTH} cm.
+                          <AlertCircle size={14} /> Max length is {MAX_DIMENSION_LENGTH} cm.
                         </p>
                       )}
                     </div>
 
                     <div>
                       <InputField
-                        label="Width (cm)"
+                        label={`Width (${dimensionUnit})`}
                         id={`width-${index}`}
                         type="text"
                         inputMode="numeric"
                         pattern="\d*"
-                        value={box.width ?? ""}
+                        value={getDisplayValue(box.width)}
                         onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
-                          handleDimensionChange(
-                            index,
-                            "width",
-                            e.target.value,
-                            3,
-                            MAX_DIMENSION_WIDTH
-                          )
+                          handleDimensionChange(index, "width", e.target.value, 3)
                         }
                         placeholder="Width"
                         required
                       />
                       {(box.width ?? 0) > MAX_DIMENSION_WIDTH && (
                         <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                          <AlertCircle size={14} />
-                          Max width is {MAX_DIMENSION_WIDTH} cm.
+                          <AlertCircle size={14} /> Max width is {MAX_DIMENSION_WIDTH} cm.
                         </p>
                       )}
                     </div>
 
                     <div>
                       <InputField
-                        label="Height (cm)"
+                        label={`Height (${dimensionUnit})`}
                         id={`height-${index}`}
                         type="text"
                         inputMode="numeric"
                         pattern="\d*"
-                        value={box.height ?? ""}
+                        value={getDisplayValue(box.height)}
                         onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
-                          handleDimensionChange(
-                            index,
-                            "height",
-                            e.target.value,
-                            3,
-                            MAX_DIMENSION_HEIGHT
-                          )
+                          handleDimensionChange(index, "height", e.target.value, 3)
                         }
                         placeholder="Height"
                         required
                       />
                       {(box.height ?? 0) > MAX_DIMENSION_HEIGHT && (
                         <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                          <AlertCircle size={14} />
-                          Max height is {MAX_DIMENSION_HEIGHT} cm.
+                          <AlertCircle size={14} /> Max height is {MAX_DIMENSION_HEIGHT} cm.
                         </p>
                       )}
                     </div>
                   </div>
 
                   <div className="mt-4 flex justify-end">
-                    <button
-                      onClick={() => triggerSavePresetForBox(index)}
-                      className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-indigo-700 bg-indigo-100 rounded-lg hover:bg-indigo-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
-                      title="Save this box configuration as a new preset"
-                    >
-                      <Save size={14} />
-                      Save as Preset
-                    </button>
+                    {(() => {
+                      const st = presetStatusByBoxId[box.id] || "idle";
+                      const base =
+                        "inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
+                      const cls =
+                        st === "saving"
+                          ? `${base} bg-indigo-200 text-indigo-700 cursor-wait`
+                          : st === "success"
+                          ? `${base} bg-green-600 text-white`
+                          : st === "exists"
+                          ? `${base} bg-amber-100 text-amber-800`
+                          : st === "error"
+                          ? `${base} bg-red-100 text-red-700`
+                          : `${base} bg-indigo-100 text-indigo-700 hover:bg-indigo-200 focus-visible:ring-indigo-500`;
+
+                      return (
+                        <button
+                          onClick={() => saveBoxPresetInline(index)}
+                          className={cls}
+                          title={
+                            st === "exists"
+                              ? "A preset with this name already exists."
+                              : "Save this box configuration as a new preset"
+                          }
+                          disabled={st === "saving"}
+                        >
+                          {st === "saving" ? (
+                            <>
+                              <Loader2 size={14} className="animate-spin" />
+                              Saving…
+                            </>
+                          ) : st === "success" ? (
+                            <>
+                              <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                className="fill-current"
+                              >
+                                <path d="M20.285 6.709l-11.025 11.025-5.545-5.545 1.414-1.414 4.131 4.131 9.611-9.611z" />
+                              </svg>
+                              Saved
+                            </>
+                          ) : st === "exists" ? (
+                            <>
+                              <AlertCircle size={14} />
+                              Name exists
+                            </>
+                          ) : st === "error" ? (
+                            <>
+                              <AlertCircle size={14} />
+                              Failed
+                            </>
+                          ) : (
+                            <>
+                              <Save size={14} />
+                              Save as Preset
+                            </>
+                          )}
+                        </button>
+                      );
+                    })()}
                   </div>
                 </motion.div>
               ))}
@@ -1383,9 +1506,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                   <p className="text-sm font-medium text-slate-500">Total Weight</p>
                   <p className="text-2xl font-bold text-slate-800">
                     {totalWeight.toFixed(2)}
-                    <span className="text-base font-semibold text-slate-600 ml-1">
-                      kg
-                    </span>
+                    <span className="text-base font-semibold text-slate-600 ml-1">kg</span>
                   </p>
                 </motion.div>
               )}
@@ -1409,26 +1530,17 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                   className="inline-flex items-center gap-3 bg-yellow-100 text-yellow-800 font-semibold px-4 py-3 rounded-xl mb-6 shadow-sm"
                 >
                   <AlertCircle size={20} />
-                  One or more box dimensions exceed the allowed limit. Please correct
-                  them to proceed.
+                  One or more box dimensions exceed the allowed limit. Please correct them to proceed.
                 </motion.div>
               )}
-              <motion.button
+              <button
                 onClick={calculateQuotes}
-                disabled={isCalculating || isAnyDimensionExceeded}
-                whileHover={{
-                  scale: isCalculating || isAnyDimensionExceeded ? 1 : 1.05,
-                }}
-                whileTap={{
-                  scale: isCalculating || isAnyDimensionExceeded ? 1 : 0.95,
-                }}
-                className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-indigo-600 text-white text-lg font-bold rounded-full shadow-lg shadow-indigo-500/50 hover:bg-indigo-700 transition-all duration-300 disabled:opacity-60 disabled:shadow-none disabled:cursor-not-allowed"
+                disabled={isCalculating || isAnyDimensionExceeded || hasPincodeIssues}
+                className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-indigo-600 text-white text-lg font-bold rounded-full shadow-lg shadow-indigo-500/50 hover:bg-indigo-700 transition-all duration-200 disabled:opacity-60 disabled:shadow-none disabled:cursor-not-allowed transform hover:scale-105 active:scale-95"
               >
                 {isCalculating ? <Loader2 className="animate-spin" /> : <CalculatorIcon />}
-                {isCalculating
-                  ? calculationProgress || "Calculating Rates..."
-                  : "Calculate Freight Cost"}
-              </motion.button>
+                {isCalculating ? calculationProgress || "Calculating Rates..." : "Calculate Freight Cost"}
+              </button>
             </div>
           </div>
         </Card>
@@ -1451,7 +1563,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                     <th className="px-4 py-3 text-right">Action</th>
                   </tr>
                 </thead>
-
                 <tbody>
                   <AnimatePresence>
                     {boxes.map((box, index) => {
@@ -1463,7 +1574,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                         (box.height || 0) *
                         qty
                       ).toLocaleString();
-
                       return (
                         <motion.tr
                           key={box.id}
@@ -1473,9 +1583,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                           exit={{ opacity: 0, x: -30 }}
                           className="bg-white border-b border-slate-200 hover:bg-slate-50"
                         >
-                          <td className="px-4 py-3">
-                            {box.description || `Type ${index + 1}`}
-                          </td>
+                          <td className="px-4 py-3">{box.description || `Type ${index + 1}`}</td>
                           <td className="px-4 py-3">{qty}</td>
                           <td className="px-4 py-3">{totalW} kg</td>
                           <td className="px-4 py-3">{totalV} cm³</td>
@@ -1494,7 +1602,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                     })}
                   </AnimatePresence>
                 </tbody>
-
                 <tfoot>
                   <tr className="font-semibold text-slate-800 bg-slate-50">
                     <td colSpan={1} className="px-4 py-3">
@@ -1524,7 +1631,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
           </Card>
         )}
 
-        {/* Controls */}
+        {/* Controls + Results */}
         {(data || hiddendata) && (
           <>
             <Card>
@@ -1580,7 +1687,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
               </div>
             </Card>
 
-            {/* Results */}
             <div id="results" className="space-y-12">
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -1589,20 +1695,12 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                 className="space-y-8"
               >
                 {(() => {
-                  const allQuotes = [
-                    ...(data || []),
-                    ...(hiddendata || []),
-                  ].filter((q) => q.message !== "service not available");
-
-                  const bestValueQuote =
-                    allQuotes.length > 0
-                      ? allQuotes.reduce((prev, current) =>
-                          (prev.totalCharges ?? Infinity) <
-                          (current.totalCharges ?? Infinity)
-                            ? prev
-                            : current
-                        )
-                      : null;
+                  // 🚫 remove service-not-available & zero/invalid prices
+                  const allQuotes = [...(data || []), ...(hiddendata || [])].filter((q) => {
+                    if (q?.message === "service not available") return false;
+                    const p = getQuotePrice(q);
+                    return Number.isFinite(p) && p > 0;
+                  });
 
                   const unlocked = allQuotes.filter(
                     (q) => !q.isHidden && typeof q.estimatedTime === "number"
@@ -1620,10 +1718,45 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                   const processQuotes = (quotes: QuoteAny[] | null) => {
                     if (!quotes) return [];
                     const filtered = quotes.filter((q) => {
+                      // 🚫 hide 0 / invalid
+                      const price = getQuotePrice(q);
+                      if (!Number.isFinite(price) || price <= 0) return false;
+
                       const rating = (q?.transporterData?.rating ??
                         q?.rating ??
                         q?.transporterData?.ratingAverage ??
                         0) as number;
+
+                      // Weight-based filtering for FTLs
+                      if (
+                        q.companyName === "LOCAL FTL" ||
+                        q.companyName === "Wheelseye FTL"
+                      ) {
+                        const effectiveActualWeight =
+                          q.actualWeight ?? totalWeight;
+                        const effectiveVolumetricWeight =
+                          q.volumetricWeight ?? totalWeight;
+                        const isActualWeightSufficient =
+                          effectiveActualWeight >= 500;
+                        const isVolumetricWeightSufficient =
+                          effectiveVolumetricWeight >= 500;
+
+                        if (
+                          q.companyName === "LOCAL FTL" &&
+                          (!isActualWeightSufficient ||
+                            !isVolumetricWeightSufficient)
+                        ) {
+                          return false;
+                        }
+                        if (
+                          q.companyName === "Wheelseye FTL" &&
+                          !(isActualWeightSufficient ||
+                            isVolumetricWeightSufficient)
+                        ) {
+                          return false;
+                        }
+                      }
+
                       if (q.isHidden) return (q.totalCharges ?? Infinity) <= maxPrice;
                       return (
                         (q.totalCharges ?? Infinity) <= maxPrice &&
@@ -1631,6 +1764,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                         rating >= minRating
                       );
                     });
+
                     return filtered.sort((a, b) => {
                       switch (sortBy) {
                         case "time":
@@ -1654,17 +1788,64 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                           return ratingB - ratingA;
                         }
                         case "price":
-                        default:
-                          return (
-                            (a.totalCharges ?? Infinity) -
-                            (b.totalCharges ?? Infinity)
-                          );
+                        default: {
+                          const priceA = getQuotePrice(a);
+                          const priceB = getQuotePrice(b);
+                          if (priceA === priceB) {
+                            const nameA = (
+                              a.companyName || a.transporterName || ""
+                            ).toLowerCase();
+                            const nameB = (
+                              b.companyName || b.transporterName || ""
+                            ).toLowerCase();
+                            const parts1 = nameA.split(/(\d+)/);
+                            const parts2 = nameB.split(/(\d+)/);
+                            const maxLen = Math.max(
+                              parts1.length,
+                              parts2.length
+                            );
+                            for (let i = 0; i < maxLen; i++) {
+                              const p1 = parts1[i] || "";
+                              const p2 = parts2[i] || "";
+                              const isNum1 = /^\d+$/.test(p1);
+                              const isNum2 = /^\d+$/.test(p2);
+                              if (isNum1 && isNum2) {
+                                const n1 = parseInt(p1, 10);
+                                const n2 = parseInt(p2, 10);
+                                if (n1 !== n2) return n1 - n2;
+                              } else {
+                                const cmp = p1.localeCompare(p2);
+                                if (cmp !== 0) return cmp;
+                              }
+                            }
+                            return 0;
+                          }
+                          return priceA - priceB;
+                        }
                       }
                     });
                   };
 
                   const tiedUpVendors = processQuotes(data);
                   const otherVendors = processQuotes(hiddendata);
+
+                  const allProcessedQuotes = [...tiedUpVendors, ...otherVendors];
+                  const priced = allProcessedQuotes
+                    .map((q) => getQuotePrice(q))
+                    .filter((n) => Number.isFinite(n) && n > 0);
+                  const processedLowestPrice = priced.length
+                    ? Math.min(...priced)
+                    : Infinity;
+
+                  const processedBestValueQuotes = allProcessedQuotes.filter(
+                    (q) => {
+                      const price = getQuotePrice(q);
+                      return (
+                        Number.isFinite(price) &&
+                        Math.abs(price - processedLowestPrice) < 0.01
+                      );
+                    }
+                  );
 
                   if (isCalculating) return null;
 
@@ -1680,7 +1861,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                               <VendorResultCard
                                 key={`tied-${index}`}
                                 quote={item}
-                                isBestValue={item === bestValueQuote}
+                                isBestValue={processedBestValueQuotes.includes(item)}
                                 isFastest={item === fastestQuote}
                               />
                             ))}
@@ -1688,23 +1869,34 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                         </section>
                       )}
 
-                      {otherVendors.length > 0 && (
-                        <section>
-                          <h2 className="text-2xl font-bold text-slate-800 mb-5 border-l-4 border-slate-400 pl-4">
-                            Other Available Vendors
-                          </h2>
-                          <div className="space-y-4">
-                            {otherVendors.map((item, index) => (
-                              <VendorResultCard
-                                key={`other-${index}`}
-                                quote={item}
-                                isBestValue={item === bestValueQuote}
-                                isFastest={item === fastestQuote}
-                              />
-                            ))}
-                          </div>
-                        </section>
-                      )}
+                      {otherVendors.length > 0 && (() => {
+                        const isSubscribed = (user as any)?.customer?.isSubscribed;
+                        return (
+                          <section>
+                            <h2 className="text-2xl font-bold text-slate-800 mb-5 border-l-4 border-slate-400 pl-4">
+                              Other Available Vendors
+                            </h2>
+
+                            {/* No container-level blur. Each card decides what to blur. */}
+                            <div className="space-y-4">
+                              {otherVendors.map((item, index) => (
+                                <VendorResultCard
+                                  key={`other-${index}`}
+                                  quote={{ ...item, isHidden: !isSubscribed || (item as any).isHidden }}
+                                  isBestValue={processedBestValueQuotes.includes(item)}
+                                  isFastest={item === fastestQuote}
+                                />
+                              ))}
+                            </div>
+
+                            {!isSubscribed && (
+                              <p className="mt-3 text-center text-sm text-slate-500">
+                                Prices are visible. Subscribe to view vendor names & contact details.
+                              </p>
+                            )}
+                          </section>
+                        );
+                      })()}
 
                       {tiedUpVendors.length === 0 && otherVendors.length === 0 && (
                         <div className="text-center py-12 bg-white rounded-2xl border-2 border-dashed border-slate-300">
@@ -1713,8 +1905,7 @@ const CalculatorPage: React.FC = (): JSX.Element => {
                             No Quotes Available
                           </h3>
                           <p className="mt-1 text-base text-slate-500">
-                            We couldn't find vendors for the details provided. Try adjusting
-                            your filter criteria.
+                            We couldn't find vendors for the details provided. Try adjusting your filter criteria.
                           </p>
                         </div>
                       )}
@@ -1725,16 +1916,6 @@ const CalculatorPage: React.FC = (): JSX.Element => {
             </div>
           </>
         )}
-
-        {/* Modals */}
-        <SavePresetModal
-          isOpen={isModalOpen}
-          onClose={() => {
-            setIsModalOpen(false);
-            setBoxIndexToSave(null);
-          }}
-          onSave={handleSavePreset}
-        />
       </div>
     </div>
   );
@@ -1763,7 +1944,7 @@ const StarRating = ({ value }: { value: number }) => {
 };
 
 // -----------------------------------------------------------------------------
-// FineTune Modal (Portal overlay at topmost z-index)
+// FineTune Modal
 // -----------------------------------------------------------------------------
 const FineTuneModal = ({
   isOpen,
@@ -1824,9 +2005,7 @@ const FineTuneModal = ({
             <label htmlFor="maxPrice" className="font-semibold text-slate-700">
               Max Price
             </label>
-            <span className="font-bold text-indigo-600">
-              ₹ {formatPrice(filters.maxPrice)}
-            </span>
+            <span className="font-bold text-indigo-600">₹ {formatPrice(filters.maxPrice)}</span>
           </div>
           <input
             id="maxPrice"
@@ -1864,9 +2043,7 @@ const FineTuneModal = ({
             <label htmlFor="minRating" className="font-semibold text-slate-700">
               Min Vendor Rating
             </label>
-            <span className="font-bold text-indigo-600">
-              {filters.minRating.toFixed(1)} / 5.0
-            </span>
+            <span className="font-bold text-indigo-600">{filters.minRating.toFixed(1)} / 5.0</span>
           </div>
           <input
             id="minRating"
@@ -1881,10 +2058,7 @@ const FineTuneModal = ({
         </div>
 
         <div className="flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          >
+          <button onClick={onClose} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
             Done
           </button>
         </div>
@@ -1895,73 +2069,7 @@ const FineTuneModal = ({
 };
 
 // -----------------------------------------------------------------------------
-// Save Preset Modal
-// -----------------------------------------------------------------------------
-const SavePresetModal = ({
-  isOpen,
-  onClose,
-  onSave,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onSave: (name: string) => void;
-}) => {
-  const [name, setName] = useState("");
-  if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-[9980] flex justify-center items-center p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.9 }}
-        className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md"
-      >
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold text-slate-800 flex items-center">
-            <Save size={18} className="mr-2 text-indigo-500" /> Save Box Preset
-          </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            ✕
-          </button>
-        </div>
-        <p className="text-sm text-slate-500 mb-4">
-          Give this box configuration a name for future use. The dimensions, weight,
-          pincodes, and transport mode will be saved.
-        </p>
-        <InputField
-          label="Preset Name"
-          id="preset-name"
-          type="text"
-          placeholder="e.g., My Standard Box"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          autoFocus
-        />
-        <div className="mt-6 flex justify-end space-x-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => {
-              if (name.trim() === "") return;
-              onSave(name.trim());
-              setName("");
-            }}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          >
-            Save Preset
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-};
-
-// -----------------------------------------------------------------------------
-// Bifurcation Details
+// Bifurcation Details (unchanged UI)
 // -----------------------------------------------------------------------------
 const BifurcationDetails = ({ quote }: { quote: any }) => {
   const formatCurrency = (value: number | undefined) =>
@@ -1998,7 +2106,9 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
   };
 
   const isFTLVendor =
-    quote.companyName === "FTL" || quote.companyName === "Wheelseye FTL";
+    quote.companyName === "FTL" ||
+    quote.companyName === "Wheelseye FTL" ||
+    quote.companyName === "LOCAL FTL";
 
   return (
     <motion.div
@@ -2017,9 +2127,7 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
               return value > 0 ? (
                 <div key={item.label} className="flex justify-between">
                   <span className="text-slate-500">{item.label}:</span>
-                  <span className="font-medium text-slate-800">
-                    {formatCurrency(value)}
-                  </span>
+                  <span className="font-medium text-slate-800">{formatCurrency(value)}</span>
                 </div>
               ) : null;
             })}
@@ -2037,10 +2145,9 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
               {(() => {
                 const weight =
                   quote.chargeableWeight ?? quote.actualWeight ?? quote.weight ?? 0;
-                if (typeof weight === "number" && isFinite(weight)) {
-                  return weight.toFixed(2);
-                }
-                return "0.00";
+                return typeof weight === "number" && isFinite(weight)
+                  ? weight.toFixed(2)
+                  : "0.00";
               })()}{" "}
               Kg
             </span>
@@ -2048,11 +2155,11 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
           <div className="flex justify-between">
             <span className="text-slate-500">Distance:</span>
             <span className="font-medium text-slate-800">
-              {(() => {
-                if (quote.distance) return quote.distance;
-                if (quote.distanceKm) return `${quote.distanceKm} km`;
-                return "-";
-              })()}
+              {quote.distance
+                ? quote.distance
+                : quote.distanceKm
+                ? `${Math.round(quote.distanceKm)} km`
+                : "-"}
             </span>
           </div>
           <div className="flex justify-between">
@@ -2083,146 +2190,58 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
 
           {quote.loadSplit && (
             <div className="col-span-2 md:col-span-3 mt-3">
-              <div className="bg-orange-100 border-2 border-orange-500 rounded-lg p-3">
+              <div className="bg-yellow-100 border-2 border-yellow-500 rounded-lg p-3">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-orange-800 font-bold text-lg">🚛</span>
-                  <span className="text-orange-800 font-bold text-lg">
-                    {quote.loadSplit.vehiclesNeeded > 2
-                      ? "Multi-Vehicle Transport Required"
-                      : "Two-Vehicle Transport Required"}
-                  </span>
+                  <span className="text-black font-bold text-lg">More Details</span>
                 </div>
-                <div className="text-orange-700 text-sm">
-                  {quote.loadSplit.vehiclesNeeded > 2
-                    ? `Weight exceeds 18,000kg limit. Using ${quote.loadSplit.vehiclesNeeded} vehicles for optimal transport.`
-                    : `Weight exceeds 18,000kg limit. Using ${quote.loadSplit.vehiclesNeeded} vehicles for optimal transport.`}
-                  <br />
-                  <span className="text-xs">📋 Scroll down for detailed vehicle breakdown</span>
+                <div className="text-black text-sm">
+                  {(() => {
+                    const totalWeight = quote.matchedWeight || quote.chargeableWeight || 0;
+                    const actualVehiclesNeeded = Math.ceil(totalWeight / 18000);
+                    return `Weight exceeds 18,000kg limit. Using ${actualVehiclesNeeded} vehicles for optimal transport.`;
+                  })()}
                 </div>
               </div>
             </div>
           )}
 
-          {quote.loadSplit && (
-            <div className="col-span-2 md:col-span-3 mt-3 p-3 bg-green-50 rounded-lg">
-              <h5 className="font-semibold text-green-800 mb-2">
-                🚛 {quote.loadSplit.vehiclesNeeded > 2 ? "Multi-Vehicle" : "Two-Vehicle"} Load
-                Details:
-              </h5>
-
-              <div className="mb-3 p-2 bg-green-100 rounded text-xs">
-                <div className="font-semibold text-green-800 mb-1">Transport Summary:</div>
-                <div className="text-green-700">
-                  • Total Weight: {quote.matchedWeight?.toLocaleString() || "N/A"} kg
-                  <br />
-                  • Total Distance: {quote.matchedDistance || "N/A"} km
-                  <br />
-                  • Vehicles Required: {quote.loadSplit.vehiclesNeeded || "N/A"}
-                  <br />
-                  • Transport Type:{" "}
-                  {quote.loadSplit.vehiclesNeeded > 2 ? "Multi-Vehicle" : "Two-Vehicle"} Transport
-                </div>
-              </div>
-
-              <div className="space-y-3 text-sm">
-                <div className="border border-green-200 rounded p-2">
-                  <div className="font-semibold text-green-800 mb-1">🚛 First Vehicle:</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Vehicle Type:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.firstVehicle.vehicle}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Vehicle Length:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.firstVehicle.vehicleLength} ft
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Load Capacity:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.firstVehicle.weight.toLocaleString()} kg
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Transport Cost:</span>
-                      <span className="font-medium text-green-800">
-                        ₹{quote.loadSplit.firstVehicle.price.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="border border-green-200 rounded p-2">
-                  <div className="font-semibold text-green-800 mb-1">🚛 Second Vehicle:</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Vehicle Type:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.secondVehicle.vehicle}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Vehicle Length:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.secondVehicle.vehicleLength} ft
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Load Capacity:</span>
-                      <span className="font-medium text-green-800">
-                        {quote.loadSplit.secondVehicle.weight.toLocaleString()} kg
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-green-600">Transport Cost:</span>
-                      <span className="font-medium text-green-800">
-                        ₹{quote.loadSplit.secondVehicle.price.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {quote.loadSplit.vehiclesNeeded > 2 && (
-                  <div className="border border-orange-200 rounded p-2 bg-orange-50">
-                    <div className="font-semibold text-orange-800 mb-1">
-                      🚛 Additional Vehicles:
-                    </div>
-                    <div className="text-xs text-orange-700">
-                      <div className="mb-1">
-                        • Additional {quote.loadSplit.vehiclesNeeded - 2}{" "}
-                        {quote.loadSplit.secondVehicle.vehicle} vehicles required
-                      </div>
-                      <div className="mb-1">
-                        • Each additional vehicle: ₹
-                        {quote.loadSplit.secondVehicle.price.toLocaleString()}
-                      </div>
-                      <div className="font-semibold">
-                        • Total additional cost: ₹
-                        {(
-                          quote.loadSplit.secondVehicle.price *
-                          (quote.loadSplit.vehiclesNeeded - 2)
-                        ).toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="border-t-2 border-green-300 pt-3 mt-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-green-700 font-semibold text-base">
-                      Total Transport Cost:
-                    </span>
-                    <span className="text-green-800 font-bold text-lg">
-                      ₹{quote.loadSplit.totalPrice.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="text-xs text-green-600 mt-1">
-                    Includes all vehicles, loading, and transport charges
-                  </div>
-                </div>
+          {quote.loadSplit?.vehicles && (
+            <div className="col-span-2 md:col-span-3 mt-4 p-3 bg-yellow-50 rounded-lg">
+              <h6 className="font-semibold text-black mb-3">Vehicle Details:</h6>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-yellow-200">
+                      <th className="text-left py-2 text-black font-semibold">Vehicle</th>
+                      <th className="text-left py-2 text-black font-semibold">Type</th>
+                      <th className="text-left py-2 text-black font-semibold">Max Weight</th>
+                      <th className="text-left py-2 text-black font-semibold">Carrying Weight</th>
+                      <th className="text-right py-2 text-black font-semibold">Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {quote.loadSplit.vehicles.map((v: any, idx: number) => (
+                      <tr key={idx} className="border-b border-yellow-100">
+                        <td className="py-2 text-black">Vehicle {idx + 1}</td>
+                        <td className="py-2 text-black">{v.vehicle || v.vehicleType}</td>
+                        <td className="py-2 text-black">{(v.maxWeight || 0).toLocaleString()}kg</td>
+                        <td className="py-2 text-black">{(v.weight || 0).toLocaleString()}kg</td>
+                        <td className="py-2 text-black text-right">₹{(v.price || 0).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                    <tr className="border-t-2 border-yellow-300">
+                      <td colSpan={4 as any} className="py-3 text-black font-bold text-right">
+                        Total:
+                      </td>
+                      <td className="py-3 text-black font-bold text-right text-xl">
+                        ₹
+                        {quote.loadSplit.totalPrice
+                          ? Number(quote.loadSplit.totalPrice).toLocaleString()
+                          : quote.totalCharges?.toLocaleString()}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -2248,11 +2267,16 @@ const VendorResultCard = ({
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  const isSubscribed = Boolean((user as any)?.customer?.isSubscribed);
   const isSpecialVendor =
-    quote.companyName === "FTL" || quote.companyName === "Wheelseye FTL";
+    quote.companyName === "LOCAL FTL" || quote.companyName === "Wheelseye FTL";
 
-  const handleMoreDetailsClick = () => {
-    const isSubscribed = (user as any)?.customer?.isSubscribed;
+  const cardPrice = getQuotePrice(quote);
+  if (!Number.isFinite(cardPrice) || cardPrice <= 0) return null;
+
+  // Dynamic CTA label + click logic
+  const ctaLabel = isSubscribed ? "Contact Now" : "Subscribe to Get Details";
+  const handleCtaClick = () => {
     if (isSubscribed) {
       const transporterId = quote.transporterData?._id;
       if (transporterId) navigate(`/transporterdetails/${transporterId}`);
@@ -2261,53 +2285,74 @@ const VendorResultCard = ({
         alert("Sorry, the transporter details could not be retrieved.");
       }
     } else {
-      navigate("/buy-subscription-plan");
+      navigate(BUY_ROUTE);
     }
   };
 
-  const rating: number = 4;
+  // Hidden card (LEFT side blurred; price + CTA visible)
+// Hidden card (LEFT side blurred; price + CTA visible)
+// ⬇️ Replace your current hidden-card return with this one
+if (quote.isHidden && !isSubscribed) {
+  const bestValueStyles = isBestValue
+    ? "border-green-400 shadow-lg"
+    : "border-slate-200";
 
-  if (quote.isHidden) {
-    return (
-      <div
-        className={`relative p-5 rounded-2xl border-2 transition-all duration-300 ${
-          isSpecialVendor
-            ? "bg-yellow-50 border-yellow-300 shadow-lg"
-            : isBestValue
-            ? "bg-white border-green-400 shadow-lg"
-            : "bg-white border-slate-200"
-        }`}
-      >
-        <div className="grid grid-cols-1 md:grid-cols-12 items-center gap-4">
-          <div className="md:col-span-5">
-            <h3 className="font-bold text-lg text-slate-700">{quote.companyName}</h3>
-            <p className="text-sm text-slate-500">Time & Details are Hidden</p>
-          </div>
+  return (
+    <div
+      className={`relative p-5 rounded-2xl border-2 transition-all duration-300 ${
+        isSpecialVendor
+          ? `bg-yellow-50 border-yellow-300 ${isBestValue ? "border-green-400" : ""}`
+          : `bg-white ${bestValueStyles}`
+      }`}
+    >
+      {/* Best Value badge stays visible (not blurred) */}
+      {isBestValue && (
+        <div className="absolute -top-2 -left-2">
+          <span className="inline-flex items-center gap-1.5 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full shadow">
+            Best Value
+          </span>
+        </div>
+      )}
 
-          <div className="md:col-span-2 text-slate-500 text-sm">—</div>
+      <div className="grid grid-cols-1 md:grid-cols-12 items-center gap-4">
+        {/* LEFT: blurred / anonymized vendor info */}
+        <div className="md:col-span-5 select-none">
+          <div className="h-6 w-52 rounded bg-slate-200/70 blur-[2px]" />
+          <p className="mt-2 text-sm text-slate-400 line-clamp-1 select-none">
+            ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░ ▓▒░
+          </p>
+        </div>
 
-          <div className="md:col-span-3 text-right">
-            <div className="flex items-center justify-end gap-1 font-bold text-3xl text-slate-900">
-              <IndianRupee size={22} className="text-slate-600" />
-              <span>
-                {new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(
-                  Math.round(quote.totalCharges / 10) * 10
-                )}
-              </span>
-            </div>
-            <div className="text-xs text-slate-500 -mt-1">Total Charges</div>
-          </div>
+        {/* ETA placeholder stays blurred */}
+        <div className="md:col-span-2">
+          <div className="h-5 w-24 rounded bg-slate-200/70 blur-[2px]" />
+          <div className="text-xs text-slate-400 mt-1 select-none">▓ ▒ ░</div>
+        </div>
 
-          <div className="md:col-span-2 flex md:justify-end">
-            <button className="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30">
-              Unlock to Book
-            </button>
+        {/* RIGHT: price visible */}
+        <div className="md:col-span-3 text-right">
+          <div className="flex items-center justify-end gap-1 font-bold text-3xl text-slate-900">
+            <IndianRupee size={22} className="text-slate-600" />
+            <span>{formatINR0(cardPrice)}</span>
           </div>
         </div>
-      </div>
-    );
-  }
 
+        {/* CTA visible with “Subscribe to Get Details” */}
+        <div className="md:col-span-2 flex md:justify-end">
+          <Link
+            to={BUY_ROUTE}
+            className="inline-flex items-center justify-center px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors"
+            aria-label="Subscribe to Get Details"
+          >
+            Subscribe to Get Details
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+  // Normal (visible) card
   return (
     <div
       className={`p-5 rounded-2xl border-2 transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${
@@ -2319,17 +2364,21 @@ const VendorResultCard = ({
       }`}
     >
       <div className="grid grid-cols-1 md:grid-cols-12 items-center gap-4">
+        {/* Vendor + badges */}
         <div className="md:col-span-5">
           <div className="flex items-center flex-wrap gap-2">
             <h3 className="font-bold text-lg text-slate-800 truncate">
               {quote.companyName}
             </h3>
             <div className="flex items-center gap-2">
-              {isFastest && (
-                <span className="inline-flex items-center gap-1.5 bg-orange-100 text-orange-800 text-xs font-bold px-3 py-1.5 rounded-full">
-                  <Zap size={14} /> Fastest Delivery
-                </span>
-              )}
+              {(isFastest ||
+                quote.companyName === "Wheelseye FTL" ||
+                quote.companyName === "LOCAL FTL") &&
+                (quote.companyName || "").trim().toLowerCase() !== "dp world" && (
+                  <span className="inline-flex items-center gap-1.5 bg-orange-100 text-orange-800 text-xs font-bold px-3 py-1.5 rounded-full">
+                    <Zap size={14} /> Fastest Delivery
+                  </span>
+                )}
               {isBestValue && (
                 <span className="inline-flex items-center gap-1.5 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full">
                   Best Value
@@ -2338,43 +2387,36 @@ const VendorResultCard = ({
             </div>
           </div>
           <div className="mt-1">
-            {quote.companyName !== "FTL" && <StarRating value={Number(rating) || 0} />}
+            {quote.companyName !== "LOCAL FTL" && (
+              <StarRating value={Number(4) || 0} />
+            )}
           </div>
         </div>
 
+        {/* ETA */}
         <div className="md:col-span-2 text-center md:text-left">
           <div className="flex items-center justify-center md:justify-start gap-2 font-semibold text-slate-700 text-lg">
             <Clock size={16} className="text-slate-500" />
             <span>
-              {Math.ceil(quote.estimatedTime ?? 0)}{" "}
-              {Math.ceil(quote.estimatedTime ?? 0) === 1 ? "Day" : "Days"}
+              {Math.ceil(quote.estimatedTime ?? 1)}{" "}
+              {Math.ceil(quote.estimatedTime ?? 1) === 1 ? "Day" : "Days"}
             </span>
           </div>
           <div className="text-xs text-slate-500 -mt-1">Estimated Delivery</div>
         </div>
 
+        {/* Price (always visible) */}
         <div className="md:col-span-3 text-right">
           <div className="flex items-center justify-end gap-1 font-bold text-3xl text-slate-900">
             <IndianRupee size={22} className="text-slate-600" />
-            <span>
-              {new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(
-                Math.round(quote.totalCharges / 10) * 10
-              )}
-            </span>
+            <span>{formatINR0(cardPrice)}</span>
           </div>
-          <div className="text-xs text-slate-500 -mt-1">Total Charges</div>
 
           <button
             onClick={() => setIsExpanded((v) => !v)}
             className="mt-2 inline-flex items-center gap-1.5 text-indigo-600 font-semibold text-sm hover:text-indigo-800 transition-colors"
           >
-            {isExpanded
-              ? isSpecialVendor
-                ? "Hide Shipment Info"
-                : "Hide Price Breakup"
-              : isSpecialVendor
-              ? "Shipment Info"
-              : "Price Breakup"}
+            {isExpanded ? "Hide Price Breakup" : "Price Breakup"}
             <ChevronRight
               size={16}
               className={`transition-transform duration-300 ${
@@ -2384,12 +2426,13 @@ const VendorResultCard = ({
           </button>
         </div>
 
+        {/* CTA (dynamic) */}
         <div className="md:col-span-2 flex md:justify-end">
           <button
-            onClick={handleMoreDetailsClick}
-            className="w-full md:w-auto px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30"
+            onClick={handleCtaClick}
+            className="w-full md:w-auto px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors"
           >
-            Contact Now
+            {ctaLabel}
           </button>
         </div>
       </div>

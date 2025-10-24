@@ -1,12 +1,16 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import Cookies from 'js-cookie';
 import axios from 'axios';
+import http from '../lib/http';
 import { jwtDecode } from 'jwt-decode';
 
+// Matches backend JWT which nests user under `customer`
 interface JwtPayload {
-  _id: string;
-  email: string;
-  name: string;
+  customer?: AuthUser;
+  // Back-compat in case token shape changes
+  _id?: string;
+  email?: string;
+  name?: string;
   companyName?: string;
   contactNumber?: string;
   gstNumber?: string;
@@ -76,7 +80,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // ACTUAL API LOGIN
     try {
-      const response = await axios.post("https://tester-backend-4nxc.onrender.com/api/auth/login", {
+      // Use Vite dev proxy in development and baseURL in production via http client
+      const response = await http.post("/api/auth/login", {
         email: lowerEmail,
         password: pass,
       });
@@ -84,11 +89,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (response.data && response.data.token) {
         const token = response.data.token;
         const decodedToken: JwtPayload = jwtDecode(token);
-        //const loggedInUser: AuthUser = decodedToken;
-        //console.log(loggedInUser);
-
+        // Keep full decoded token to preserve `customer` nesting for existing pages
         setIsAuthenticated(true);
-        setUser(decodedToken);
+        setUser(decodedToken as unknown as AuthUser);
         Cookies.set('authToken', token, { expires: 7 });
         localStorage.setItem('authUser', JSON.stringify(decodedToken));
 
