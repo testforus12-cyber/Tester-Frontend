@@ -1,25 +1,34 @@
 // src/lib/compareCache.ts
 // Lightweight compare-page cache with sessionStorage + in-memory Map
 
+// ---------- Types ----------
+export type Mode = "Road" | "Rail" | "Air" | "Ship";
+
+export type FormState = {
+  fromPincode: string;
+  toPincode: string;
+  modeOfTransport: Mode;
+  boxes: any[];
+  // NEW: persist invoice value (store as number; null/undefined = empty)
+  invoiceValue?: number | null;
+};
+
 type CachedValue = {
   params: any;
   data: any[] | null;
   hiddendata: any[] | null;
   timestamp: number;
-  form?: {
-    fromPincode: string;
-    toPincode: string;
-    modeOfTransport: "Road" | "Rail" | "Air" | "Ship";
-    boxes: any[];
-  };
+  form?: FormState;
 };
 
+// ---------- Constants ----------
 const TTL_MS = 30 * 60 * 1000; // 30 minutes
 const PREFIX = "fc:cmp:";
 const FORM_KEY = "fc:form";
 const LAST_KEY = "fc:last";
 const mem = new Map<string, CachedValue>();
 
+// ---------- Helpers ----------
 function normalize(obj: any): any {
   if (Array.isArray(obj)) return obj.map(normalize);
   if (obj && typeof obj === "object") {
@@ -32,6 +41,7 @@ function normalize(obj: any): any {
   return obj;
 }
 
+// ---------- Compare cache (results) ----------
 export function makeCompareKey(params: any): string {
   const normalized = normalize(params);
   const str = JSON.stringify(normalized);
@@ -90,33 +100,37 @@ export function readLastKey(): string | null {
   }
 }
 
-export function saveFormState(form: {
-  fromPincode: string;
-  toPincode: string;
-  modeOfTransport: "Road" | "Rail" | "Air" | "Ship";
-  boxes: any[];
-}) {
-  try {
-    sessionStorage.setItem(FORM_KEY, JSON.stringify(form));
-  } catch {}
-}
-
-export function loadFormState():
-  | {
-      fromPincode: string;
-      toPincode: string;
-      modeOfTransport: "Road" | "Rail" | "Air" | "Ship";
-      boxes: any[];
-    }
-  | null {
+// ---------- Form cache (persist user inputs) ----------
+// Load the full form state
+export function loadFormState(): FormState | null {
   try {
     const s = sessionStorage.getItem(FORM_KEY);
-    return s ? JSON.parse(s) : null;
+    return s ? (JSON.parse(s) as FormState) : null;
   } catch {
     return null;
   }
 }
 
+/**
+ * Save (merge) form state.
+ * - Accepts a partial patch OR a function(prev) => patch
+ * - Merges onto existing state so other fields aren’t wiped
+ */
+export function saveFormState(
+  next:
+    | Partial<FormState>
+    | ((prev: FormState | null) => Partial<FormState> | FormState)
+) {
+  try {
+    const prev = loadFormState();
+    const patch =
+      typeof next === "function" ? (next as any)(prev) : next;
+    const merged = { ...(prev ?? {}), ...(patch ?? {}) } as FormState;
+    sessionStorage.setItem(FORM_KEY, JSON.stringify(merged));
+  } catch {}
+}
+
+// ---------- Vacuum old result entries ----------
 export function clearStaleCache() {
   try {
     const now = Date.now();

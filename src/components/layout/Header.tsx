@@ -109,6 +109,13 @@ const UserProfileDropdown = () => {
               >
                 <LayoutDashboard size={16} /> Dashboard
               </Link>
+              <Link
+                to="/addtransporter"
+                onClick={() => setIsOpen(false)}
+                className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-md"
+              >
+                <Truck size={16} /> My Vendor
+              </Link>
               <hr className="my-1 border-slate-100" />
               <button
                 onClick={logout}
@@ -172,6 +179,9 @@ const MobileNav = ({ isOpen, closeMenu }: { isOpen: boolean; closeMenu: () => vo
                 <>
                   <MobileNavLink to="/compare">
                     <LayoutDashboard size={20} className="text-blue-600" /> Dashboard
+                  </MobileNavLink>
+                  <MobileNavLink to="/addtransporter">
+                    <Truck size={20} className="text-blue-600" /> My Vendor
                   </MobileNavLink>
                   <MobileNavLink to="/profile">
                     <UserIcon size={20} className="text-blue-600" /> Profile

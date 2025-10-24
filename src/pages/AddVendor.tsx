@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+﻿import { useState, useEffect, useRef, useMemo } from "react";
 import axios from "axios";
 import toast from "react-hot-toast";
 import Cookies from "js-cookie";
-import { PlusCircleIcon, CheckCircleIcon, InformationCircleIcon, ChevronDownIcon, TrashIcon, PencilIcon } from '@heroicons/react/24/outline';
+import { InformationCircleIcon, ChevronDownIcon, TrashIcon, PencilIcon } from '@heroicons/react/24/outline';
 // Replaced missing indianStatesDistricts module with data from public/pincodes.json
 import { useAuth } from '../hooks/useAuth';
 
@@ -82,7 +82,7 @@ const DropdownField = ({
   options,
   error,
   required = true
-}: {
+}: { 
   name: string;
   label: string;
   value: string;
@@ -124,121 +124,6 @@ const DropdownField = ({
   </div>
 );
 
-// HELPER COMPONENT: Combobox Field (Dropdown + Text Input)
-const ComboboxField = ({
-  name,
-  label,
-  value,
-  onChange,
-  onInputChange,
-  options,
-  error,
-  required = true,
-  placeholder = "Type or select company name"
-}: {
-  name: string;
-  label: string;
-  value: string;
-  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
-  onInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  options: { value: string; label: string }[];
-  error?: string;
-  required?: boolean;
-  placeholder?: string;
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [inputValue, setInputValue] = useState(value);
-  const [filteredOptions, setFilteredOptions] = useState(options);
-
-  // Filter options based on input
-  useEffect(() => {
-    if (inputValue) {
-      const filtered = options.filter(option => 
-        option.label.toLowerCase().includes(inputValue.toLowerCase())
-      );
-      setFilteredOptions(filtered);
-    } else {
-      setFilteredOptions(options);
-    }
-  }, [inputValue, options]);
-
-  // Update input value when dropdown selection changes
-  useEffect(() => {
-    setInputValue(value);
-  }, [value]);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value;
-    setInputValue(newValue);
-    onInputChange(e);
-    setIsOpen(true);
-  };
-
-  const handleOptionSelect = (optionValue: string, optionLabel: string) => {
-    setInputValue(optionLabel);
-    onChange({ target: { value: optionValue } } as React.ChangeEvent<HTMLSelectElement>);
-    setIsOpen(false);
-  };
-
-  const handleInputFocus = () => {
-    setIsOpen(true);
-  };
-
-  const handleInputBlur = () => {
-    // Delay closing to allow option selection
-    setTimeout(() => setIsOpen(false), 200);
-  };
-
-  return (
-    <div className="relative" data-combobox-container>
-      <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
-        {label} {required && <span className="text-red-500">*</span>}
-      </label>
-      <div className="mt-1 relative">
-      <input
-        type="text"
-        id={name}
-        name={name}
-        value={inputValue}
-        onChange={handleInputChange}
-        onFocus={handleInputFocus}
-        onBlur={handleInputBlur}
-        placeholder={placeholder}
-          className={`block w-full bg-slate-50/70 border rounded-lg shadow-sm px-3 py-2 text-sm text-slate-800 placeholder-slate-400
-                   focus:outline-none focus:ring-1 focus:border-blue-500 transition
-                   ${error ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 focus:ring-blue-500'}`}
-        required={required}
-      />
-      
-      {/* Dropdown Options */}
-        {isOpen && (
-        <div className="absolute z-10 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-            {filteredOptions.length > 0 ? (
-              filteredOptions.map(option => (
-            <button
-              key={option.value}
-              type="button"
-              onMouseDown={(e) => {
-                // Prevent input blur before selection on trackpads
-                e.preventDefault();
-                handleOptionSelect(option.value, option.label);
-              }}
-              onClick={() => handleOptionSelect(option.value, option.label)}
-              className="w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-blue-100 focus:bg-blue-100 focus:outline-none"
-            >
-              {option.label}
-            </button>
-              ))
-            ) : (
-              <div className="px-3 py-2 text-sm text-slate-500">No options found</div>
-            )}
-        </div>
-      )}
-      </div>
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
-    </div>
-  );
-};
 
 
 // HELPER COMPONENT: RatingSlider
@@ -288,6 +173,7 @@ const VOLUMETRIC_DIVISOR_OPTIONS = [
   { value: "4000", label: "4000" },
   { value: "4200", label: "4200" },
   { value: "4500", label: "4500" },
+  { value: "4720", label: "4720" },
   { value: "4750", label: "4750" },
   { value: "5000", label: "5000" },
   { value: "5200", label: "5200" },
@@ -299,6 +185,7 @@ const VOLUMETRIC_DIVISOR_OPTIONS = [
 
 // Fuel Surcharge Options
 const FUEL_SURCHARGE_OPTIONS = [
+  { value: "0", label: "0" },
   { value: "5", label: "5" },
   { value: "10", label: "10" },
   { value: "15", label: "15" },
@@ -312,283 +199,40 @@ const FUEL_SURCHARGE_OPTIONS = [
 // Percentage Options (0-5% with decimal values)
 const PERCENTAGE_OPTIONS = [
   { value: "0", label: "0%" },
-  { value: "0.1", label: "0.1%" },
-  { value: "0.2", label: "0.2%" },
-  { value: "0.3", label: "0.3%" },
-  { value: "0.4", label: "0.4%" },
-  { value: "0.5", label: "0.5%" },
-  { value: "0.6", label: "0.6%" },
-  { value: "0.7", label: "0.7%" },
-  { value: "0.8", label: "0.8%" },
-  { value: "0.9", label: "0.9%" },
-  { value: "1.0", label: "1.0%" },
+  { value: "0.1", label: "0.10%" },
+  { value: "0.2", label: "0.20%" },
+  { value: "0.3", label: "0.30%" },
+  { value: "0.4", label: "0.40%" },
+  { value: "0.5", label: "0.50%" },
+  { value: "0.6", label: "0.60%" },
+  { value: "0.7", label: "0.70%" },
+  { value: "0.8", label: "0.80%" },
+  { value: "0.9", label: "0.90%" },
+  { value: "1.0", label: "1.00%" },
   { value: "1.25", label: "1.25%" },
   { value: "1.50", label: "1.50%" },
   { value: "1.75", label: "1.75%" },
-  { value: "2.0", label: "2.0%" },
+  { value: "2.0", label: "2.00%" },
   { value: "2.25", label: "2.25%" },
   { value: "2.50", label: "2.50%" },
-  { value: "3.0", label: "3.0%" },
-  { value: "4.0", label: "4.0%" },
-  { value: "5.0", label: "5.0%" }
+  { value: "3.0", label: "3.00%" },
+  { value: "4.0", label: "4.00%" },
+  { value: "5.0", label: "5.00%" }
 ];
 
-// Zone Structure for Chart Zonal
-const ZONE_STRUCTURE = {
-  "North": [
-    { value: "N1", label: "N1" },
-    { value: "N2", label: "N2" },
-    { value: "N3", label: "N3" },
-    { value: "N4", label: "N4" }
-  ],
-  "South": [
-    { value: "S1", label: "S1" },
-    { value: "S2", label: "S2" },
-    { value: "S3", label: "S3" },
-    { value: "S4", label: "S4" }
-  ],
-  "East": [
-    { value: "E1", label: "E1" },
-    { value: "E2", label: "E2" }
-  ],
-  "Central": [
-    { value: "C1", label: "C1" },
-    { value: "C2", label: "C2" }
-  ],
-  "Northeast": [
-    { value: "NE1", label: "NE1" },
-    { value: "NE2", label: "NE2" }
-  ],
-  "West": [
-    { value: "W1", label: "W1" },
-    { value: "W2", label: "W2" }
-  ]
-};
+// CFT Factor Options
+const CFT_FACTOR_OPTIONS = [
+  { value: "4", label: "4" },
+  { value: "5", label: "5" },
+  { value: "6", label: "6" },
+  { value: "7", label: "7" },
+  { value: "8", label: "8" },
+  { value: "9", label: "9" },
+  { value: "10", label: "10" }
+];
 
-// All available zones flattened (for future use)
-// const ALL_ZONES = Object.values(ZONE_STRUCTURE).flat();
 
-// HELPER COMPONENT: Zone Selection Component
-const ZoneSelectionComponent = ({
-  selectedZones,
-  onZoneChange
-}: {
-  selectedZones: string[];
-  onZoneChange: (zones: string[]) => void;
-}) => {
-  const handleZoneToggle = (zoneValue: string) => {
-    if (selectedZones.includes(zoneValue)) {
-      onZoneChange(selectedZones.filter(z => z !== zoneValue));
-    } else {
-      onZoneChange([...selectedZones, zoneValue]);
-    }
-  };
 
-  const handleRegionToggle = (regionName: string) => {
-    const regionZones = ZONE_STRUCTURE[regionName as keyof typeof ZONE_STRUCTURE];
-    const regionZoneValues = regionZones.map(zone => zone.value);
-    
-    const allRegionSelected = regionZoneValues.every(zone => selectedZones.includes(zone));
-    
-    if (allRegionSelected) {
-      // Remove all zones from this region
-      onZoneChange(selectedZones.filter(zone => !regionZoneValues.includes(zone)));
-    } else {
-      // Add all zones from this region
-      const newZones = [...selectedZones];
-      regionZoneValues.forEach(zone => {
-        if (!newZones.includes(zone)) {
-          newZones.push(zone);
-        }
-      });
-      onZoneChange(newZones);
-    }
-  };
-
-  const handleSelectAll = () => {
-    const allZoneValues = Object.values(ZONE_STRUCTURE).flat().map(zone => zone.value);
-    onZoneChange(allZoneValues);
-  };
-
-  const handleClearAll = () => {
-    onZoneChange([]);
-  };
-
-  return (
-    <div className="bg-slate-50 p-6 rounded-lg border border-slate-200">
-      <div className="flex justify-between items-center mb-6">
-        <h4 className="text-lg font-semibold text-slate-700">Select Chart Zonal</h4>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={handleSelectAll}
-            className="px-4 py-2 text-sm font-medium text-blue-700 bg-blue-100 border border-blue-300 rounded-lg hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-          >
-            Select All
-          </button>
-          <button
-            type="button"
-            onClick={handleClearAll}
-            className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-300 rounded-lg hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-500 transition-colors"
-          >
-            Clear All
-          </button>
-        </div>
-      </div>
-      <div className="space-y-4">
-        {Object.entries(ZONE_STRUCTURE).map(([regionName, regionZones]) => {
-          const allRegionSelected = regionZones.every(zone => selectedZones.includes(zone.value));
-          const someRegionSelected = regionZones.some(zone => selectedZones.includes(zone.value));
-          
-          return (
-            <div key={regionName} className="border border-slate-200 rounded-lg p-4 bg-white shadow-sm">
-              {/* Region Header */}
-              <div className="flex items-center mb-3">
-                <input
-                  type="checkbox"
-                  id={`region-${regionName}`}
-                  checked={allRegionSelected}
-                  ref={input => {
-                    if (input) input.indeterminate = someRegionSelected && !allRegionSelected;
-                  }}
-                  onChange={() => handleRegionToggle(regionName)}
-                  className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-slate-300 rounded"
-                />
-                <label htmlFor={`region-${regionName}`} className="ml-3 text-base font-semibold text-slate-700">
-                  {regionName} Zones
-                </label>
-              </div>
-              
-              {/* Zone Options */}
-              <div className="flex flex-wrap gap-3 ml-8">
-                {regionZones.map(zone => (
-                  <div key={zone.value} className="relative">
-                    <input
-                      type="checkbox"
-                      id={`zone-${zone.value}`}
-                      checked={selectedZones.includes(zone.value)}
-                      onChange={() => handleZoneToggle(zone.value)}
-                      className="sr-only"
-                    />
-                    <label 
-                      htmlFor={`zone-${zone.value}`}
-                      className={`flex items-center justify-center w-16 h-12 px-3 py-2 border-2 rounded-lg cursor-pointer transition-all duration-200 ${
-                        selectedZones.includes(zone.value)
-                          ? 'border-blue-500 bg-blue-50 text-blue-700 font-semibold'
-                          : 'border-slate-300 bg-white text-slate-600 hover:border-blue-300 hover:bg-blue-50'
-                      }`}
-                    >
-                      <span className="text-sm font-medium">{zone.label}</span>
-                    </label>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      
-      {/* Selected Zones Summary */}
-      {selectedZones.length > 0 && (
-        <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-          <p className="text-sm font-semibold text-blue-800 mb-2">Selected Zones ({selectedZones.length}):</p>
-          <p className="text-sm text-blue-700">{selectedZones.sort().join(", ")}</p>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// HELPER COMPONENT: Zone Matrix Component
-const ZoneMatrixComponent = ({
-  selectedZones,
-  zoneMatrix,
-  onPriceChange,
-}: {
-  selectedZones: string[];
-  zoneMatrix: { [fromZone: string]: { [toZone: string]: number } };
-  onPriceChange: (fromZone: string, toZone: string, value: number) => void;
-}) => {
-  if (selectedZones.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm">
-      <h4 className="text-lg font-semibold text-slate-700 mb-4">Zone-to-Zone Pricing Matrix</h4>
-      <p className="text-sm text-slate-500 mb-6">
-        Enter prices for shipping between different zones. Prices are in ₹/kg.
-      </p>
-      
-      <div className="overflow-x-auto">
-        <table className="min-w-full border-2 border-slate-400 shadow-lg">
-          <thead className="bg-slate-100">
-            <tr>
-              <th className="px-6 py-4 text-left text-base font-bold text-slate-800 border-r-2 border-slate-400 bg-slate-200">
-                From \ To
-              </th>
-              {selectedZones.map(zone => (
-                <th key={zone} className="px-6 py-4 text-center text-base font-bold text-slate-800 border-r-2 border-slate-400 last:border-r-0 bg-slate-200">
-                  {zone}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {selectedZones.map(fromZone => (
-              <tr key={fromZone} className="border-t-2 border-slate-400 hover:bg-slate-50 transition-colors">
-                <td className="px-6 py-4 text-base font-bold text-slate-800 bg-slate-100 border-r-2 border-slate-400">
-                  {fromZone}
-                </td>
-                {selectedZones.map(toZone => (
-                  <td key={toZone} className="px-3 py-3 border-r-2 border-slate-400 last:border-r-0">
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      step="0.01"
-                      min="0"
-                      placeholder="0.00"
-                      value={
-                        zoneMatrix?.[fromZone]?.[toZone] === undefined || zoneMatrix?.[fromZone]?.[toZone] === null
-                          ? ""
-                          : String(zoneMatrix[fromZone][toZone])
-                      }
-                      onChange={(e) => {
-                        const v = e.target.value.trim();
-                        if (v === "") {
-                          // treat empty as 0 locally to keep structure consistent
-                          onPriceChange(fromZone, toZone, 0);
-                          return;
-                        }
-                        // allow floats (any decimals); we round to 2dp internally
-                        if (!/^\d+(?:\.\d*)?$/.test(v)) return;
-                        const num = parseFloat(v);
-                        if (!Number.isFinite(num) || num < 0) return;
-                        const rounded = Math.round(num * 100) / 100;
-                        onPriceChange(fromZone, toZone, rounded);
-                      }}
-                      className={`w-full h-10 px-4 py-2 text-sm font-normal border-2 rounded-lg shadow-sm transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-500 hover:border-blue-400 focus:scale-x-150 focus:scale-y-110 focus:text-sm focus:font-normal hover:scale-x-120 hover:scale-y-105 ${
-                        fromZone === toZone 
-                          ? 'border-blue-200 bg-blue-50 text-blue-800 placeholder-blue-400' 
-                          : 'border-slate-300 bg-white text-slate-900 placeholder-slate-400 hover:bg-blue-50'
-                      }`}
-                    />
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      
-      <div className="mt-6 flex justify-end">
-        <div className="text-sm text-slate-600">
-          <p><strong>Zone matrix will be saved when you submit the complete company form below.</strong></p>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // HELPER COMPONENT: PercentageField with Dropdown
 const PercentageField = ({
@@ -626,7 +270,6 @@ const PercentageField = ({
         onKeyDown={onKeyDown}
         inputMode="decimal"
         pattern="\d+(\.\d{1,2})?"
-        placeholder="0.00"
         min="0"
         max="5"
         className={`block w-full bg-slate-50/70 border rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 transition
@@ -637,7 +280,7 @@ const PercentageField = ({
         <button
           type="button"
           onClick={onToggleDropdown}
-          className="text-slate-400 hover:text-blue-600 transition-colors"
+          className="text-slate-800 hover:text-blue-600 transition-colors font-bold"
         >
           <ChevronDownIcon className="h-4 w-4" />
         </button>
@@ -685,9 +328,18 @@ const DaccChargesField = ({
   onToggleTooltip: () => void;
 }) => (
   <div className="relative" data-tooltip-container>
+    <div className="flex items-center gap-2">
     <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
       {label} <span className="text-red-500">*</span>
     </label>
+      <button
+        type="button"
+        onClick={onToggleTooltip}
+        className="text-slate-400 hover:text-blue-600 transition-colors"
+      >
+        <InformationCircleIcon className="h-4 w-4" />
+      </button>
+    </div>
     <div className="mt-1 relative">
       <input
         type="text"
@@ -696,18 +348,9 @@ const DaccChargesField = ({
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
-        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
-      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
-        <button
-          type="button"
-          onClick={onToggleTooltip}
-          className="text-slate-400 hover:text-blue-600 transition-colors"
-        >
-          <InformationCircleIcon className="h-5 w-5" />
-        </button>
-      </div>
     </div>
     
     {showTooltip && (
@@ -757,9 +400,18 @@ const FuelSurchargeField = ({
   error?: string;
 }) => (
   <div className="relative" data-tooltip-container>
+    <div className="flex items-center gap-2">
     <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
       {label} <span className="text-red-500">*</span>
     </label>
+      <button
+        type="button"
+        onClick={onToggleTooltip}
+        className="text-slate-400 hover:text-blue-600 transition-colors"
+      >
+        <InformationCircleIcon className="h-4 w-4" />
+      </button>
+    </div>
     <div className="mt-1 relative">
       <input
         type="text"
@@ -770,24 +422,17 @@ const FuelSurchargeField = ({
         onKeyDown={onKeyDown}
         min="1"
         max="40"
-        className={`block w-full bg-slate-50/70 border rounded-lg shadow-sm px-3 py-2 pr-20 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 transition
+        className={`block w-full bg-slate-50/70 border rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 transition
                    ${error ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 focus:ring-blue-500 focus:border-blue-500'}`}
         required
       />
-      <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
         <button
           type="button"
           onClick={onToggleDropdown}
-          className="text-slate-400 hover:text-blue-600 transition-colors"
+          className="text-slate-800 hover:text-blue-600 transition-colors font-bold"
         >
           <ChevronDownIcon className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={onToggleTooltip}
-          className="text-slate-400 hover:text-blue-600 transition-colors"
-        >
-          <InformationCircleIcon className="h-5 w-5" />
         </button>
       </div>
       
@@ -816,19 +461,8 @@ const FuelSurchargeField = ({
         <div className="text-sm text-slate-700">
           <h4 className="font-semibold text-slate-800 mb-2">Fuel Surcharge</h4>
           <p className="mb-3">
-            A percentage markup that carriers apply (varies with diesel/ATF prices). Usually calculated on Base Freight (sometimes on base after minimums are enforced).
+            It's an extra % added to cover fuel cost changes — when fuel prices go up, this charge helps the transporter cover that extra fuel expense.
           </p>
-          <div className="bg-slate-50 p-3 rounded border-l-4 border-blue-500">
-            <p className="font-medium text-slate-800 mb-1">Fuel Surcharge Formula:</p>
-            <div className="text-center text-sm font-mono">
-              <strong>Fuel Surcharge = Base Freight × (Fuel % / 100)</strong>
-            </div>
-          </div>
-          <div className="mt-3 space-y-1 text-xs">
-            <p><strong>Base Freight</strong> = the base shipping rate before fuel surcharge</p>
-            <p><strong>Fuel %</strong> = the fuel surcharge percentage (varies with fuel prices)</p>
-            <p><strong>Calculation Basis</strong> = usually on base freight, sometimes after minimums</p>
-          </div>
         </div>
         <button
           type="button"
@@ -935,21 +569,10 @@ const SavedVendorsTable = ({
                     <p><span className="font-medium">Mode:</span> {vendor.mode}</p>
                     <p><span className="font-medium">Min Weight:</span> {vendor.priceRate?.minWeight || 'N/A'} kg</p>
                     <p><span className="font-medium">Fuel Surcharge:</span> {vendor.priceRate?.fuel || 'N/A'}%</p>
-                    <p><span className="font-medium">Zones:</span> {vendor.selectedZones?.length || 0} selected</p>
                   </div>
                 </div>
               </div>
 
-              {/* Zone Matrix Summary */}
-              {vendor.selectedZones && vendor.selectedZones.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-slate-300">
-                  <h5 className="font-medium text-slate-600 text-sm mb-2">Zone Matrix Summary</h5>
-                  <div className="text-xs">
-                    <p><span className="font-medium">Selected Zones:</span> {vendor.selectedZones.join(', ')}</p>
-                    <p><span className="font-medium">Total Price Points:</span> {vendor.selectedZones.length * vendor.selectedZones.length}</p>
-                  </div>
-                </div>
-              )}
             </div>
           ))}
         </div>
@@ -977,9 +600,18 @@ const MinWeightField = ({
   onToggleTooltip: () => void;
 }) => (
   <div className="relative" data-tooltip-container>
+    <div className="flex items-center gap-2">
     <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
       {label} <span className="text-red-500">*</span>
     </label>
+      <button
+        type="button"
+        onClick={onToggleTooltip}
+        className="text-slate-400 hover:text-blue-600 transition-colors"
+      >
+        <InformationCircleIcon className="h-4 w-4" />
+      </button>
+    </div>
     <div className="mt-1 relative">
       <input
         type="text"
@@ -991,38 +623,22 @@ const MinWeightField = ({
         inputMode="numeric"
         min="0"
         max="10000"
-        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
-      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
-        <button
-          type="button"
-          onClick={onToggleTooltip}
-          className="text-slate-400 hover:text-blue-600 transition-colors"
-        >
-          <InformationCircleIcon className="h-5 w-5" />
-        </button>
-      </div>
     </div>
     
     {showTooltip && (
       <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
         <div className="text-sm text-slate-700">
-          <h4 className="font-semibold text-slate-800 mb-2">Minimum Billable Weight</h4>
+          <div className="mb-6">
+            <p className="font-semibold text-slate-800 mb-1">Also Known As:</p>
+            <p className="text-slate-600"><strong>Min Freight Weight / Min Billable Weight / Min Consignment Weight</strong></p>
+          </div>
+          <h4 className="font-semibold text-slate-800 mb-2">Min Chargeable Weight</h4>
           <p className="mb-3">
-            The minimum billable weight for a shipment (per docket/consignment, sometimes per piece depending on carrier rules). Even if your actual or volumetric weight is lower, you'll be billed for at least this much.
+            It's the lowest weight for which you'll be charged, even if your shipment weighs less.
           </p>
-          <div className="bg-slate-50 p-3 rounded border-l-4 border-blue-500">
-            <p className="font-medium text-slate-800 mb-1">Billable Weight Formula:</p>
-            <div className="text-center text-sm font-mono">
-              <strong>Billable Weight = max( Min. Weight, max(Actual Weight, Volumetric Weight) )</strong>
-            </div>
-          </div>
-          <div className="mt-3 space-y-1 text-xs">
-            <p><strong>Min. Weight</strong> = minimum billable weight set by carrier</p>
-            <p><strong>Actual Weight</strong> = physical weight of the package</p>
-            <p><strong>Volumetric Weight</strong> = calculated based on package dimensions</p>
-          </div>
         </div>
         <button
           type="button"
@@ -1055,9 +671,18 @@ const DocketChargesField = ({
   onToggleTooltip: () => void;
 }) => (
   <div className="relative" data-tooltip-container>
+    <div className="flex items-center gap-2">
     <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
       {label} <span className="text-red-500">*</span>
     </label>
+      <button
+        type="button"
+        onClick={onToggleTooltip}
+        className="text-slate-400 hover:text-blue-600 transition-colors"
+      >
+        <InformationCircleIcon className="h-4 w-4" />
+      </button>
+    </div>
     <div className="mt-1 relative">
       <input
         type="text"
@@ -1069,18 +694,9 @@ const DocketChargesField = ({
         inputMode="numeric"
         min="0"
         max="500"
-        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
-      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
-        <button
-          type="button"
-          onClick={onToggleTooltip}
-          className="text-slate-400 hover:text-blue-600 transition-colors"
-        >
-          <InformationCircleIcon className="h-5 w-5" />
-        </button>
-      </div>
     </div>
     
     {showTooltip && (
@@ -1088,7 +704,7 @@ const DocketChargesField = ({
         <div className="text-sm text-slate-700">
           <h4 className="font-semibold text-slate-800 mb-2">Docket Charges</h4>
           <p className="mb-3">
-            A flat per-shipment admin charge for creating the waybill/AWB (booking paperwork + system entry). Applied once per docket, independent of weight or distance.
+            A small fixed fee for booking your shipment — it covers the paperwork and system entry. Charged once per shipment, not based on weight or distance.
           </p>
         </div>
         <button
@@ -1122,9 +738,18 @@ const MinChargesField = ({
   onToggleTooltip: () => void;
 }) => (
   <div className="relative" data-tooltip-container>
+    <div className="flex items-center gap-2">
     <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
       {label} <span className="text-red-500">*</span>
     </label>
+      <button
+        type="button"
+        onClick={onToggleTooltip}
+        className="text-slate-400 hover:text-blue-600 transition-colors"
+      >
+        <InformationCircleIcon className="h-4 w-4" />
+      </button>
+    </div>
     <div className="mt-1 relative">
       <input
         type="text"
@@ -1135,26 +760,21 @@ const MinChargesField = ({
         onKeyDown={onKeyDown}
         min="1"
         max="1000"
-        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
-      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
-        <button
-          type="button"
-          onClick={onToggleTooltip}
-          className="text-slate-400 hover:text-blue-600 transition-colors"
-        >
-          <InformationCircleIcon className="h-5 w-5" />
-        </button>
-      </div>
     </div>
     
     {showTooltip && (
       <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
         <div className="text-sm text-slate-700">
+          <div className="mb-6">
+            <p className="font-semibold text-slate-800 mb-1">Also Known As:</p>
+            <p className="text-slate-600"><strong>Minimum Billing / Minimum Billable Amount / Minimum Freight Charge / Minimum Payable Amount</strong></p>
+          </div>
           <h4 className="font-semibold text-slate-800 mb-2">Minimum Charges</h4>
           <p className="mb-3">
-            A floor on the Base Freight amount. If the computed base freight is below this value, the base is bumped up to this minimum before adding surcharges.
+            The lowest freight you'll be charged, even if the calculated amount is less.
           </p>
         </div>
         <button
@@ -1188,9 +808,18 @@ const GreenTaxField = ({
   onToggleTooltip: () => void;
 }) => (
   <div className="relative" data-tooltip-container>
+    <div className="flex items-center gap-2">
     <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
       {label} <span className="text-red-500">*</span>
     </label>
+      <button
+        type="button"
+        onClick={onToggleTooltip}
+        className="text-slate-400 hover:text-blue-600 transition-colors"
+      >
+        <InformationCircleIcon className="h-4 w-4" />
+      </button>
+    </div>
     <div className="mt-1 relative">
       <input
         type="text"
@@ -1201,21 +830,11 @@ const GreenTaxField = ({
         onKeyDown={onKeyDown}
         inputMode="decimal"
         pattern="\d+(\.\d{1,2})?"
-        placeholder="0.00"
         min="0"
         max="5000"
-        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
-      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
-        <button
-          type="button"
-          onClick={onToggleTooltip}
-          className="text-slate-400 hover:text-blue-600 transition-colors"
-        >
-          <InformationCircleIcon className="h-5 w-5" />
-        </button>
-      </div>
     </div>
     
     {showTooltip && (
@@ -1223,7 +842,7 @@ const GreenTaxField = ({
         <div className="text-sm text-slate-700">
           <h4 className="font-semibold text-slate-800 mb-2">Green Tax</h4>
           <p className="mb-3">
-            Environmental/municipal cess some lanes/cities levy, or a carrier's eco charge. Usually a flat per-shipment fee in domestic setups (can also be per kg with some carriers—your field is ₹, so treat as flat).
+            A fixed fee added for environmental or city pollution costs. Some cities or carriers charge this Green Tax to support cleaner transport and reduce vehicle emissions. Usually applied per shipment as a flat amount.
           </p>
         </div>
         <button
@@ -1257,6 +876,79 @@ const MiscChargesField = ({
   onToggleTooltip: () => void;
 }) => (
   <div className="relative" data-tooltip-container>
+    <div className="flex items-center gap-2">
+    <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+      {label} <span className="text-red-500">*</span>
+    </label>
+      <button
+        type="button"
+        onClick={onToggleTooltip}
+        className="text-slate-400 hover:text-blue-600 transition-colors"
+      >
+        <InformationCircleIcon className="h-4 w-4" />
+      </button>
+    </div>
+    <div className="mt-1 relative">
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        min="0"
+        max="10000"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        required
+      />
+    </div>
+    
+    {showTooltip && (
+      <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+        <div className="text-sm text-slate-700">
+          <h4 className="font-semibold text-slate-800 mb-2">Miscellaneous Charges</h4>
+          <p className="mb-3">
+            A extra amount added for special services or situations not covered by other charge types — like extra paperwork, special handling, or local taxes.
+          </p>
+          <p className="mb-3">
+            It's basically a "catch-all" fee for any extra cost during transport.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleTooltip}
+          className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+        >
+          ×
+        </button>
+      </div>
+    )}
+  </div>
+);
+
+// HELPER COMPONENT: CftFactorField with Dropdown (only shows when unit is inch)
+const CftFactorField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onSelectChange,
+  onKeyDown,
+  showDropdown,
+  onToggleDropdown,
+  currentUnit
+}: {
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onSelectChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showDropdown: boolean;
+  onToggleDropdown: () => void;
+  currentUnit: "cm" | "inch";
+}) => (
+  <div className="relative" data-dropdown-container>
     <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
       {label} <span className="text-red-500">*</span>
     </label>
@@ -1268,28 +960,94 @@ const MiscChargesField = ({
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
-        min="0"
-        max="10000"
+        min="4"
+        max="10"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
-        required
+        required={true}
       />
       <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+        <button
+          type="button"
+          onClick={onToggleDropdown}
+          className="text-slate-800 hover:text-blue-600 transition-colors font-bold"
+        >
+          <ChevronDownIcon className="h-4 w-4" />
+        </button>
+      </div>
+      
+      {/* Dropdown Options - show in both cm and inch modes */}
+      {showDropdown && (
+        <div className="absolute z-10 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+          {CFT_FACTOR_OPTIONS.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onSelectChange({ target: { value: option.value } } as React.ChangeEvent<HTMLSelectElement>);
+                onToggleDropdown();
+              }}
+              className="w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-blue-100 focus:bg-blue-100 focus:outline-none"
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+// HELPER COMPONENT: HamaliChargesField with Info Tooltip
+const HamaliChargesField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onKeyDown,
+  showTooltip,
+  onToggleTooltip
+}: {
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showTooltip: boolean;
+  onToggleTooltip: () => void;
+}) => (
+  <div className="relative" data-tooltip-container>
+    <div className="flex items-center gap-2">
+      <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+        {label}
+      </label>
         <button
           type="button"
           onClick={onToggleTooltip}
           className="text-slate-400 hover:text-blue-600 transition-colors"
         >
-          <InformationCircleIcon className="h-5 w-5" />
+        <InformationCircleIcon className="h-4 w-4" />
         </button>
       </div>
+    <div className="mt-1 relative">
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        min="0"
+        max="10000"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+      />
     </div>
     
     {showTooltip && (
       <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
         <div className="text-sm text-slate-700">
-          <h4 className="font-semibold text-slate-800 mb-2">Miscellaneous Charges</h4>
+          <h4 className="font-semibold text-slate-800 mb-2">Hamali Charges</h4>
           <p className="mb-3">
-            A catch-all bucket for any other fixed add-ons (e.g., remote area fee, label reprint, address correction). Flat per shipment unless you explicitly implement per-kg variants.
+            Charges for manual handling of goods — fees paid for loading and unloading shipments at the pickup or delivery point.
           </p>
         </div>
         <button
@@ -1336,12 +1094,12 @@ const HandlingChargesField = ({
         onKeyDown={onKeyDown}
         inputMode="decimal"
         pattern="\d+(\.\d{1,2})?"
-        placeholder="0.00"
         min="0"
         max="5000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
+      {showTooltip && (
       <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
         <button
           type="button"
@@ -1351,6 +1109,7 @@ const HandlingChargesField = ({
           <InformationCircleIcon className="h-5 w-5" />
         </button>
       </div>
+      )}
     </div>
     
     {showTooltip && (
@@ -1405,12 +1164,12 @@ const ROVChargesField = ({
         onKeyDown={onKeyDown}
         inputMode="decimal"
         pattern="\d+(\.\d{1,2})?"
-        placeholder="0.00"
         min="0"
         max="5000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
+      {showTooltip && (
       <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
         <button
           type="button"
@@ -1420,6 +1179,7 @@ const ROVChargesField = ({
           <InformationCircleIcon className="h-5 w-5" />
         </button>
       </div>
+      )}
     </div>
     
     {showTooltip && (
@@ -1474,12 +1234,12 @@ const CODChargesField = ({
         onKeyDown={onKeyDown}
         inputMode="decimal"
         pattern="\d+(\.\d{1,2})?"
-        placeholder="0.00"
         min="0"
         max="2000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
+      {showTooltip && (
       <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
         <button
           type="button"
@@ -1489,12 +1249,13 @@ const CODChargesField = ({
           <InformationCircleIcon className="h-5 w-5" />
         </button>
       </div>
+      )}
     </div>
     
     {showTooltip && (
       <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
         <div className="text-sm text-slate-700">
-          <h4 className="font-semibold text-slate-800 mb-2">COD Charges</h4>
+          <h4 className="font-semibold text-slate-800 mb-2">COD/DOD Charges</h4>
           <p className="mb-3">
             Fee for collecting cash from the buyer and remitting it to you. Usually a % of COD amount, with a minimum/maximum cap.
           </p>
@@ -1543,12 +1304,12 @@ const ToPayChargesField = ({
         onKeyDown={onKeyDown}
         inputMode="decimal"
         pattern="\d+(\.\d{1,2})?"
-        placeholder="0.00"
         min="0"
         max="2000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
+      {showTooltip && (
       <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
         <button
           type="button"
@@ -1558,6 +1319,7 @@ const ToPayChargesField = ({
           <InformationCircleIcon className="h-5 w-5" />
         </button>
       </div>
+      )}
     </div>
     
     {showTooltip && (
@@ -1612,12 +1374,12 @@ const AppointmentChargesField = ({
         onKeyDown={onKeyDown}
         inputMode="decimal"
         pattern="\d+(\.\d{1,2})?"
-        placeholder="0.00"
         min="0"
         max="2000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
+      {showTooltip && (
       <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
         <button
           type="button"
@@ -1627,6 +1389,7 @@ const AppointmentChargesField = ({
           <InformationCircleIcon className="h-5 w-5" />
         </button>
       </div>
+      )}
     </div>
     
     {showTooltip && (
@@ -1649,7 +1412,7 @@ const AppointmentChargesField = ({
   </div>
 );
 
-// HELPER COMPONENT: VolumetricDivisorField with Info Tooltip
+// HELPER COMPONENT: VolumetricDivisorField with Info Tooltip and Unit Switch
 const VolumetricDivisorField = ({
   name,
   label,
@@ -1660,7 +1423,10 @@ const VolumetricDivisorField = ({
   showTooltip,
   onToggleTooltip,
   showDropdown,
-  onToggleDropdown
+  onToggleDropdown,
+  currentUnit,
+  onUnitChange,
+  convertCmToInch
 }: {
   name: string;
   label: string;
@@ -1672,11 +1438,23 @@ const VolumetricDivisorField = ({
   onToggleTooltip: () => void;
   showDropdown: boolean;
   onToggleDropdown: () => void;
+  currentUnit: "cm" | "inch";
+  onUnitChange: (unit: "cm" | "inch") => void;
+  convertCmToInch: (cm: number) => number;
 }) => (
   <div className="relative" data-tooltip-container>
-    <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
-      {label} <span className="text-red-500">*</span>
-    </label>
+    <div className="flex items-center gap-2 mb-2">
+      <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+        {label} <span className="text-red-500">*</span>
+      </label>
+      <button
+        type="button"
+        onClick={onToggleTooltip}
+        className="text-slate-400 hover:text-blue-600 transition-colors"
+      >
+        <InformationCircleIcon className="h-4 w-4" />
+      </button>
+    </div>
     <div className="mt-1 relative">
       <input
         type="text"
@@ -1693,35 +1471,39 @@ const VolumetricDivisorField = ({
         <button
           type="button"
           onClick={onToggleDropdown}
-          className="text-slate-400 hover:text-blue-600 transition-colors"
+          className="text-slate-800 hover:text-blue-600 transition-colors font-bold"
         >
           <ChevronDownIcon className="h-4 w-4" />
         </button>
-        <button
-          type="button"
-          onClick={onToggleTooltip}
-          className="text-slate-400 hover:text-blue-600 transition-colors"
-        >
-          <InformationCircleIcon className="h-5 w-5" />
-        </button>
+        <div className="w-px h-4 bg-slate-300 mx-1"></div>
+        <VolumetricUnitSwitch 
+          currentUnit={currentUnit} 
+          onUnitChange={onUnitChange} 
+        />
       </div>
       
       {/* Dropdown Options */}
       {showDropdown && (
         <div className="absolute z-10 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-          {VOLUMETRIC_DIVISOR_OPTIONS.map(option => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => {
-                onSelectChange({ target: { value: option.value } } as React.ChangeEvent<HTMLSelectElement>);
-                onToggleDropdown();
-              }}
-              className="w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-blue-100 focus:bg-blue-100 focus:outline-none"
-            >
-              {option.label}
-            </button>
-          ))}
+          {VOLUMETRIC_DIVISOR_OPTIONS.map(option => {
+            const num = parseFloat(option.value);
+            const displayValue = currentUnit === "inch" 
+              ? Math.round(convertCmToInch(num)).toString()
+              : option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  onSelectChange({ target: { value: displayValue } } as React.ChangeEvent<HTMLSelectElement>);
+                  onToggleDropdown();
+                }}
+                className="w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-blue-100 focus:bg-blue-100 focus:outline-none"
+              >
+                {displayValue}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1729,24 +1511,10 @@ const VolumetricDivisorField = ({
     {showTooltip && (
       <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
         <div className="text-sm text-slate-700">
-          <h4 className="font-semibold text-slate-800 mb-2">Volumetric Weight Calculation</h4>
+          <h4 className="font-semibold text-slate-800 mb-2">Volumetric Divisor</h4>
           <p className="mb-3">
-            In shipping and logistics, volumetric weight (also called dimensional weight) is used when the space a package takes up is more important than its actual weight.
+            It's the number used to convert a parcel's size into weight — big but light boxes take more space, so this makes sure they're charged fairly.
           </p>
-          <div className="bg-slate-50 p-3 rounded border-l-4 border-blue-500">
-            <p className="font-medium text-slate-800 mb-1">The formula is:</p>
-            <div className="text-center text-sm font-mono">
-              <strong>Volumetric Weight (kg) = </strong>
-              <span className="inline-block">
-                <div>L × B × H</div>
-                <div className="border-t border-slate-400">K</div>
-              </span>
-            </div>
-          </div>
-          <div className="mt-3 space-y-1 text-xs">
-            <p><strong>L × B × H</strong> = package dimensions (length × breadth × height, usually in centimeters)</p>
-            <p><strong>K</strong> = volumetric divisor (also called k-factor). It varies by courier/transport mode</p>
-          </div>
         </div>
         <button
           type="button"
@@ -1768,33 +1536,33 @@ const RateTypeSwitch = ({
   isFixed: boolean;
   onToggle: () => void;
 }) => (
-  <div className="flex flex-col items-center gap-1">
+  <div className="flex flex-col items-center gap-1 mt-1.5">
     <button
       type="button"
       onClick={onToggle}
-      className="relative inline-flex h-6 w-40 items-center rounded-full border-2 border-blue-600 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+      className="relative inline-flex h-5 w-28 items-center rounded-full border-2 border-blue-600 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
     >
       {/* Fixed Rate Section - Show symbol always */}
       <div className={`absolute left-0 top-0 h-full w-1/2 flex items-center justify-center rounded-l-full transition-all duration-300 ${
         !isFixed ? 'bg-white opacity-100' : 'bg-blue-600 opacity-100'
       }`}>
-        <span className={`text-lg font-bold ${!isFixed ? 'text-blue-600' : 'text-white'}`}>₹</span>
+        <span className={`text-sm font-bold ${!isFixed ? 'text-blue-600' : 'text-white'}`}>₹</span>
       </div>
       
       {/* Divider Line */}
-      <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-px h-4 bg-blue-300"></div>
+      <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-px h-3 bg-blue-300"></div>
       
       {/* Variable Rate Section - Show symbol always */}
       <div className={`absolute right-0 top-0 h-full w-1/2 flex items-center justify-center rounded-r-full transition-all duration-300 ${
         isFixed ? 'bg-white opacity-100' : 'bg-blue-600 opacity-100'
       }`}>
-        <span className={`text-lg font-bold ${isFixed ? 'text-blue-600' : 'text-white'}`}>%</span>
+        <span className={`text-sm font-bold ${isFixed ? 'text-blue-600' : 'text-white'}`}>%</span>
       </div>
       
     </button>
     
     {/* Text Labels Below Switch */}
-    <div className="flex w-32 justify-between text-xs font-medium">
+    <div className="flex w-24 justify-between text-xs font-medium">
       <span className={`transition-colors ${isFixed ? 'text-blue-600' : 'text-slate-400'}`}>
         Fixed
       </span>
@@ -1805,33 +1573,58 @@ const RateTypeSwitch = ({
   </div>
 );
 
+// HELPER COMPONENT: Unit Switch for Volumetric Divisor
+const VolumetricUnitSwitch = ({
+  currentUnit,
+  onUnitChange,
+}: {
+  currentUnit: "cm" | "inch";
+  onUnitChange: (unit: "cm" | "inch") => void;
+}) => (
+  <div className="flex bg-slate-100 rounded-md p-0.5">
+    <button
+      type="button"
+      onClick={() => onUnitChange("cm")}
+      className={`px-1.5 py-0.5 text-sm font-semibold rounded-lg transition-all ${
+        currentUnit === "cm"
+          ? "bg-blue-600 text-white shadow-sm"
+          : "text-slate-600 hover:text-slate-900"
+      }`}
+    >
+      cm
+    </button>
+    <button
+      type="button"
+      onClick={() => onUnitChange("inch")}
+      className={`px-1.5 py-0.5 text-sm font-semibold rounded-lg transition-all ${
+        currentUnit === "inch"
+          ? "bg-blue-600 text-white shadow-sm"
+          : "text-slate-600 hover:text-slate-900"
+      }`}
+    >
+      inch
+    </button>
+  </div>
+);
+
 // --- MAIN COMPONENT ---
 const AddTiedUpCompany = () => {
-  const fieldsTopRef = useRef<HTMLDivElement>(null); // keep if referenced elsewhere
-
-  // scroll entire page to the very top
-  const scrollToFieldsTop = () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    // fallbacks for browsers that ignore the smooth option or use <html>/<body> scrolling
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
-  };
-
   const { user } = useAuth();
   const customerID = (user as any)?.customer?._id;
   
   const [form, setForm] = useState({
     customerID: customerID, 
     vendorCode: "", 
+    vendorName: "",
     vendorPhone: "", 
     vendorEmail: "", 
     gstNo: "",
-    mode: "", 
+    mode: "road", 
     address: "", 
     state: "", 
     city: "",
     pincode: "", 
-    rating: "3",
+    rating: "4",
     companyName: "",
     subVendor: ""
   });
@@ -1853,6 +1646,7 @@ const AddTiedUpCompany = () => {
   const [showMinChargesTooltip, setShowMinChargesTooltip] = useState(false);
   const [showGreenTaxTooltip, setShowGreenTaxTooltip] = useState(false);
   const [showMiscChargesTooltip, setShowMiscChargesTooltip] = useState(false);
+  const [showHamaliChargesTooltip, setShowHamaliChargesTooltip] = useState(false);
   const [showHandlingChargesTooltip, setShowHandlingChargesTooltip] = useState(false);
   const [showRovChargesTooltip, setShowRovChargesTooltip] = useState(false);
   const [showCodChargesTooltip, setShowCodChargesTooltip] = useState(false);
@@ -1868,6 +1662,7 @@ const AddTiedUpCompany = () => {
   const [showCodVariableDropdown, setShowCodVariableDropdown] = useState(false);
   const [showTopayVariableDropdown, setShowTopayVariableDropdown] = useState(false);
   const [showAppointmentVariableDropdown, setShowAppointmentVariableDropdown] = useState(false);
+  const [showCftFactorDropdown, setShowCftFactorDropdown] = useState(false);
 
   // Rate type switches (true = Fixed Rate, false = Variable Rate)
   const [handlingRateType, setHandlingRateType] = useState(true); // true = Fixed, false = Variable
@@ -1876,42 +1671,9 @@ const AddTiedUpCompany = () => {
   const [topayRateType, setTopayRateType] = useState(true);
   const [appointmentRateType, setAppointmentRateType] = useState(true);
 
-  // Temporary transporter options for dropdown
-  const [temporaryTransporters] = useState([
-    // Road freight (FTL/LTL) & express cargo
-    { value: "tci", label: "Transport Corporation of India (TCI)" },
-    { value: "tci_express", label: "TCI Express" },
-    { value: "vrl_logistics", label: "VRL Logistics" },
-    { value: "vtrans_india", label: "V-Trans (India)" },
-    { value: "gati_allcargo", label: "Gati (Allcargo group)" },
-    { value: "cj_darcl", label: "CJ Darcl Logistics" },
-    { value: "varuna_group", label: "Varuna Group" },
-    { value: "blr_logistiks", label: "BLR Logistiks" },
-    { value: "navata_road", label: "Navata Road Transport" },
-    { value: "patel_integrated", label: "Patel Integrated Logistics" },
-    
-    // Parcel/courier networks (pan-India linehaul + last-mile)
-    { value: "delhivery", label: "Delhivery" },
-    { value: "blue_dart", label: "Blue Dart Express" },
-    { value: "dtdc_express", label: "DTDC Express" },
-    { value: "xpressbees", label: "XpressBees" },
-    { value: "ecom_express", label: "Ecom Express" },
-    { value: "ekart_logistics", label: "Ekart Logistics" },
-    { value: "shadowfax", label: "Shadowfax" },
-    { value: "safexpress", label: "Safexpress" },
-    
-    // 3PL & contract logistics (often run road + multimodal)
-    { value: "allcargo_logistics", label: "Allcargo Logistics" },
-    { value: "mahindra_logistics", label: "Mahindra Logistics" },
-    { value: "tvs_supply_chain", label: "TVS Supply Chain Solutions" },
-    { value: "dhl_supply_chain", label: "DHL Supply Chain (India)" },
-    { value: "fedex_india", label: "FedEx (India)" },
-    
-    // Additional companies
-    { value: "rivigo", label: "Rivigo" },
-    { value: "dtdc", label: "DTDC" },
-    { value: "delhivery_lite", label: "DELHIVERY LITE" }
-  ]);
+  // Volumetric unit state
+  const [volumetricUnit, setVolumetricUnit] = useState<"cm" | "inch">("cm");
+
 
   // Load pincodes dataset from public and derive state options
   const [pincodeData, setPincodeData] = useState<PincodeEntry[]>([]);
@@ -1939,12 +1701,18 @@ const AddTiedUpCompany = () => {
     return map;
   }, [pincodeData]);
 
-  // Unique state options for dropdown
+  // Unique state options for dropdown (for company information)
   const stateOptions = useMemo(() => {
     const states = Array.from(new Set(pincodeData.map(e => (e.state || '').toString()))).filter(Boolean);
-    states.sort((a, b) => a.localeCompare(b));
-    return states.map(s => ({ value: s, label: s }));
+    // Filter out Andaman and Nicobar Islands and Dadra and Nagar Haveli and Daman and Diu
+    const filteredStates = states.filter(state => 
+      !state.includes('ANDAMAN AND NICOBAR ISLANDS') && 
+      !state.includes('DADRA AND NAGAR HAVELI AND DAMAN AND DIU')
+    );
+    filteredStates.sort((a, b) => a.localeCompare(b));
+    return filteredStates.map(s => ({ value: s, label: s }));
   }, [pincodeData]);
+
 
   // Validation functions
   const validatePhone = (phone: string): string => {
@@ -2042,6 +1810,9 @@ const AddTiedUpCompany = () => {
   }, []);
 
 
+
+
+
   // Update form when user data is loaded
   useEffect(() => {
     if (customerID) {
@@ -2053,10 +1824,6 @@ const AddTiedUpCompany = () => {
 
 
   // Fetch zone matrix data when company is selected
-  const fetchZoneMatrix = async (_companyName: string) => {
-    // Company name entered - user can now select zones manually
-    // No automatic zone selection - user must choose zones to see matrix
-  };
 
 
 
@@ -2064,9 +1831,9 @@ const AddTiedUpCompany = () => {
   // Close tooltip and dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (showMinWeightTooltip || showDocketChargesTooltip || showMinChargesTooltip || showGreenTaxTooltip || showMiscChargesTooltip || showHandlingChargesTooltip || showRovChargesTooltip || showCodChargesTooltip || showTopayChargesTooltip || showAppointmentChargesTooltip || showVolumetricTooltip || showVolumetricDropdown || showDaccTooltip || showFuelTooltip || showFuelDropdown || 
+      if (showMinWeightTooltip || showDocketChargesTooltip || showMinChargesTooltip || showGreenTaxTooltip || showMiscChargesTooltip || showHamaliChargesTooltip || showHandlingChargesTooltip || showRovChargesTooltip || showCodChargesTooltip || showTopayChargesTooltip || showAppointmentChargesTooltip || showVolumetricTooltip || showVolumetricDropdown || showDaccTooltip || showFuelTooltip || showFuelDropdown || 
           showHandlingVariableDropdown || showRovVariableDropdown || showCodVariableDropdown || 
-          showTopayVariableDropdown || showAppointmentVariableDropdown) {
+          showTopayVariableDropdown || showAppointmentVariableDropdown || showCftFactorDropdown) {
         const target = event.target as Element;
         if (!target.closest('[data-tooltip-container]') && !target.closest('[data-dropdown-container]') && !target.closest('[data-combobox-container]')) {
           setShowMinWeightTooltip(false);
@@ -2074,6 +1841,7 @@ const AddTiedUpCompany = () => {
           setShowMinChargesTooltip(false);
           setShowGreenTaxTooltip(false);
           setShowMiscChargesTooltip(false);
+          setShowHamaliChargesTooltip(false);
           setShowHandlingChargesTooltip(false);
           setShowRovChargesTooltip(false);
           setShowCodChargesTooltip(false);
@@ -2089,24 +1857,21 @@ const AddTiedUpCompany = () => {
           setShowCodVariableDropdown(false);
           setShowTopayVariableDropdown(false);
           setShowAppointmentVariableDropdown(false);
+          setShowCftFactorDropdown(false);
         }
       }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showMinWeightTooltip, showDocketChargesTooltip, showMinChargesTooltip, showGreenTaxTooltip, showMiscChargesTooltip, showHandlingChargesTooltip, showRovChargesTooltip, showCodChargesTooltip, showTopayChargesTooltip, showAppointmentChargesTooltip, showVolumetricTooltip, showVolumetricDropdown, showDaccTooltip, showFuelTooltip, showFuelDropdown, 
+  }, [showMinWeightTooltip, showDocketChargesTooltip, showMinChargesTooltip, showGreenTaxTooltip, showMiscChargesTooltip, showHamaliChargesTooltip, showHandlingChargesTooltip, showRovChargesTooltip, showCodChargesTooltip, showTopayChargesTooltip, showAppointmentChargesTooltip, showVolumetricTooltip, showVolumetricDropdown, showDaccTooltip, showFuelTooltip, showFuelDropdown, 
       showHandlingVariableDropdown, showRovVariableDropdown, showCodVariableDropdown, 
-      showTopayVariableDropdown, showAppointmentVariableDropdown]);
+      showTopayVariableDropdown, showAppointmentVariableDropdown, showCftFactorDropdown]);
   
   const [priceRate, setPriceRate] = useState<any>({});
   // const [priceChart, setPriceChart] = useState<{ [pincode: string]: { [zone: string]: number } }>({});
   
-  const [selectedZones, setSelectedZones] = useState<string[]>([]);
-  const [zoneMatrix, setZoneMatrix] = useState<{ [fromZone: string]: { [toZone: string]: number } }>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [savedVendors, setSavedVendors] = useState<any[]>([]);
-  const [isAddingVendor, setIsAddingVendor] = useState(false);
 
 
 
@@ -2142,6 +1907,10 @@ const AddTiedUpCompany = () => {
       // Allow any text for sub vendor - limit to 20 characters
       const truncatedValue = value.substring(0, 20);
       setForm(prev => ({ ...prev, [name]: truncatedValue }));
+    } else if (name === 'vendorName') {
+      // Only allow letters (a-z, A-Z) and spaces for vendor name - limit to 25 characters
+      const lettersOnlyValue = value.replace(/[^a-zA-Z\s]/g, '').substring(0, 25);
+      setForm(prev => ({ ...prev, [name]: lettersOnlyValue }));
     } else if (name === 'companyName') {
       // Company name is now handled by dropdown onChange, so this is just a fallback
       setForm(prev => ({ ...prev, [name]: value }));
@@ -2203,20 +1972,26 @@ const isTwoDecimal = (s: string) => /^(\d+(\.\d{0,2})?)?$/.test(s);
 const DECIMAL_FIELDS = new Set([
   "handlingCharges.fixed",
   "handlingCharges.variable",
+  "handlingCharges.minimum",
   "rovCharges.fixed",
   "rovCharges.variable",
+  "rovCharges.minimum",
   "codCharges.fixed",
   "codCharges.variable",
+  "codCharges.minimum",
   "topayCharges.fixed",
   "topayCharges.variable",
+  "topayCharges.minimum",
   "appointmentCharges.fixed",
   "appointmentCharges.variable",
+  "appointmentCharges.minimum",
 ]);
 
 const rangeFor = (name: string): [number, number] => {
   switch (name) {
     case "handlingCharges.fixed": return [0, 5000];
     case "handlingCharges.variable": return [0, 50];
+    case "handlingCharges.minimum": return [0, 5000];
 
     case "rovCharges.fixed":
     case "codCharges.fixed":
@@ -2229,6 +2004,12 @@ const rangeFor = (name: string): [number, number] => {
     case "topayCharges.variable":
     case "appointmentCharges.variable":
       return [0, 5];
+
+    case "rovCharges.minimum":
+    case "codCharges.minimum":
+    case "topayCharges.minimum":
+    case "appointmentCharges.minimum":
+      return [0, 2000];
 
     default: return [0, 1000000]; // fallback, shouldn't hit for the listed fields
   }
@@ -2276,6 +2057,10 @@ const normalizeZoneRates = (zoneRates: Record<string, Record<string, any>>) => {
   }
   return out;
 };
+
+// ✅ Volumetric unit conversion functions
+const convertInchToCm = (inches: number): number => inches * 2.54;
+const convertCmToInch = (cm: number): number => cm / 2.54;
 
  // KeyDown handler - only allow positive integers (including zero)
 const handleMinWeightKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -2394,7 +2179,7 @@ const handleFuelSurchargeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) =>
 };
 
  
-// KeyDown handler - only allow positive integers (including zero)
+// KeyDown handler - only allow positive integers (excluding zero)
 const handleVolumetricDivisorKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
   // Allow control keys
   if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
@@ -2410,18 +2195,24 @@ const handleVolumetricDivisorKeyDown = (e: React.KeyboardEvent<HTMLInputElement>
     return;
   }
   
+  // Prevent typing "0" as first digit
+  if (e.key === '0' && (e.target as HTMLInputElement).value.length === 0) {
+    e.preventDefault();
+    return;
+  }
+  
   // Get current value and the new value that would be created
   const currentValue = (e.target as HTMLInputElement).value;
   const newValue = currentValue + e.key;
   const numValue = parseInt(newValue, 10);
   
-  // Prevent typing if the new value would be outside 0-10000 range
+  // Prevent typing if the new value would be outside 1-10000 range
   if (numValue > 10000) {
     e.preventDefault();
     return;
   }
   
-  // Prevent more than 4 consecutive zeros at the beginning (but allow first zero)
+  // Prevent more than 4 consecutive zeros at the beginning
   if (e.key === '0' && currentValue.length > 0 && currentValue.startsWith('0000')) {
     e.preventDefault();
   }
@@ -2563,7 +2354,37 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
   }
 };
 
-
+  const handleHamaliChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Allow control keys
+    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
+        e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
+        e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+        e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
+      return;
+    }
+    
+    // Allow only digits (0-9) - no decimal points
+    if (!/^[0-9]$/.test(e.key)) {
+      e.preventDefault();
+      return;
+    }
+    
+    // Get current value and the new value that would be created
+    const currentValue = (e.target as HTMLInputElement).value;
+    const newValue = currentValue + e.key;
+    const numValue = parseInt(newValue, 10);
+    
+    // Prevent typing if the new value would be outside 0-10000 range
+    if (numValue > 10000) {
+      e.preventDefault();
+      return;
+    }
+    
+    // Prevent more than 4 consecutive zeros at the beginning (but allow first zero)
+    if (e.key === '0' && currentValue.length > 0 && currentValue.startsWith('0000')) {
+      e.preventDefault();
+    }
+  };
 
   // KeyDown handler for handlingCharges.threshholdweight - only allow digits 1-20000 range
   const handleHandlingWeightKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -2736,6 +2557,62 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     }
   };
 
+  // KeyDown handler for vendor name field - only allow letters (a-z, A-Z) and spaces
+  const handleVendorNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
+    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
+        e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
+        e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+        e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
+      return;
+    }
+    
+    // Allow only letters (a-z, A-Z) and spaces
+    if (!/^[a-zA-Z\s]$/.test(e.key)) {
+      e.preventDefault();
+    }
+  };
+
+  // KeyDown handler for CFT Factor - only allow digits 4-10
+  const handleCftFactorKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
+    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || 
+        e.key === 'Escape' || e.key === 'Enter' || e.key === 'ArrowLeft' || 
+        e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+        e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) {
+      return;
+    }
+    
+    // Allow only digits (0-9)
+    if (!/^[0-9]$/.test(e.key)) {
+      e.preventDefault();
+      return;
+    }
+    
+    // Get current value and the new value that would be created
+    const currentValue = (e.target as HTMLInputElement).value;
+    const newValue = currentValue + e.key;
+    const numValue = parseInt(newValue, 10);
+    
+    // Prevent typing if the new value would be outside 4-10 range
+    if (numValue > 10) {
+      e.preventDefault();
+      return;
+    }
+    
+    // Prevent typing if the new value would be less than 4 (but allow single digits 4-9)
+    if (currentValue.length > 0 && numValue < 4) {
+      e.preventDefault();
+      return;
+    }
+    
+    // Prevent typing "1", "2", "3" as first digit
+    if (currentValue.length === 0 && ['1', '2', '3'].includes(e.key)) {
+      e.preventDefault();
+      return;
+    }
+  };
+
   // KeyDown handler for city field - only allow letters (a-z, A-Z) and spaces
   const handleCityKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Allow control keys (backspace, delete, tab, escape, enter, arrow keys, etc.)
@@ -2819,7 +2696,7 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Keep your current logic for other fields, but prefer parseFloat-safe checks
     if (value && parseFloat(value) < 0) return;
 
-    if (name === "divisor" && value && parseFloat(value) > 10000) return;
+    if (name === "divisor" && value && (parseFloat(value) < 1 || parseFloat(value) > 10000)) return;
 
     // Min Weight should allow 0 (changed from <1 to <0)
     if (name === "minWeight" && value && (parseFloat(value) < 0 || parseFloat(value) > 10000)) return;
@@ -2836,7 +2713,28 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
 
     if (name === "miscellanousCharges" && value && (parseFloat(value) < 0 || parseFloat(value) > 10000)) return;
 
+    if (name === "hamaliCharges" && value && (parseFloat(value) < 0 || parseFloat(value) > 10000)) return;
+
+    if (name === "cftFactor" && value && (parseFloat(value) < 4 || parseFloat(value) > 10)) return;
+
     if (name === "handlingCharges.threshholdweight" && value && (parseFloat(value) < 0 || parseFloat(value) > 20000)) return;
+
+    // Handle volumetric divisor conversion
+    if (name === "divisor") {
+      if (value === "") {
+        setPriceRate((prev: any) => ({ ...prev, divisor: "" }));
+        return;
+      }
+      
+      const num = parseFloat(value);
+      if (isNaN(num) || num < 0 || num > 7000) return;
+      
+      // Convert to centimeters if input is in inches
+      const valueInCm = volumetricUnit === "inch" ? convertInchToCm(num) : num;
+      
+      setPriceRate((prev: any) => ({ ...prev, divisor: valueInCm }));
+      return;
+    }
 
     const keys = name.split(".");
     setPriceRate((prev: any) => {
@@ -2857,160 +2755,10 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
   };
 
 
-  const handleZoneSelectionChange = (newSelectedZones: string[]) => {
-    setSelectedZones(newSelectedZones);
-    
-    // Initialize matrix for new zones
-    const newMatrix: { [fromZone: string]: { [toZone: string]: number } } = {};
-    newSelectedZones.forEach(fromZone => {
-      newMatrix[fromZone] = {};
-      newSelectedZones.forEach(toZone => {
-        // Preserve existing values if they exist, otherwise initialize to 0
-        newMatrix[fromZone][toZone] = zoneMatrix[fromZone]?.[toZone] || 0;
-      });
-    });
-    setZoneMatrix(newMatrix);
-    
-    // Show success message when zones are selected manually
-    if (newSelectedZones.length > 0) {
-      toast.success(`Zone matrix created with ${newSelectedZones.length} zones`);
-    }
-  };
 
-  const handleMatrixPriceChange = (fromZone: string, toZone: string, value: number) => {
-    if (value < 0) return;
-    setZoneMatrix(prev => ({
-      ...prev,
-      [fromZone]: {
-        ...prev[fromZone],
-        [toZone]: value
-      }
-    }));
-  };
+  // Function to add vendor to local list (removed - zones moved to separate page)
 
-  // Function to add vendor to local list
-  const handleAddVendor = () => {
-    // Check if all required fields are filled first
-    const requiredFields = {
-      companyName: form.companyName,
-      vendorCode: form.vendorCode,
-      vendorPhone: form.vendorPhone,
-      vendorEmail: form.vendorEmail,
-      gstNo: form.gstNo,
-      mode: form.mode,
-      address: form.address,
-      state: form.state,
-      city: form.city,
-      pincode: form.pincode,
-      rating: form.rating
-    };
 
-    const missingFields = Object.entries(requiredFields)
-      .filter(([, value]) => !value || value.toString().trim() === '')
-      .map(([key]) => {
-        // Convert field names to user-friendly labels
-        const fieldLabels: { [key: string]: string } = {
-          companyName: "Company Name",
-          vendorCode: "Vendor Code", 
-          vendorPhone: "Vendor Phone",
-          vendorEmail: "Vendor Email",
-          gstNo: "GST Number",
-          mode: "Transport Mode",
-          address: "Address",
-          state: "State",
-          city: "City",
-          pincode: "Pincode",
-          rating: "Rating"
-        };
-        return fieldLabels[key] || key;
-      });
-
-    if (missingFields.length > 0) {
-      toast.error("Please fill in all required fields");
-      return;
-    }
-
-    // Validate field formats
-    const phoneError = validatePhone(form.vendorPhone);
-    const emailError = validateEmail(form.vendorEmail);
-    const gstError = validateGST(form.gstNo);
-    const pincodeError = validatePincode(form.pincode);
-    const fuelError = validateFuel(priceRate.fuel);
-    
-    setErrors({
-      vendorPhone: phoneError,
-      vendorEmail: emailError,
-      gstNo: gstError,
-      pincode: pincodeError,
-      fuel: fuelError
-    });
-    
-    if (phoneError || emailError || gstError || pincodeError || fuelError) {
-      toast.error("Please fix the validation errors before adding vendor");
-      return;
-    }
-
-    if (!customerID) {
-      toast.error("User authentication error. Please log out and log in again.");
-      return;
-    }
-
-    // Validate zone matrix if zones are selected
-    if (selectedZones.length > 0) {
-      const hasEmptyPrices = selectedZones.some(fromZone => 
-        selectedZones.some(toZone => 
-          !zoneMatrix[fromZone] || zoneMatrix[fromZone][toZone] === undefined || zoneMatrix[fromZone][toZone] === null
-        )
-      );
-      
-      if (hasEmptyPrices) {
-        toast.error("Please fill in all zone-to-zone prices before adding vendor");
-        return;
-      }
-    }
-
-    setIsAddingVendor(true);
-    
-    // Create vendor data object
-    const vendorData = {
-      id: Date.now(), // Simple ID for local storage
-      ...form,
-      vendorPhone: Number(form.vendorPhone),
-      pincode: Number(form.pincode),
-      rating: Number(form.rating),
-      priceRate,
-      priceChart: zoneMatrix,
-      selectedZones,
-      addedAt: new Date().toLocaleString()
-    };
-
-    // Add to saved vendors list
-    setSavedVendors(prev => [...prev, vendorData]);
-    
-    // Reset form
-    setForm({ 
-      customerID: customerID, 
-      vendorCode: "", 
-      vendorPhone: "", 
-      vendorEmail: "", 
-      gstNo: "", 
-      mode: "", 
-      address: "", 
-      state: "", 
-      city: "",
-      pincode: "", 
-      rating: "3", 
-      companyName: "",
-      subVendor: ""
-    });
-    setPriceRate({});
-    setSelectedZones([]);
-    setZoneMatrix({});
-    setErrors({ vendorPhone: "", vendorEmail: "", gstNo: "", pincode: "", fuel: "" });
-    
-    toast.success("Your Vendor saved successfully");
-    setIsAddingVendor(false);
-  };
 
   // Function to delete a vendor from the list
   const handleDeleteVendor = (vendorId: number) => {
@@ -3026,6 +2774,7 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     const requiredFields = {
       companyName: form.companyName,
       vendorCode: form.vendorCode,
+      vendorName: form.vendorName,
       vendorPhone: form.vendorPhone,
       vendorEmail: form.vendorEmail,
       gstNo: form.gstNo,
@@ -3055,15 +2804,60 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       return false;
     }
 
-    // Validate zone matrix if zones are selected
-    if (selectedZones.length > 0) {
-      const hasEmptyPrices = selectedZones.some(fromZone => 
-        selectedZones.some(toZone => 
-          !zoneMatrix[fromZone] || zoneMatrix[fromZone][toZone] === undefined || zoneMatrix[fromZone][toZone] === null
-        )
-      );
+    // Validate CFT Factor - mandatory when unit is cm
+    if (volumetricUnit === "cm") {
+      if (!priceRate.cftFactor || priceRate.cftFactor === "" || priceRate.cftFactor === 0) {
+        toast.error("CFT Factor is required when using cm as the unit");
+        return false;
+      }
+      const cftValue = parseFloat(priceRate.cftFactor.toString());
+      if (isNaN(cftValue) || cftValue < 4 || cftValue > 10) {
+        toast.error("CFT Factor must be between 4 and 10");
+        return false;
+      }
+    }
+
+
+    // Validate charge fields - prevent filling both fixed and variable rates
+    const chargeValidations = [
+      {
+        name: 'Handling Charges',
+        fixed: priceRate.handlingCharges?.fixed,
+        variable: priceRate.handlingCharges?.variable,
+        isFixed: handlingRateType
+      },
+      {
+        name: 'ROV/FOV Charges',
+        fixed: priceRate.rovCharges?.fixed,
+        variable: priceRate.rovCharges?.variable,
+        isFixed: rovRateType
+      },
+      {
+        name: 'COD/DOD Charges',
+        fixed: priceRate.codCharges?.fixed,
+        variable: priceRate.codCharges?.variable,
+        isFixed: codRateType
+      },
+      {
+        name: 'To-Pay Charges',
+        fixed: priceRate.topayCharges?.fixed,
+        variable: priceRate.topayCharges?.variable,
+        isFixed: topayRateType
+      },
+      {
+        name: 'Appointment Charges',
+        fixed: priceRate.appointmentCharges?.fixed,
+        variable: priceRate.appointmentCharges?.variable,
+        isFixed: appointmentRateType
+      }
+    ];
+
+    for (const charge of chargeValidations) {
+      const hasFixedValue = charge.fixed && charge.fixed !== '' && charge.fixed !== '0' && charge.fixed !== 0;
+      const hasVariableValue = charge.variable && charge.variable !== '' && charge.variable !== '0' && charge.variable !== 0;
       
-      if (hasEmptyPrices) {
+      if (hasFixedValue && hasVariableValue) {
+        toast.error(`You cannot fill both Fixed and Variable rates for ${charge.name}. Please choose one rate type.`);
         return false;
       }
     }
@@ -3077,6 +2871,7 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     setForm({
       customerID: vendor.customerID,
       vendorCode: vendor.vendorCode,
+      vendorName: vendor.vendorName || "",
       vendorPhone: vendor.vendorPhone.toString(),
       vendorEmail: vendor.vendorEmail,
       gstNo: vendor.gstNo,
@@ -3095,9 +2890,6 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Populate price rate
     setPriceRate(vendor.priceRate || {});
 
-    // Populate zones and matrix
-    setSelectedZones(vendor.selectedZones || []);
-    setZoneMatrix(vendor.priceChart || {});
 
     // Clear any existing errors
     setErrors({ vendorPhone: "", vendorEmail: "", gstNo: "", pincode: "", fuel: "" });
@@ -3125,7 +2917,7 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       return;
     }
     
-    setIsSubmitting(true);
+    // setIsSubmitting(true); // Removed - not needed
     
     // Prepare vendors to save (saved vendors + current form if valid)
     const vendorsToSave = [...savedVendors];
@@ -3139,8 +2931,6 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         pincode: Number(form.pincode),
         rating: Number(form.rating),
         priceRate,
-        priceChart: zoneMatrix,
-        selectedZones,
         addedAt: new Date().toLocaleString()
       };
       vendorsToSave.push(currentVendorData);
@@ -3239,21 +3029,20 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         setForm({ 
           customerID: customerID, 
           vendorCode: "", 
+          vendorName: "",
           vendorPhone: "", 
           vendorEmail: "", 
           gstNo: "", 
-          mode: "", 
+          mode: "road", 
           address: "", 
           state: "", 
           city: "",
           pincode: "", 
-          rating: "3", 
+          rating: "4", 
           companyName: "",
           subVendor: ""
         });
         setPriceRate({});
-        setSelectedZones([]);
-        setZoneMatrix({});
         setErrors({ vendorPhone: "", vendorEmail: "", gstNo: "", pincode: "", fuel: "" });
         
         if (errorCount > 0) {
@@ -3266,7 +3055,7 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       console.error("Submission error:", err);
       toast.error("Failed to save vendors to backend. Please try again.", { id: toastId });
     } finally {
-      setIsSubmitting(false);
+      // setIsSubmitting(false); // Removed - not needed
     }
   };
 
@@ -3289,6 +3078,10 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
 
   const toggleMiscChargesTooltip = () => {
     setShowMiscChargesTooltip(prev => !prev);
+  };
+
+  const toggleHamaliChargesTooltip = () => {
+    setShowHamaliChargesTooltip(prev => !prev);
   };
 
   const toggleHandlingChargesTooltip = () => {
@@ -3351,16 +3144,38 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     setShowAppointmentVariableDropdown(prev => !prev);
   };
 
+  const toggleCftFactorDropdown = () => {
+    setShowCftFactorDropdown(prev => !prev);
+  };
+
 
 
   const handleVolumetricDivisorSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
     if (value) {
+      const num = parseFloat(value);
+      // Convert to centimeters if input is in inches
+      const valueInCm = volumetricUnit === "inch" ? convertInchToCm(num) : num;
       setPriceRate((prev: any) => ({
         ...prev,
-        divisor: parseFloat(value)
+        divisor: valueInCm
       }));
     }
+  };
+
+  // Handle volumetric unit change
+  const handleVolumetricUnitChange = (newUnit: "cm" | "inch") => {
+    setVolumetricUnit(newUnit);
+    // No need to convert existing values as they're stored in cm
+    // The display will automatically update via getDisplayValue
+  };
+
+  // Get display value for volumetric divisor
+  const getVolumetricDisplayValue = (valueInCm: number | undefined): string => {
+    if (valueInCm === undefined || valueInCm === null) return "";
+    return volumetricUnit === "inch"
+      ? Math.round(convertCmToInch(valueInCm)).toString()
+      : Math.round(valueInCm).toString();
   };
 
   const handleFuelSurchargeSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -3375,6 +3190,16 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     }
   };
 
+  const handleCftFactorSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    if (value) {
+      setPriceRate((prev: any) => ({
+        ...prev,
+        cftFactor: parseFloat(value)
+      }));
+    }
+  };
+
 
   return (
     <div className="bg-slate-100 min-h-screen font-sans">
@@ -3383,42 +3208,22 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">Add Tied-Up Company</h1>
           <p className="mt-2 text-md text-slate-500">Create a new partner profile with detailed pricing information.</p>
         </header>
-        <div ref={fieldsTopRef} />
+        
         {/* Section 1: Company Details */}
         <div className="bg-white p-6 sm:p-8 rounded-xl shadow-sm transition-all">
           <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-4 mb-6">Company Information</h3>
           <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
-            {/* Company Name - Combobox with Temporary Transporters */}
-            <ComboboxField
+            {/* Company Name - Simple Input Field */}
+            <StyledInputField
               name="companyName"
               label="Company Name"
               value={form.companyName}
               onChange={(e) => {
-                const selectedValue = e.target.value;
-                setForm(prev => ({ ...prev, companyName: selectedValue }));
-                
-                // Initialize zone matrix when company name is selected
-                if (selectedValue.trim() === '') {
-                  setSelectedZones([]);
-                  setZoneMatrix({});
-                } else {
-                  fetchZoneMatrix(selectedValue);
-                }
-              }}
-              onInputChange={(e) => {
                 const inputValue = e.target.value;
                 setForm(prev => ({ ...prev, companyName: inputValue }));
                 
-                // Initialize zone matrix when company name is entered
-                if (inputValue.trim() === '') {
-                  setSelectedZones([]);
-                  setZoneMatrix({});
-                } else {
-                  fetchZoneMatrix(inputValue);
-                }
               }}
-              options={temporaryTransporters}
-              placeholder="Type or select company name"
+              placeholder="Enter company name"
             />
             
             {/* Sub Vendor - Optional Field */}
@@ -3438,6 +3243,15 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
               value={form.vendorCode} 
               onChange={handleChange} 
               maxLength={20}
+            />
+            
+            <StyledInputField 
+              name="vendorName" 
+              label="CONTACT PERSON NAME" 
+              value={form.vendorName} 
+              onChange={handleChange} 
+              onKeyDown={handleVendorNameKeyDown}
+              maxLength={25}
             />
             
             {/* Phone with validation */}
@@ -3472,16 +3286,6 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
               maxLength={15}
               error={errors.gstNo}
             />
-            
-            <div className="sm:col-span-2">
-              <StyledInputField 
-                name="address" 
-                label="Address" 
-                value={form.address} 
-                onChange={handleChange} 
-                required={true}
-              />
-            </div>
             
             {/* Pincode with auto-fill */}
             <div className="relative">
@@ -3522,6 +3326,16 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
               placeholder="Enter city name"
             />
             
+            <div className="sm:col-span-2">
+              <StyledInputField 
+                name="address" 
+                label="Address" 
+                value={form.address} 
+                onChange={handleChange} 
+                required={true}
+              />
+            </div>
+            
             {/* Transport Mode Dropdown */}
             <DropdownField
               name="mode"
@@ -3545,7 +3359,7 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
           <div className="grid grid-cols-2 gap-x-6 gap-y-6 lg:grid-cols-4">
             <MinWeightField 
               name="minWeight" 
-              label="Min. Weight (kg)" 
+              label="Min Chargeable Weight (KG)" 
               value={priceRate.minWeight ?? ""} 
               onChange={handleNestedInputChange}
               onKeyDown={handleMinWeightKeyDown}
@@ -3576,8 +3390,8 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
             />
             <VolumetricDivisorField 
               name="divisor" 
-              label="Volumetric Divisor (L x B x H)" 
-              value={priceRate.divisor ?? ""} 
+              label="Volumetric weight(LxBxH)/" 
+              value={getVolumetricDisplayValue(priceRate.divisor)} 
               onChange={handleNestedInputChange}
               onSelectChange={handleVolumetricDivisorSelect}
               onKeyDown={handleVolumetricDivisorKeyDown}
@@ -3585,10 +3399,13 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
               onToggleTooltip={toggleVolumetricTooltip}
               showDropdown={showVolumetricDropdown}
               onToggleDropdown={toggleVolumetricDropdown}
+              currentUnit={volumetricUnit}
+              onUnitChange={handleVolumetricUnitChange}
+              convertCmToInch={convertCmToInch}
             />
             <MinChargesField 
               name="minCharges" 
-              label="Min. Charges (₹)" 
+              label="Minimum Charges (₹)" 
               value={priceRate.minCharges ?? ""} 
               onChange={handleNestedInputChange}
               onKeyDown={handleMinChargesKeyDown}
@@ -3597,7 +3414,7 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
             />
             <GreenTaxField 
               name="greenTax" 
-              label="Green Tax (₹)" 
+              label="Green Tax (₹)/NGT Charge" 
               value={priceRate.greenTax ?? ""} 
               onChange={handleNestedInputChange}
               onKeyDown={handleGreenTaxKeyDown}
@@ -3613,25 +3430,88 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
               showTooltip={showDaccTooltip}
               onToggleTooltip={toggleDaccTooltip}
             />
+            <CftFactorField 
+              name="cftFactor" 
+              label="CFT Factor" 
+              value={priceRate.cftFactor ?? ""} 
+              onChange={handleNestedInputChange}
+              onSelectChange={handleCftFactorSelect}
+              onKeyDown={handleCftFactorKeyDown}
+              showDropdown={showCftFactorDropdown}
+              onToggleDropdown={toggleCftFactorDropdown}
+              currentUnit={volumetricUnit}
+            />
             <MiscChargesField 
               name="miscellanousCharges" 
-              label="Misc. Charges (₹)" 
+              label="miscellaneous/AOC Charges (₹)" 
               value={priceRate.miscellanousCharges ?? ""} 
               onChange={handleNestedInputChange}
               onKeyDown={handleMiscChargesKeyDown}
               showTooltip={showMiscChargesTooltip}
               onToggleTooltip={toggleMiscChargesTooltip}
             />
+            <HamaliChargesField 
+              name="hamaliCharges" 
+              label="Hamali Charges (₹)" 
+              value={priceRate.hamaliCharges ?? ""} 
+              onChange={handleNestedInputChange}
+              onKeyDown={handleHamaliChargesKeyDown}
+              showTooltip={showHamaliChargesTooltip}
+              onToggleTooltip={toggleHamaliChargesTooltip}
+            />
           </div>
           <div className="mt-8 pt-6 border-t border-slate-200 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
-                <div className="flex items-center justify-between gap-4">
-                  <h4 className="font-medium text-slate-700">Handling Charges</h4>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-medium text-slate-700 mt-1">Handling Charges</h4>
+                    <button
+                      type="button"
+                      onClick={toggleHandlingChargesTooltip}
+                      className="text-slate-400 hover:text-slate-600 transition-colors mt-1"
+                      data-tooltip-container
+                    >
+                      <InformationCircleIcon className="h-4 w-4" />
+                    </button>
+                  </div>
                   <RateTypeSwitch
                     isFixed={handlingRateType}
-                    onToggle={() => setHandlingRateType(!handlingRateType)}
+                    onToggle={() => {
+                      setHandlingRateType(!handlingRateType);
+                      // Clear the opposite field when switching
+                      if (handlingRateType) {
+                        // Switching from Fixed to Variable, clear fixed value
+                        setPriceRate((prev: any) => ({
+                          ...prev,
+                          handlingCharges: { ...prev.handlingCharges, fixed: '' }
+                        }));
+                      } else {
+                        // Switching from Variable to Fixed, clear variable value and minimum charge
+                        setPriceRate((prev: any) => ({
+                          ...prev,
+                          handlingCharges: { ...prev.handlingCharges, variable: '', minimum: '' }
+                        }));
+                      }
+                    }}
                   />
                 </div>
+                {showHandlingChargesTooltip && (
+                  <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+                    <div className="text-sm text-slate-700">
+                      <h4 className="font-semibold text-slate-800 mb-2">Handling Charges</h4>
+                      <p className="mb-3">
+                        Extra fees for special handling requirements like fragile items, hazardous materials, or oversized packages that need special care during transport.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={toggleHandlingChargesTooltip}
+                      className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
                 {handlingRateType ? (
                   <HandlingChargesField 
                     name="handlingCharges.fixed" 
@@ -3639,10 +3519,11 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
                     value={priceRate.handlingCharges?.fixed ?? ""} 
                     onChange={handleNestedInputChange} 
                     onKeyDown={(e) => handleChargeFixedKeyDown(e, 5000)} 
-                    showTooltip={showHandlingChargesTooltip}
-                    onToggleTooltip={toggleHandlingChargesTooltip}
+                    showTooltip={false}
+                    onToggleTooltip={() => {}}
                   />
                 ) : (
+                  <>
                   <PercentageField 
                     name="handlingCharges.variable" 
                     label="Variable Rate (%)" 
@@ -3658,17 +3539,69 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
                     showDropdown={showHandlingVariableDropdown}
                     onToggleDropdown={toggleHandlingVariableDropdown}
                   />
+                    <StyledInputField 
+                      name="handlingCharges.minimum" 
+                      label="Minimum Charge (₹)" 
+                      type="text" 
+                      value={priceRate.handlingCharges?.minimum ?? ""} 
+                      onChange={handleNestedInputChange} 
+                      onKeyDown={(e) => handleChargeFixedKeyDown(e, 5000)} 
+                    />
+                  </>
                 )}
                   <StyledInputField name="handlingCharges.threshholdweight" label="Weight Threshold (Kg)" type="text" onChange={handleNestedInputChange} onKeyDown={handleHandlingWeightKeyDown} min={1} max={20000} />
               </div>
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
-                <div className="flex items-center justify-between gap-4">
-                  <h4 className="font-medium text-slate-700">ROV Charges</h4>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-medium text-slate-700 mt-1">ROV/FOV Charges</h4>
+                    <button
+                      type="button"
+                      onClick={toggleRovChargesTooltip}
+                      className="text-slate-400 hover:text-slate-600 transition-colors mt-1"
+                      data-tooltip-container
+                    >
+                      <InformationCircleIcon className="h-4 w-4" />
+                    </button>
+                  </div>
                   <RateTypeSwitch
                     isFixed={rovRateType}
-                    onToggle={() => setRovRateType(!rovRateType)}
+                    onToggle={() => {
+                      setRovRateType(!rovRateType);
+                      // Clear the opposite field when switching
+                      if (rovRateType) {
+                        // Switching from Fixed to Variable, clear fixed value
+                        setPriceRate((prev: any) => ({
+                          ...prev,
+                          rovCharges: { ...prev.rovCharges, fixed: '' }
+                        }));
+                      } else {
+                        // Switching from Variable to Fixed, clear variable value and minimum charge
+                        setPriceRate((prev: any) => ({
+                          ...prev,
+                          rovCharges: { ...prev.rovCharges, variable: '', minimum: '' }
+                        }));
+                      }
+                    }}
                   />
                 </div>
+                {showRovChargesTooltip && (
+                  <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+                    <div className="text-sm text-slate-700">
+                      <h4 className="font-semibold text-slate-800 mb-2">ROV/FOV Charges</h4>
+                      <p className="mb-3">
+                        Return on Value charges for items that need to be returned to the sender due to delivery failures, wrong addresses, or customer rejection.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={toggleRovChargesTooltip}
+                      className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
                 {rovRateType ? (
                 <ROVChargesField 
                   name="rovCharges.fixed" 
@@ -3676,10 +3609,11 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
                   value={priceRate.rovCharges?.fixed ?? ""} 
                   onChange={handleNestedInputChange} 
                   onKeyDown={(e) => handleChargeFixedKeyDown(e, 5000)} 
-                  showTooltip={showRovChargesTooltip}
-                  onToggleTooltip={toggleRovChargesTooltip}
+                  showTooltip={false}
+                  onToggleTooltip={() => {}}
                 />
                 ) : (
+                <>
                 <PercentageField 
                   name="rovCharges.variable" 
                   label="Variable Rate (%)" 
@@ -3695,16 +3629,68 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
                   showDropdown={showRovVariableDropdown}
                   onToggleDropdown={toggleRovVariableDropdown}
                 />
+                  <StyledInputField 
+                    name="rovCharges.minimum" 
+                    label="Minimum Charge (₹)" 
+                    type="text" 
+                    value={priceRate.rovCharges?.minimum ?? ""} 
+                    onChange={handleNestedInputChange} 
+                    onKeyDown={(e) => handleChargeFixedKeyDown(e, 5000)} 
+                  />
+                </>
                 )}
                 </div>
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
-                <div className="flex items-center justify-between gap-4">
-                <h4 className="font-medium text-slate-700">COD Charges</h4>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-medium text-slate-700 mt-1">COD/DOD Charges</h4>
+                    <button
+                      type="button"
+                      onClick={toggleCodChargesTooltip}
+                      className="text-slate-400 hover:text-slate-600 transition-colors mt-1"
+                      data-tooltip-container
+                    >
+                      <InformationCircleIcon className="h-4 w-4" />
+                    </button>
+                  </div>
                   <RateTypeSwitch
                     isFixed={codRateType}
-                    onToggle={() => setCodRateType(!codRateType)}
+                    onToggle={() => {
+                      setCodRateType(!codRateType);
+                      // Clear the opposite field when switching
+                      if (codRateType) {
+                        // Switching from Fixed to Variable, clear fixed value
+                        setPriceRate((prev: any) => ({
+                          ...prev,
+                          codCharges: { ...prev.codCharges, fixed: '' }
+                        }));
+                      } else {
+                        // Switching from Variable to Fixed, clear variable value and minimum charge
+                        setPriceRate((prev: any) => ({
+                          ...prev,
+                          codCharges: { ...prev.codCharges, variable: '', minimum: '' }
+                        }));
+                      }
+                    }}
                   />
                 </div>
+                {showCodChargesTooltip && (
+                  <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+                    <div className="text-sm text-slate-700">
+                      <h4 className="font-semibold text-slate-800 mb-2">COD/DOD Charges</h4>
+                      <p className="mb-3">
+                        Cash on Delivery charges for collecting payment from the recipient at the time of delivery, including cash handling and payment processing fees.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={toggleCodChargesTooltip}
+                      className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
                 {codRateType ? (
                 <CODChargesField 
                   name="codCharges.fixed" 
@@ -3712,10 +3698,11 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
                   value={priceRate.codCharges?.fixed ?? ""} 
                   onChange={handleNestedInputChange} 
                   onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} 
-                  showTooltip={showCodChargesTooltip}
-                  onToggleTooltip={toggleCodChargesTooltip}
+                  showTooltip={false}
+                  onToggleTooltip={() => {}}
                 />
                 ) : (
+                <>
                 <PercentageField 
                   name="codCharges.variable" 
                   label="Variable Rate (%)" 
@@ -3731,16 +3718,68 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
                   showDropdown={showCodVariableDropdown}
                   onToggleDropdown={toggleCodVariableDropdown}
                 />
+                  <StyledInputField 
+                    name="codCharges.minimum" 
+                    label="Minimum Charge (₹)" 
+                    type="text" 
+                    value={priceRate.codCharges?.minimum ?? ""} 
+                    onChange={handleNestedInputChange} 
+                    onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} 
+                  />
+                </>
                 )}
               </div>
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
-                <div className="flex items-center justify-between gap-4">
-                <h4 className="font-medium text-slate-700">To-Pay Charges</h4>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-medium text-slate-700 mt-1">To-Pay Charges</h4>
+                    <button
+                      type="button"
+                      onClick={toggleTopayChargesTooltip}
+                      className="text-slate-400 hover:text-slate-600 transition-colors mt-1"
+                      data-tooltip-container
+                    >
+                      <InformationCircleIcon className="h-4 w-4" />
+                    </button>
+                  </div>
                   <RateTypeSwitch
                     isFixed={topayRateType}
-                    onToggle={() => setTopayRateType(!topayRateType)}
+                    onToggle={() => {
+                      setTopayRateType(!topayRateType);
+                      // Clear the opposite field when switching
+                      if (topayRateType) {
+                        // Switching from Fixed to Variable, clear fixed value
+                        setPriceRate((prev: any) => ({
+                          ...prev,
+                          topayCharges: { ...prev.topayCharges, fixed: '' }
+                        }));
+                      } else {
+                        // Switching from Variable to Fixed, clear variable value and minimum charge
+                        setPriceRate((prev: any) => ({
+                          ...prev,
+                          topayCharges: { ...prev.topayCharges, variable: '', minimum: '' }
+                        }));
+                      }
+                    }}
                   />
                 </div>
+                {showTopayChargesTooltip && (
+                  <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+                    <div className="text-sm text-slate-700">
+                      <h4 className="font-semibold text-slate-800 mb-2">To-Pay Charges</h4>
+                      <p className="mb-3">
+                        Charges for shipments where the recipient is responsible for paying the freight charges upon delivery, including payment collection and processing fees.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={toggleTopayChargesTooltip}
+                      className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
                 {topayRateType ? (
                 <ToPayChargesField 
                   name="topayCharges.fixed" 
@@ -3748,10 +3787,11 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
                   value={priceRate.topayCharges?.fixed ?? ""} 
                   onChange={handleNestedInputChange} 
                   onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} 
-                  showTooltip={showTopayChargesTooltip}
-                  onToggleTooltip={toggleTopayChargesTooltip}
+                  showTooltip={false}
+                  onToggleTooltip={() => {}}
                 />
                 ) : (
+                <>
                 <PercentageField 
                   name="topayCharges.variable" 
                   label="Variable Rate (%)" 
@@ -3767,16 +3807,68 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
                   showDropdown={showTopayVariableDropdown}
                   onToggleDropdown={toggleTopayVariableDropdown}
                 />
+                  <StyledInputField 
+                    name="topayCharges.minimum" 
+                    label="Minimum Charge (₹)" 
+                    type="text" 
+                    value={priceRate.topayCharges?.minimum ?? ""} 
+                    onChange={handleNestedInputChange} 
+                    onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} 
+                  />
+                </>
                 )}
               </div>
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
-                <div className="flex items-center justify-between gap-4">
-                <h4 className="font-medium text-slate-700">Appointment Charges</h4>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-medium text-slate-700 mt-1">Appointment Charges</h4>
+                    <button
+                      type="button"
+                      onClick={toggleAppointmentChargesTooltip}
+                      className="text-slate-400 hover:text-slate-600 transition-colors mt-1"
+                      data-tooltip-container
+                    >
+                      <InformationCircleIcon className="h-4 w-4" />
+                    </button>
+                  </div>
                   <RateTypeSwitch
                     isFixed={appointmentRateType}
-                    onToggle={() => setAppointmentRateType(!appointmentRateType)}
+                    onToggle={() => {
+                      setAppointmentRateType(!appointmentRateType);
+                      // Clear the opposite field when switching
+                      if (appointmentRateType) {
+                        // Switching from Fixed to Variable, clear fixed value
+                        setPriceRate((prev: any) => ({
+                          ...prev,
+                          appointmentCharges: { ...prev.appointmentCharges, fixed: '' }
+                        }));
+                      } else {
+                        // Switching from Variable to Fixed, clear variable value and minimum charge
+                        setPriceRate((prev: any) => ({
+                          ...prev,
+                          appointmentCharges: { ...prev.appointmentCharges, variable: '', minimum: '' }
+                        }));
+                      }
+                    }}
                   />
                 </div>
+                {showAppointmentChargesTooltip && (
+                  <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+                    <div className="text-sm text-slate-700">
+                      <h4 className="font-semibold text-slate-800 mb-2">Appointment Charges</h4>
+                      <p className="mb-3">
+                        Charges for scheduling specific delivery appointments with recipients, including time slot booking and delivery coordination fees.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={toggleAppointmentChargesTooltip}
+                      className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
                 {appointmentRateType ? (
                 <AppointmentChargesField 
                   name="appointmentCharges.fixed" 
@@ -3784,10 +3876,11 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
                   value={priceRate.appointmentCharges?.fixed ?? ""} 
                   onChange={handleNestedInputChange} 
                   onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} 
-                  showTooltip={showAppointmentChargesTooltip}
-                  onToggleTooltip={toggleAppointmentChargesTooltip}
+                  showTooltip={false}
+                  onToggleTooltip={() => {}}
                 />
                 ) : (
+                <>
                 <PercentageField 
                   name="appointmentCharges.variable" 
                   label="Variable Rate (%)" 
@@ -3803,70 +3896,49 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
                   showDropdown={showAppointmentVariableDropdown}
                   onToggleDropdown={toggleAppointmentVariableDropdown}
                 />
+                  <StyledInputField 
+                    name="appointmentCharges.minimum" 
+                    label="Minimum Charge (₹)" 
+                    type="text" 
+                    value={priceRate.appointmentCharges?.minimum ?? ""} 
+                    onChange={handleNestedInputChange} 
+                    onKeyDown={(e) => handleChargeFixedKeyDown(e, 2000)} 
+                  />
+                </>
                 )}
               </div>
           </div>
         </div>
         
-        {/* Section 3: Chart Zonal */}
-        <div className="bg-white p-6 sm:p-8 rounded-xl shadow-sm transition-all">
-          <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-4 mb-6">Chart Zonal</h3>
-          
-          {/* Always show Zone Selection */}
-          <div className="mb-8">
-            <ZoneSelectionComponent 
-              selectedZones={selectedZones}
-              onZoneChange={handleZoneSelectionChange}
-            />
-          </div>
 
-          {/* Show Zone Matrix when zones are selected */}
-          {selectedZones.length > 0 && (
-            <ZoneMatrixComponent
-              selectedZones={selectedZones}
-              zoneMatrix={zoneMatrix}
-              onPriceChange={handleMatrixPriceChange}
-            />
-          )}
-        </div>
-
-        {/* Section 4: Saved Vendors Table */}
+        {/* Section 3: Saved Vendors Table */}
         <SavedVendorsTable 
           vendors={savedVendors} 
           onEdit={handleEditVendor}
           onDelete={handleDeleteVendor}
         />
 
-        <div className="flex justify-between pt-4">
+        {/* Zone selection moved to /zone-price-matrix page */}
+
+        {/* Next Button */}
+        <div className="flex justify-center pt-6">
           <button
             type="button"
             onClick={() => {
-              handleAddVendor();
-              // hard scroll to the very top of the page
-              window.scrollTo({ top: 0, behavior: "smooth" });
+              // Navigate to zone price matrix page
+              window.location.href = '/zone-price-matrix';
             }}
-            disabled={isAddingVendor}
-            className="group inline-flex items-center justify-center gap-2 py-3 px-8 text-sm font-semibold tracking-wide rounded-lg text-black bg-sky-200 hover:bg-sky-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-100 focus:ring-sky-500 disabled:bg-sky-100 disabled:cursor-wait transition-all ease-in-out duration-300"
+            className="group inline-flex items-center justify-center gap-2 py-3 px-8 text-sm font-semibold tracking-wide rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-100 focus:ring-blue-500 transition-all ease-in-out duration-300"
           >
-            <PlusCircleIcon className="h-5 w-5 transform group-hover:scale-110 transition-transform"/>
-            {isAddingVendor ? "Adding..." : "Add Vendor"}
+            <svg className="w-5 h-5 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+            Next: Configure Zones & Price Matrix
           </button>
-
-          <div className="flex gap-4">
-            <button
-              type="submit"
-              disabled={isSubmitting || (savedVendors.length === 0 && !validateCurrentForm())}
-              className="group inline-flex items-center justify-center gap-2 py-3 px-8 text-sm font-semibold tracking-wide rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-100 focus:ring-blue-500 disabled:bg-blue-400 disabled:cursor-wait transition-all ease-in-out duration-300"
-            >
-              <CheckCircleIcon className="h-5 w-5 transform group-hover:scale-110 transition-transform"/>
-              {`Save All Vendors (${savedVendors.length + (validateCurrentForm() && savedVendors.length === 0 ? 1 : 0)})`}
-            </button>
-          </div>
         </div>
-      </form>
+      </form> 
     </div>
   );
 };
 
 export default AddTiedUpCompany;
-

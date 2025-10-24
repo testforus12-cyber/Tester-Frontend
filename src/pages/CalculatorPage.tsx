@@ -80,6 +80,10 @@ const formatINR0 = (n: number) =>
     Math.round(n / 10) * 10
   );
 
+// Dimension unit conversion helpers
+const convertInchToCm = (inches: number): number => inches * 2.54;
+const convertCmToInch = (cm: number): number => cm / 2.54;
+
 // ✅ robust price parsing (accepts numbers or strings like "₹ 5,300.50")
 const coerceNumber = (v: any) => {
   if (typeof v === "number") return v;
@@ -189,6 +193,43 @@ const SortOptionButton = ({
   </button>
 );
 
+// Unit Switch Component
+const UnitSwitch = ({
+  currentUnit,
+  onUnitChange,
+}: {
+  currentUnit: "cm" | "inch";
+  onUnitChange: (unit: "cm" | "inch") => void;
+}) => (
+  <div className="flex items-center gap-2">
+    <span className="text-sm font-medium text-slate-600">Units:</span>
+    <div className="flex bg-slate-100 rounded-lg p-1">
+      <button
+        type="button"
+        onClick={() => onUnitChange("cm")}
+        className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-all ${
+          currentUnit === "cm"
+            ? "bg-blue-600 text-white shadow-sm"
+            : "text-slate-600 hover:text-slate-900"
+        }`}
+      >
+        cm
+      </button>
+      <button
+        type="button"
+        onClick={() => onUnitChange("inch")}
+        className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-all ${
+          currentUnit === "inch"
+            ? "bg-blue-600 text-white shadow-sm"
+            : "text-slate-600 hover:text-slate-900"
+        }`}
+      >
+        inch
+      </button>
+    </div>
+  </div>
+);
+
 // -----------------------------------------------------------------------------
 // Types
 // -----------------------------------------------------------------------------
@@ -207,6 +248,7 @@ type SavedBox = {
   weight: number;
   modeoftransport: "Road" | "Air" | "Rail" | "Ship";
   description?: string;
+  dimensionUnit?: "cm" | "inch";
 };
 
 type BoxDetails = {
@@ -276,6 +318,9 @@ const CalculatorPage: React.FC = (): JSX.Element => {
   const [calculationTarget, setCalculationTarget] = useState<"all" | number>(
     "all"
   );
+
+  // Unit state for dimensions
+  const [dimensionUnit, setDimensionUnit] = useState<"cm" | "inch">("cm");
 
   // Presets & dropdowns
   const [savedBoxes, setSavedBoxes] = useState<SavedBox[]>([]);
@@ -446,13 +491,34 @@ useEffect(() => {
       return;
     }
     const n = Number(cleaned);
+    
+    // Convert to centimeters if input is in inches
+    const valueInCm = dimensionUnit === "inch" ? convertInchToCm(n) : n;
+    
     const actualMax =
       field === "length"
         ? MAX_DIMENSION_LENGTH
         : field === "width"
         ? MAX_DIMENSION_WIDTH
         : MAX_DIMENSION_HEIGHT;
-    updateBox(index, field, Math.min(n, actualMax));
+    
+    // Always store in centimeters
+    updateBox(index, field, Math.min(valueInCm, actualMax));
+  };
+
+  // Get display value for dimensions (convert from stored cm to current unit)
+  const getDisplayValue = (valueInCm: number | undefined): string => {
+    if (valueInCm === undefined) return "";
+    return dimensionUnit === "inch" 
+      ? Math.round(convertCmToInch(valueInCm)).toString()
+      : Math.round(valueInCm).toString();
+  };
+
+  // Handle unit change and convert existing values
+  const handleUnitChange = (newUnit: "cm" | "inch") => {
+    setDimensionUnit(newUnit);
+    // No need to convert existing values as they're stored in cm
+    // The display will automatically update via getDisplayValue
   };
 
   const createNewBox = (): BoxDetails => ({
@@ -539,6 +605,11 @@ useEffect(() => {
       description: boxPreset.name,
     };
     setBoxes(updated);
+
+    // Change unit switch to match the preset's saved unit
+    if (boxPreset.dimensionUnit) {
+      setDimensionUnit(boxPreset.dimensionUnit);
+    }
 
     if (index === 0) {
       setFromPincode(boxPreset.originPincode.toString());
@@ -636,6 +707,7 @@ useEffect(() => {
       modeoftransport: modeOfTransport,
       noofboxes: box.count || 1,
       quantity: box.count || 1,
+      dimensionUnit: dimensionUnit,
     };
 
     try {
@@ -1100,13 +1172,19 @@ useEffect(() => {
 
         {/* Shipment Details */}
         <Card>
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-              <Boxes size={22} className="text-indigo-500" /> Shipment Details
-            </h2>
-            <p className="text-sm text-slate-500">
-              Enter dimensions and weight, or select a saved preset to auto-fill.
-            </p>
+          <div className="mb-6 flex justify-between items-start">
+            <div>
+              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                <Boxes size={22} className="text-indigo-500" /> Shipment Details
+              </h2>
+              <p className="text-sm text-slate-500">
+                Enter dimensions and weight, or select a saved preset to auto-fill.
+              </p>
+            </div>
+            <UnitSwitch 
+              currentUnit={dimensionUnit} 
+              onUnitChange={handleUnitChange} 
+            />
           </div>
 
           <div className="space-y-6">
@@ -1277,12 +1355,12 @@ useEffect(() => {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <InputField
-                        label="Length (cm)"
+                        label={`Length (${dimensionUnit})`}
                         id={`length-${index}`}
                         type="text"
                         inputMode="numeric"
                         pattern="\d*"
-                        value={box.length ?? ""}
+                        value={getDisplayValue(box.length)}
                         onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
                           handleDimensionChange(index, "length", e.target.value, 4)
@@ -1299,12 +1377,12 @@ useEffect(() => {
 
                     <div>
                       <InputField
-                        label="Width (cm)"
+                        label={`Width (${dimensionUnit})`}
                         id={`width-${index}`}
                         type="text"
                         inputMode="numeric"
                         pattern="\d*"
-                        value={box.width ?? ""}
+                        value={getDisplayValue(box.width)}
                         onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
                           handleDimensionChange(index, "width", e.target.value, 3)
@@ -1321,12 +1399,12 @@ useEffect(() => {
 
                     <div>
                       <InputField
-                        label="Height (cm)"
+                        label={`Height (${dimensionUnit})`}
                         id={`height-${index}`}
                         type="text"
                         inputMode="numeric"
                         pattern="\d*"
-                        value={box.height ?? ""}
+                        value={getDisplayValue(box.height)}
                         onKeyDown={preventNonIntegerKeys}
                         onChange={(e) =>
                           handleDimensionChange(index, "height", e.target.value, 3)

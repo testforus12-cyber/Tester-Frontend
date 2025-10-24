@@ -24,6 +24,8 @@ import AboutUsPage from './pages/AboutUsPage';
 import PricingPage from './pages/PricingPage';
 import AddVendor from './pages/AddVendor';
 import AddPrices from './pages/AddPrices';
+import ZonePriceMatrix from './pages/ZonePriceMatrix';
+import ODAUpload from './pages/ODAUpload';
 import UserSelect from './pages/UserSelect';
 import BiddingPage from './pages/BiddingPage';
 import VehicleInfoPage from './pages/VehicleInfoPage';
@@ -64,6 +66,28 @@ function App() {
                 <MainLayout>
                   <PrivateRoute>
                     <AddVendor />
+                  </PrivateRoute>
+                </MainLayout>
+              }
+            />
+
+            <Route
+              path="/zone-price-matrix"
+              element={
+                <MainLayout>
+                  <PrivateRoute>
+                    <ZonePriceMatrix />
+                  </PrivateRoute>
+                </MainLayout>
+              }
+            />
+
+            <Route
+              path="/oda-upload"
+              element={
+                <MainLayout>
+                  <PrivateRoute>
+                    <ODAUpload />
                   </PrivateRoute>
                 </MainLayout>
               }
