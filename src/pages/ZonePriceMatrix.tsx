@@ -2130,7 +2130,7 @@ const ZonePriceMatrix: React.FC = () => {
                       {validZones.map((zone) => (
                         <th
                           key={zone.zoneCode}
-                          className="p-1 bg-slate-50 font-semibold text-slate-700 min-w-[30px] text-xs border border-slate-300 text-center"
+                          className="p-2 bg-slate-50 font-semibold text-slate-700 min-w-[40px] text-xs border border-slate-300 text-center"
                         >
                           {zone.zoneCode}
                         </th>
@@ -2140,7 +2140,7 @@ const ZonePriceMatrix: React.FC = () => {
                   <tbody>
                     {validZones.map((fromZone) => (
                       <tr key={fromZone.zoneCode}>
-                        <td className="p-1 bg-slate-50 font-semibold text-slate-700 text-xs border border-slate-300 text-center">
+                        <td className="p-2 bg-slate-50 font-semibold text-slate-700 text-xs border border-slate-300 text-center">
                           {fromZone.zoneCode}
                         </td>
                         {validZones.map((toZone) => {
@@ -2148,7 +2148,7 @@ const ZonePriceMatrix: React.FC = () => {
                           return (
                             <td
                               key={`${fromZone.zoneCode}-${toZone.zoneCode}`}
-                              className="p-1 border border-slate-300"
+                              className="p-2 border border-slate-300"
                             >
                               <DecimalInput
                                 value={currentPrice}
@@ -2156,7 +2156,7 @@ const ZonePriceMatrix: React.FC = () => {
                                   updatePrice(fromZone.zoneCode, toZone.zoneCode, value)
                                 }
                                 placeholder="0.000"
-                                className="w-16 h-7 px-1 border-0 rounded focus:outline-none text-center text-xs"
+                                className="w-full h-full px-2 py-1 border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center text-sm hover:border-slate-300 transition-colors"
                                 max={999}
                                 maxDecimals={3}
                                 maxIntegerDigits={3}

@@ -213,6 +213,13 @@ const CFT_FACTOR_OPTIONS = [
   { value: "10", label: "10" }
 ];
 
+// Handling Charge Unit Options
+const HANDLING_CHARGE_UNIT_OPTIONS = [
+  { value: "per kg", label: "per kg" },
+  { value: "per box", label: "per box" },
+  { value: "per piece", label: "per piece" }
+];
+
 // Volumetric Divisor Options (for centimeters)
 const VOLUMETRIC_DIVISOR_OPTIONS_CM = [
   { value: "2800", label: "2800" },
@@ -1417,6 +1424,7 @@ const VolumetricDivisorField = ({
           value={value}
           onChange={onChange}
           onKeyDown={onKeyDown}
+          min={currentUnit === "inch" ? "4" : currentUnit === "cm" ? "2800" : undefined}
           max={currentUnit === "cm" ? "7000" : "10"}
           className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-20 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
           required
@@ -1612,6 +1620,7 @@ const AddTiedUpCompany = () => {
   const [showTopayVariableDropdown, setShowTopayVariableDropdown] = useState(false);
   const [showAppointmentVariableDropdown, setShowAppointmentVariableDropdown] = useState(false);
   const [showCftFactorDropdown, setShowCftFactorDropdown] = useState(false);
+  const [showHandlingChargeUnitDropdown, setShowHandlingChargeUnitDropdown] = useState(false);
 
   // Rate type switches (true = Fixed Rate, false = Variable Rate)
   const [handlingRateType, setHandlingRateType] = useState(true); // true = Fixed, false = Variable
@@ -1622,6 +1631,9 @@ const AddTiedUpCompany = () => {
 
   // Volumetric unit state
   const [volumetricUnit, setVolumetricUnit] = useState<"cm" | "inch">("cm");
+
+  // Handling charge unit state
+  const [handlingChargeUnit, setHandlingChargeUnit] = useState<"per kg" | "per box" | "per piece">("per kg");
 
 
   // Load pincodes dataset from public and derive state options
@@ -1807,6 +1819,7 @@ const AddTiedUpCompany = () => {
           setShowTopayVariableDropdown(false);
           setShowAppointmentVariableDropdown(false);
           setShowCftFactorDropdown(false);
+          setShowHandlingChargeUnitDropdown(false);
         }
       }
     };
@@ -1815,7 +1828,8 @@ const AddTiedUpCompany = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showMinWeightTooltip, showDocketChargesTooltip, showMinChargesTooltip, showGreenTaxTooltip, showMiscChargesTooltip, showHamaliChargesTooltip, showHandlingChargesTooltip, showRovChargesTooltip, showCodChargesTooltip, showTopayChargesTooltip, showAppointmentChargesTooltip, showVolumetricTooltip, showVolumetricDropdown, showDaccTooltip, showFuelTooltip, showFuelDropdown, 
       showHandlingVariableDropdown, showRovVariableDropdown, showCodVariableDropdown, 
-      showTopayVariableDropdown, showAppointmentVariableDropdown, showCftFactorDropdown]);
+      showTopayVariableDropdown, showAppointmentVariableDropdown, showCftFactorDropdown, 
+      showHandlingChargeUnitDropdown]);
   
   const [priceRate, setPriceRate] = useState<any>({});
   // const [priceChart, setPriceChart] = useState<{ [pincode: string]: { [zone: string]: number } }>({});
@@ -2152,15 +2166,29 @@ const handleVolumetricDivisorKeyDown = (e: React.KeyboardEvent<HTMLInputElement>
   const newValue = currentValue + e.key;
   const numValue = parseInt(newValue, 10);
   
-  // Prevent typing if the new value would be outside 1-10000 range
-  if (numValue > 10000) {
-    e.preventDefault();
-    return;
-  }
-  
-  // Prevent more than 4 consecutive zeros at the beginning
-  if (e.key === '0' && currentValue.length > 0 && currentValue.startsWith('0000')) {
-    e.preventDefault();
+  // Different validation ranges for different units
+  if (volumetricUnit === "cm") {
+    // For cm unit: allow 2800-7000
+    if (numValue > 7000) {
+      e.preventDefault();
+      return;
+    }
+    // Prevent entering values less than 2800
+    if (numValue < 2800 && numValue > 0) {
+      e.preventDefault();
+      return;
+    }
+  } else {
+    // For inch unit: allow 4-10 only
+    if (numValue > 10) {
+      e.preventDefault();
+      return;
+    }
+    // Prevent entering values less than 4
+    if (numValue < 4 && numValue > 0) {
+      e.preventDefault();
+      return;
+    }
   }
 };
 
@@ -2629,7 +2657,13 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Handle volumetric divisor conversion
     if (name === "divisor") {
       if (value === "") {
-        setPriceRate((prev: any) => ({ ...prev, divisor: "" }));
+        // Set minimum values based on unit when field is empty
+        if (volumetricUnit === "inch") {
+          setPriceRate((prev: any) => ({ ...prev, divisor: 4 }));
+        } else {
+          // For cm, set minimum value to 2800 when field is empty
+          setPriceRate((prev: any) => ({ ...prev, divisor: 2800 }));
+        }
         return;
       }
       
@@ -2638,7 +2672,7 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       
       // Different validation ranges for different units
       if (volumetricUnit === "cm" && num > 7000) return;
-      if (volumetricUnit === "inch" && num > 10) return;
+      if (volumetricUnit === "inch" && (num < 4 || num > 10)) return;
       
       // For cm: store the divisor value directly
       // For inch: store the CFT factor value directly (no conversion needed)
@@ -2873,7 +2907,8 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
             handlingCharges: {
               fixed: toNumberOrZero(vendor.priceRate?.handlingCharges?.fixed),
               variable: toNumberOrZero(vendor.priceRate?.handlingCharges?.variable),
-              threshholdweight: toNumberOrZero(vendor.priceRate?.handlingCharges?.threshholdweight)
+              threshholdweight: toNumberOrZero(vendor.priceRate?.handlingCharges?.threshholdweight),
+              unit: vendor.priceRate?.handlingCharges?.unit || handlingChargeUnit
             },
             rovCharges: {
               fixed: toNumberOrZero(vendor.priceRate?.rovCharges?.fixed),
@@ -3045,6 +3080,22 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     setShowHandlingVariableDropdown(prev => !prev);
   };
 
+  const toggleHandlingChargeUnitDropdown = () => {
+    setShowHandlingChargeUnitDropdown(prev => !prev);
+  };
+
+  const handleHandlingChargeUnitChange = (unit: "per kg" | "per box" | "per piece") => {
+    setHandlingChargeUnit(unit);
+    // Update the priceRate with the new unit
+    setPriceRate((prev: any) => ({
+      ...prev,
+      handlingCharges: {
+        ...prev.handlingCharges,
+        unit: unit
+      }
+    }));
+  };
+
   const toggleRovVariableDropdown = () => {
     setShowRovVariableDropdown(prev => !prev);
   };
@@ -3079,13 +3130,57 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
   // Handle volumetric unit change
   const handleVolumetricUnitChange = (newUnit: "cm" | "inch") => {
     setVolumetricUnit(newUnit);
-    // No need to convert existing values as they're stored in cm
-    // The display will automatically update via getDisplayValue
+    
+    // Convert existing value when switching units
+    if (priceRate.divisor && priceRate.divisor !== "") {
+      const currentValue = parseFloat(priceRate.divisor.toString());
+      
+      if (volumetricUnit === "cm" && newUnit === "inch") {
+        // Converting from cm divisor to inch CFT factor
+        // If current value is outside CFT range (4-10), set to default 4
+        if (currentValue < 4 || currentValue > 10) {
+          setPriceRate((prev: any) => ({ ...prev, divisor: 4 }));
+        }
+        // If current value is within CFT range, keep it
+      } else if (volumetricUnit === "inch" && newUnit === "cm") {
+        // Converting from inch CFT factor to cm divisor
+        // If current value is outside cm range (2800-7000), set to default 5000
+        if (currentValue < 2800 || currentValue > 7000) {
+          setPriceRate((prev: any) => ({ ...prev, divisor: 5000 }));
+        }
+        // If current value is within cm range, keep it
+      }
+    } else {
+      // Set default values for empty fields
+      if (newUnit === "inch") {
+        setPriceRate((prev: any) => ({ ...prev, divisor: 4 }));
+      } else {
+        setPriceRate((prev: any) => ({ ...prev, divisor: 5000 }));
+      }
+    }
   };
+
+  // Initialize handling charge unit in priceRate
+  useEffect(() => {
+    if (!priceRate.handlingCharges?.unit) {
+      setPriceRate((prev: any) => ({
+        ...prev,
+        handlingCharges: {
+          ...prev.handlingCharges,
+          unit: handlingChargeUnit
+        }
+      }));
+    }
+  }, [handlingChargeUnit]);
 
   // Get display value for volumetric divisor
   const getVolumetricDisplayValue = (value: number | undefined): string => {
-    if (value === undefined || value === null) return "";
+    if (value === undefined || value === null) {
+      // Show default minimum values based on unit
+      if (volumetricUnit === "inch") return "4";
+      if (volumetricUnit === "cm") return "2800";
+      return "";
+    }
     return Math.round(value).toString();
   };
 
@@ -3292,7 +3387,7 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
             />
             <VolumetricDivisorField 
               name="divisor" 
-              label={volumetricUnit === "cm" ? "Volumetric weight(LxBxH)/" : "Volumetric weight(LxBxH)×"}
+              label={volumetricUnit === "cm" ? "Volumetric weight(LxBxH)/" : "CFT Factor"}
               value={getVolumetricDisplayValue(priceRate.divisor)} 
               onChange={handleNestedInputChange}
               onSelectChange={handleVolumetricDivisorSelect}
@@ -3331,19 +3426,6 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
               showTooltip={showDaccTooltip}
               onToggleTooltip={toggleDaccTooltip}
             />
-            {/* CFT Factor field is now handled by the main divisor field when unit is inch */}
-            {volumetricUnit === "inch" && (
-              <div className="text-sm text-slate-600 bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <InformationCircleIcon className="h-4 w-4 text-blue-600" />
-                  <span className="font-semibold text-blue-800">CFT Factor Information</span>
-                </div>
-                <p className="text-blue-700">
-                  The CFT Factor is now configured in the Volumetric field above. 
-                  For inches, the formula is: (L × B × H) × CFT Factor / 1728
-                </p>
-              </div>
-            )}
             <MiscChargesField 
               name="miscellanousCharges" 
               label="miscellaneous/AOC Charges (₹)" 
@@ -3367,7 +3449,36 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
               <div className="bg-slate-50/70 p-4 rounded-lg space-y-4 ring-1 ring-slate-200">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-center gap-2">
-                    <h4 className="font-medium text-slate-700 mt-1">Handling Charges</h4>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-medium text-slate-700 mt-1">Handling Charges</h4>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={toggleHandlingChargeUnitDropdown}
+                          className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded border border-slate-300 transition-colors"
+                        >
+                          {handlingChargeUnit}
+                          <ChevronDownIcon className="h-3 w-3" />
+                        </button>
+                        {showHandlingChargeUnitDropdown && (
+                          <div className="absolute z-10 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg">
+                            {HANDLING_CHARGE_UNIT_OPTIONS.map(option => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => {
+                                  handleHandlingChargeUnitChange(option.value as "per kg" | "per box" | "per piece");
+                                  setShowHandlingChargeUnitDropdown(false);
+                                }}
+                                className="w-full px-3 py-2 text-left text-xs text-slate-800 hover:bg-blue-100 focus:bg-blue-100 focus:outline-none"
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={toggleHandlingChargesTooltip}
