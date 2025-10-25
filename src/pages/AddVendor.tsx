@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import axios from "axios";
 import toast from "react-hot-toast";
 import Cookies from "js-cookie";
@@ -926,6 +926,76 @@ const MiscChargesField = ({
   </div>
 );
 
+// HELPER COMPONENT: CftFactorField with Dropdown (only shows when unit is inch)
+const CftFactorField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onSelectChange,
+  onKeyDown,
+  showDropdown,
+  onToggleDropdown,
+  currentUnit
+}: {
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onSelectChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showDropdown: boolean;
+  onToggleDropdown: () => void;
+  currentUnit: "cm" | "inch";
+}) => (
+  <div className="relative" data-dropdown-container>
+    <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+      {label} <span className="text-red-500">*</span>
+    </label>
+    <div className="mt-1 relative">
+      <input
+        type="text"
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        min="4"
+        max="10"
+        className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-10 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
+        required={true}
+      />
+      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+        <button
+          type="button"
+          onClick={onToggleDropdown}
+          className="text-slate-800 hover:text-blue-600 transition-colors font-bold"
+        >
+          <ChevronDownIcon className="h-4 w-4" />
+        </button>
+      </div>
+      
+      {/* Dropdown Options - show in both cm and inch modes */}
+      {showDropdown && (
+        <div className="absolute z-10 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+          {CFT_FACTOR_OPTIONS.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onSelectChange({ target: { value: option.value } } as React.ChangeEvent<HTMLSelectElement>);
+                onToggleDropdown();
+              }}
+              className="w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-blue-100 focus:bg-blue-100 focus:outline-none"
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+);
 
 // HELPER COMPONENT: HamaliChargesField with Info Tooltip
 const HamaliChargesField = ({
@@ -1342,197 +1412,113 @@ const AppointmentChargesField = ({
   </div>
 );
 
-// HELPER COMPONENT: Combined Volumetric/CFT Field with Unit Switch
-const CombinedVolumetricCftField = ({
-  volumetricName,
-  cftName,
-  volumetricLabel,
-  cftLabel,
-  volumetricValue,
-  cftValue,
-  onVolumetricChange,
-  onCftChange,
-  onVolumetricSelectChange,
-  onCftSelectChange,
-  onVolumetricKeyDown,
-  onCftKeyDown,
-  showVolumetricTooltip,
-  onToggleVolumetricTooltip,
-  showVolumetricDropdown,
-  onToggleVolumetricDropdown,
-  showCftDropdown,
-  onToggleCftDropdown,
+// HELPER COMPONENT: VolumetricDivisorField with Info Tooltip and Unit Switch
+const VolumetricDivisorField = ({
+  name,
+  label,
+  value,
+  onChange,
+  onSelectChange,
+  onKeyDown,
+  showTooltip,
+  onToggleTooltip,
+  showDropdown,
+  onToggleDropdown,
   currentUnit,
-  onUnitChange
+  onUnitChange,
+  convertCmToInch
 }: {
-  volumetricName: string;
-  cftName: string;
-  volumetricLabel: string;
-  cftLabel: string;
-  volumetricValue: string | number;
-  cftValue: string | number;
-  onVolumetricChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onCftChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onVolumetricSelectChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
-  onCftSelectChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
-  onVolumetricKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  onCftKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  showVolumetricTooltip: boolean;
-  onToggleVolumetricTooltip: () => void;
-  showVolumetricDropdown: boolean;
-  onToggleVolumetricDropdown: () => void;
-  showCftDropdown: boolean;
-  onToggleCftDropdown: () => void;
+  name: string;
+  label: string;
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onSelectChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  showTooltip: boolean;
+  onToggleTooltip: () => void;
+  showDropdown: boolean;
+  onToggleDropdown: () => void;
   currentUnit: "cm" | "inch";
   onUnitChange: (unit: "cm" | "inch") => void;
+  convertCmToInch: (cm: number) => number;
 }) => (
   <div className="relative" data-tooltip-container>
     <div className="flex items-center gap-2 mb-2">
-      <label htmlFor={currentUnit === "cm" ? volumetricName : cftName} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
-        {currentUnit === "cm" ? volumetricLabel : cftLabel} <span className="text-red-500">*</span>
+      <label htmlFor={name} className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+        {label} <span className="text-red-500">*</span>
       </label>
       <button
         type="button"
-        onClick={onToggleVolumetricTooltip}
+        onClick={onToggleTooltip}
         className="text-slate-400 hover:text-blue-600 transition-colors"
       >
         <InformationCircleIcon className="h-4 w-4" />
       </button>
     </div>
-    
     <div className="mt-1 relative">
       <input
         type="text"
-        id={currentUnit === "cm" ? volumetricName : cftName}
-        name={currentUnit === "cm" ? volumetricName : cftName}
-        value={currentUnit === "cm" ? volumetricValue : cftValue}
-        onChange={currentUnit === "cm" ? onVolumetricChange : onCftChange}
-        onKeyDown={currentUnit === "cm" ? onVolumetricKeyDown : onCftKeyDown}
-        max={currentUnit === "cm" ? "7000" : undefined}
-        min={currentUnit === "cm" ? undefined : "4"}
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        max="7000"
         className="block w-full bg-slate-50/70 border border-slate-300 rounded-lg shadow-sm px-3 py-2 pr-20 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 transition"
         required
       />
       <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
         <button
           type="button"
-          onClick={currentUnit === "cm" ? onToggleVolumetricDropdown : onToggleCftDropdown}
+          onClick={onToggleDropdown}
           className="text-slate-800 hover:text-blue-600 transition-colors font-bold"
         >
           <ChevronDownIcon className="h-4 w-4" />
         </button>
         <div className="w-px h-4 bg-slate-300 mx-1"></div>
-        <div className="flex bg-slate-100 rounded-md p-0.5">
-          <button
-            type="button"
-            onClick={() => onUnitChange("cm")}
-            className={`px-1.5 py-0.5 text-sm font-semibold rounded-lg transition-all ${
-              currentUnit === "cm"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            cm
-          </button>
-          <button
-            type="button"
-            onClick={() => onUnitChange("inch")}
-            className={`px-1.5 py-0.5 text-sm font-semibold rounded-lg transition-all ${
-              currentUnit === "inch"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            inch
-          </button>
+        <VolumetricUnitSwitch 
+          currentUnit={currentUnit} 
+          onUnitChange={onUnitChange} 
+        />
+      </div>
+      
+      {/* Dropdown Options */}
+      {showDropdown && (
+        <div className="absolute z-10 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+          {VOLUMETRIC_DIVISOR_OPTIONS.map(option => {
+            const num = parseFloat(option.value);
+            const displayValue = currentUnit === "inch" 
+              ? Math.round(convertCmToInch(num)).toString()
+              : option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  onSelectChange({ target: { value: displayValue } } as React.ChangeEvent<HTMLSelectElement>);
+                  onToggleDropdown();
+                }}
+                className="w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-blue-100 focus:bg-blue-100 focus:outline-none"
+              >
+                {displayValue}
+              </button>
+            );
+          })}
         </div>
-      </div>
+      )}
     </div>
-
-    {/* Dropdown Options for Volumetric Weight */}
-    {showVolumetricDropdown && currentUnit === "cm" && (
-      <div className="absolute z-10 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-        {VOLUMETRIC_DIVISOR_OPTIONS.map(option => (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => {
-              onVolumetricSelectChange({ target: { value: option.value } } as React.ChangeEvent<HTMLSelectElement>);
-              onToggleVolumetricDropdown();
-            }}
-            className="w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-blue-100 focus:bg-blue-100 focus:outline-none"
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-    )}
-
-    {/* Dropdown Options for CFT Factor */}
-    {showCftDropdown && currentUnit === "inch" && (
-      <div className="absolute z-10 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-        {CFT_FACTOR_OPTIONS.map(option => (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => {
-              onCftSelectChange({ target: { value: option.value } } as React.ChangeEvent<HTMLSelectElement>);
-              onToggleCftDropdown();
-            }}
-            className="w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-blue-100 focus:bg-blue-100 focus:outline-none"
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-    )}
-
-    {/* Tooltip */}
-    {showVolumetricTooltip && (
+    
+    {showTooltip && (
       <div className="absolute z-20 mt-2 w-96 bg-white border border-slate-200 rounded-lg shadow-lg p-4">
         <div className="text-sm text-slate-700">
-          <h4 className="font-semibold text-slate-800 mb-2">
-            {currentUnit === "cm" ? "Volumetric Weight Divisor" : "CFT Factor"}
-          </h4>
-          {currentUnit === "cm" ? (
-            <>
-              <p className="mb-3">
-                The divisor used to calculate volumetric weight. Lower values result in higher volumetric charges.
-                Common values range from 2800 to 7000.
-              </p>
-              <div className="space-y-2">
-                <div>
-                  <strong>Formula:</strong> Volumetric Weight = (L × B × H) ÷ Divisor
-                </div>
-                <div>
-                  <strong>Example:</strong> For a 50×40×30 cm package with divisor 5000:
-                  <br />
-                  Volumetric Weight = (50 × 40 × 30) ÷ 5000 = 12 kg
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-              <p className="mb-3">
-                The CFT (Cubic Feet) factor used to calculate volumetric weight in inches.
-                Common values range from 4 to 10.
-              </p>
-              <div className="space-y-2">
-                <div>
-                  <strong>Formula:</strong> Volumetric Weight = (L × B × H) ÷ CFT Factor
-                </div>
-                <div>
-                  <strong>Example:</strong> For a 20×16×12 inch package with CFT factor 6:
-                  <br />
-                  Volumetric Weight = (20 × 16 × 12) ÷ 6 = 640 cubic inches
-                </div>
-              </div>
-            </>
-          )}
+          <h4 className="font-semibold text-slate-800 mb-2">Volumetric Divisor</h4>
+          <p className="mb-3">
+            It's the number used to convert a parcel's size into weight — big but light boxes take more space, so this makes sure they're charged fairly.
+          </p>
         </div>
         <button
           type="button"
-          onClick={onToggleVolumetricTooltip}
+          onClick={onToggleTooltip}
           className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
         >
           ×
@@ -1587,6 +1573,39 @@ const RateTypeSwitch = ({
   </div>
 );
 
+// HELPER COMPONENT: Unit Switch for Volumetric Divisor
+const VolumetricUnitSwitch = ({
+  currentUnit,
+  onUnitChange,
+}: {
+  currentUnit: "cm" | "inch";
+  onUnitChange: (unit: "cm" | "inch") => void;
+}) => (
+  <div className="flex bg-slate-100 rounded-md p-0.5">
+    <button
+      type="button"
+      onClick={() => onUnitChange("cm")}
+      className={`px-1.5 py-0.5 text-sm font-semibold rounded-lg transition-all ${
+        currentUnit === "cm"
+          ? "bg-blue-600 text-white shadow-sm"
+          : "text-slate-600 hover:text-slate-900"
+      }`}
+    >
+      cm
+    </button>
+    <button
+      type="button"
+      onClick={() => onUnitChange("inch")}
+      className={`px-1.5 py-0.5 text-sm font-semibold rounded-lg transition-all ${
+        currentUnit === "inch"
+          ? "bg-blue-600 text-white shadow-sm"
+          : "text-slate-600 hover:text-slate-900"
+      }`}
+    >
+      inch
+    </button>
+  </div>
+);
 
 // --- MAIN COMPONENT ---
 const AddTiedUpCompany = () => {
@@ -3369,27 +3388,20 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
               onToggleTooltip={toggleFuelTooltip}
               error={errors.fuel}
             />
-            <CombinedVolumetricCftField 
-              volumetricName="divisor" 
-              cftName="cftFactor"
-              volumetricLabel="Vol. Wt.(LXBXH)/" 
-              cftLabel="CFT Factor"
-              volumetricValue={getVolumetricDisplayValue(priceRate.divisor)} 
-              cftValue={priceRate.cftFactor ?? ""}
-              onVolumetricChange={handleNestedInputChange}
-              onCftChange={handleNestedInputChange}
-              onVolumetricSelectChange={handleVolumetricDivisorSelect}
-              onCftSelectChange={handleCftFactorSelect}
-              onVolumetricKeyDown={handleVolumetricDivisorKeyDown}
-              onCftKeyDown={handleCftFactorKeyDown}
-              showVolumetricTooltip={showVolumetricTooltip}
-              onToggleVolumetricTooltip={toggleVolumetricTooltip}
-              showVolumetricDropdown={showVolumetricDropdown}
-              onToggleVolumetricDropdown={toggleVolumetricDropdown}
-              showCftDropdown={showCftFactorDropdown}
-              onToggleCftDropdown={toggleCftFactorDropdown}
+            <VolumetricDivisorField 
+              name="divisor" 
+              label="Volumetric weight(LxBxH)/" 
+              value={getVolumetricDisplayValue(priceRate.divisor)} 
+              onChange={handleNestedInputChange}
+              onSelectChange={handleVolumetricDivisorSelect}
+              onKeyDown={handleVolumetricDivisorKeyDown}
+              showTooltip={showVolumetricTooltip}
+              onToggleTooltip={toggleVolumetricTooltip}
+              showDropdown={showVolumetricDropdown}
+              onToggleDropdown={toggleVolumetricDropdown}
               currentUnit={volumetricUnit}
               onUnitChange={handleVolumetricUnitChange}
+              convertCmToInch={convertCmToInch}
             />
             <MinChargesField 
               name="minCharges" 
@@ -3417,6 +3429,17 @@ const handleMiscChargesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
               onKeyDown={handleDaccChargesKeyDown}
               showTooltip={showDaccTooltip}
               onToggleTooltip={toggleDaccTooltip}
+            />
+            <CftFactorField 
+              name="cftFactor" 
+              label="CFT Factor" 
+              value={priceRate.cftFactor ?? ""} 
+              onChange={handleNestedInputChange}
+              onSelectChange={handleCftFactorSelect}
+              onKeyDown={handleCftFactorKeyDown}
+              showDropdown={showCftFactorDropdown}
+              onToggleDropdown={toggleCftFactorDropdown}
+              currentUnit={volumetricUnit}
             />
             <MiscChargesField 
               name="miscellanousCharges" 
