@@ -320,6 +320,9 @@ const ZonePriceMatrix: React.FC = () => {
 
   // region switching housekeeping
   const prevRegionRef = useRef<RegionGroup | null>(null);
+  
+  // Alert prevention ref to avoid duplicate popups
+  const alertShownRef = useRef<boolean>(false);
 
   // Search functionality state
   const [searchQuery, setSearchQuery] = useState("");
@@ -515,9 +518,11 @@ const ZonePriceMatrix: React.FC = () => {
     const zone = zoneConfigs[zoneIndex];
     if (!zone) return "bg-white border-slate-300";
     
-    const allKeys = getAllCityKeysForStateInRegion(state, zone.region);
     const selectedInZone = zone.selectedCities.filter(k => parseCsKey(k).state === state).length;
-    const percentage = allKeys.length > 0 ? (selectedInZone / allKeys.length) * 100 : 0;
+    
+    // Get available cities for this zone (same logic as UI display)
+    const availableForThisZone = new Set(getAvailableCityKeysForState(state));
+    const totalAvailableForThisZone = availableForThisZone.size;
     
     // Check if completed in previous zone
     const completedInPreviousZone = zoneConfigs.some((prevZone, idx) => {
@@ -534,11 +539,14 @@ const ZonePriceMatrix: React.FC = () => {
       return "bg-slate-100 border-slate-300 opacity-60 cursor-not-allowed";
     }
     
-    if (percentage === 100) {
+    // FIXED: Check if state is 100% complete based on available cities for this zone
+    const isFullyCompleteInCurrentZone = selectedInZone === totalAvailableForThisZone && totalAvailableForThisZone > 0;
+    
+    if (isFullyCompleteInCurrentZone) {
       return "bg-green-50 border-green-500";
     }
     
-    if (percentage > 0) {
+    if (selectedInZone > 0) {
       return "bg-yellow-50 border-yellow-500";
     }
     
@@ -550,9 +558,11 @@ const ZonePriceMatrix: React.FC = () => {
     const zone = zoneConfigs[zoneIndex];
     if (!zone) return { icon: '○', color: 'text-slate-400', label: 'Not selected' };
     
-    const allKeys = getAllCityKeysForStateInRegion(state, zone.region);
     const selectedInZone = zone.selectedCities.filter(k => parseCsKey(k).state === state).length;
-    const percentage = allKeys.length > 0 ? (selectedInZone / allKeys.length) * 100 : 0;
+    
+    // Get available cities for this zone (same logic as UI display)
+    const availableForThisZone = new Set(getAvailableCityKeysForState(state));
+    const totalAvailableForThisZone = availableForThisZone.size;
     
     // Check if completed in previous zone
     const completedInPreviousZone = zoneConfigs.some((prevZone, idx) => {
@@ -569,41 +579,20 @@ const ZonePriceMatrix: React.FC = () => {
       return { icon: '✓', color: 'text-green-600', label: 'Completed in previous zone' };
     }
     
-    if (percentage === 100) {
+    // FIXED: Check if state is 100% complete based on available cities for this zone
+    const isFullyCompleteInCurrentZone = selectedInZone === totalAvailableForThisZone && totalAvailableForThisZone > 0;
+    
+    if (isFullyCompleteInCurrentZone) {
       return { icon: '●', color: 'text-green-600', label: 'Fully selected' };
     }
     
-    if (percentage > 0) {
+    if (selectedInZone > 0) {
       return { icon: '◐', color: 'text-yellow-600', label: 'Partially selected' };
     }
     
     return { icon: '○', color: 'text-slate-400', label: 'Not selected' };
   };
 
-  // Debug function to show why states are not available
-  const getStateAvailabilityDebug = (state: string) => {
-    const zone = zoneConfigs[currentZoneIndex];
-    if (!zone) return "No current zone";
-    
-    const hasCitiesInCurrentZone = zone.selectedCities.some(k => parseCsKey(k).state === state);
-    const availableCities = getAvailableCityKeysForState(state);
-    const completedInPreviousZone = zoneConfigs.some((prevZone, idx) => {
-      if (idx >= currentZoneIndex) return false;
-      if (prevZone.region !== zone.region) return false;
-      
-      const prevAllKeys = getAllCityKeysForStateInRegion(state, prevZone.region);
-      const prevSelected = prevZone.selectedCities.filter(k => parseCsKey(k).state === state).length;
-      
-      return prevSelected === prevAllKeys.length && prevAllKeys.length > 0;
-    });
-    
-    return {
-      hasCitiesInCurrentZone,
-      availableCitiesCount: availableCities.length,
-      completedInPreviousZone,
-      isVisible: hasCitiesInCurrentZone || (!completedInPreviousZone && availableCities.length > 0)
-    };
-  };
 
   /* -------------------- State/City Lookup Functions -------------------- */
   
@@ -739,14 +728,6 @@ const ZonePriceMatrix: React.FC = () => {
     return results.slice(0, 10); // Limit to 10 results
   };
 
-  /** total cities in a region (unique city||state keys) */
-  const totalCitiesInRegion = (region: RegionGroup): number => {
-    const stateMap = byStateByRegion.get(region);
-    if (!stateMap) return 0;
-    let sum = 0;
-    stateMap.forEach((set) => (sum += set.size));
-    return sum;
-  };
 
   const currentConfig = zoneConfigs[currentZoneIndex];
   const currentRegion = currentConfig?.region;
@@ -968,14 +949,23 @@ const ZonePriceMatrix: React.FC = () => {
         return prev;
       }
 
-      // FIXED ZONE DESELECTION - Only allow deselection of the last selected zone
+      // FIXED ZONE DESELECTION - Only allow deselection of the last selected zone in the SAME region
       if (prev.includes(code)) {
-        // Check if this is the last selected zone
-        const sortedZones = sortZonesByRegionGroups(prev);
-        const lastSelectedZone = sortedZones[sortedZones.length - 1];
+        // Get all selected zones in the same region as the zone being deselected
+        const regionZones = regionGroups[region];
+        const selectedZonesInRegion = prev.filter(zone => regionZones.includes(zone));
+        const sortedZonesInRegion = sortZonesByRegionGroups(selectedZonesInRegion);
+        const lastSelectedZoneInRegion = sortedZonesInRegion[sortedZonesInRegion.length - 1];
         
-        if (code !== lastSelectedZone) {
-          alert(`⚠ You can only deselect the last selected zone (${lastSelectedZone}). Please deselect zones in reverse order.`);
+        if (code !== lastSelectedZoneInRegion) {
+          // Prevent duplicate alerts
+          if (!alertShownRef.current) {
+            alertShownRef.current = true;
+            alert(`⚠ You can only deselect the last selected zone in ${region} (${lastSelectedZoneInRegion}). Please deselect zones in reverse order within each region.`);
+            setTimeout(() => {
+              alertShownRef.current = false;
+            }, 1000);
+          }
           return prev;
         }
       }
@@ -1201,8 +1191,10 @@ const ZonePriceMatrix: React.FC = () => {
     const totalAvailableForThisZone = availableForThisZone.size;
 
     const yellowCount = allKeys.filter((k) => yellowSetForRegion.has(k)).length;
+    
+    // FIXED: Calculate non-yellow remaining correctly by excluding already selected cities
     const nonYellowRemaining = Array.from(availableForThisZone).filter(
-      (k) => !yellowSetForRegion.has(k)
+      (k) => !yellowSetForRegion.has(k) && !currentConfig.selectedCities.includes(k)
     ).length;
 
     return {
@@ -1214,11 +1206,27 @@ const ZonePriceMatrix: React.FC = () => {
     };
   };
 
-  /** Region exhaustion detection per plan */
-  const isRegionExhaustedAfterSave = (region: RegionGroup): boolean => {
-    const total = totalCitiesInRegion(region);
-    const union = selectedCitySetAcrossRegion(region).size; // includes current zone picks
-    return union >= total;
+
+  /** Check if ALL states in the current zone are fully selected (all cities selected) */
+  const areAllStatesFullySelectedInCurrentZone = (): boolean => {
+    if (!currentConfig) return false;
+    
+    // Get all states in the current region
+    const stateMap = byStateByRegion.get(currentConfig.region);
+    if (!stateMap) return false;
+    
+    // Check if every state in the region is fully selected in the current zone
+    for (const [stateName] of stateMap) {
+      const allKeys = getAllCityKeysForStateInRegion(stateName, currentConfig.region);
+      const selectedInCurrentZone = currentConfig.selectedCities.filter(k => parseCsKey(k).state === stateName).length;
+      
+      // If this state is not fully selected in the current zone, return false
+      if (selectedInCurrentZone < allKeys.length) {
+        return false;
+      }
+    }
+    
+    return true;
   };
 
   // Validate zone before saving
@@ -1314,34 +1322,33 @@ const ZonePriceMatrix: React.FC = () => {
       return nextZones;
     });
 
-    // Region exhaustion handling
+    // FIXED: Only delete remaining subzones when ALL states in current zone are fully selected
     const region = currentConfig.region;
-    if (isRegionExhaustedAfterSave(region)) {
-      const remainingZoneCodes = zoneConfigs
-        .filter((z, i) => z.region === region && i !== currentZoneIndex && !z.isComplete)
-        .map((z) => z.zoneCode);
+    const remainingZoneCodes = zoneConfigs
+      .filter((z, i) => z.region === region && i !== currentZoneIndex && !z.isComplete)
+      .map((z) => z.zoneCode);
 
-      if (remainingZoneCodes.length > 0) {
-        const confirmed = window.confirm(
-          `You have selected all available cities in the ${region} region.\n` +
-            `Saving this will remove these unused sub-zones: ${remainingZoneCodes.join(", ")}.\n\n` +
-            `Continue?`
-        );
-        if (!confirmed) {
-          setZoneConfigs((prev) =>
-            prev.map((z, i) => (i === currentZoneIndex ? { ...z, isComplete: false } : z))
-          );
-          return;
-        }
-
+    // Check if ALL states in the current zone are fully selected (all cities selected)
+    if (areAllStatesFullySelectedInCurrentZone() && remainingZoneCodes.length > 0) {
+      const confirmed = window.confirm(
+        `You have selected ALL cities in ALL states in the ${region} region.\n` +
+          `Saving this will remove these unused sub-zones: ${remainingZoneCodes.join(", ")}.\n\n` +
+          `Continue?`
+      );
+      if (!confirmed) {
         setZoneConfigs((prev) =>
-          prev.filter(
-            (z, i) => z.region !== region || i === currentZoneIndex || z.isComplete
-          )
+          prev.map((z, i) => (i === currentZoneIndex ? { ...z, isComplete: false } : z))
         );
-        setSelectedZoneCodes((prev) => prev.filter((code) => !remainingZoneCodes.includes(code)));
-        setYellowByRegion((prev) => ({ ...prev, [region]: {} }));
+        return;
       }
+
+      setZoneConfigs((prev) =>
+        prev.filter(
+          (z, i) => z.region !== region || i === currentZoneIndex || z.isComplete
+        )
+      );
+      setSelectedZoneCodes((prev) => prev.filter((code) => !remainingZoneCodes.includes(code)));
+      setYellowByRegion((prev) => ({ ...prev, [region]: {} }));
     }
 
     // navigate to next incomplete zone
@@ -1349,11 +1356,19 @@ const ZonePriceMatrix: React.FC = () => {
           const after = prev.findIndex((z, index) => index > currentZoneIndex && !z.isComplete);
           if (after !== -1) {
             setCurrentZoneIndex(after);
+            // Scroll to top when navigating to next zone
+            setTimeout(() => {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }, 100);
             return prev;
           }
           const before = prev.findIndex((z, index) => index < currentZoneIndex && !z.isComplete);
           if (before !== -1) {
             setCurrentZoneIndex(before);
+            // Scroll to top when navigating to previous zone
+            setTimeout(() => {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }, 100);
             return prev;
           }
           return prev;
@@ -1552,19 +1567,44 @@ const ZonePriceMatrix: React.FC = () => {
                         <MapPin className="h-6 w-6 text-blue-600" />
                         <h3 className="text-xl font-semibold text-slate-900">{region}</h3>
                       </div>
-                      <button
-                        onClick={() => toggleRegionSelection(region)}
-                        className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                          allSelected
-                            ? "bg-blue-600 text-white hover:bg-blue-700"
-                            : someSelected
-                            ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                        }`}
-                        title={allSelected ? "Deselect all zones in this region" : "Select next zone in sequence"}
-                      >
-                        {allSelected ? "Deselect All" : "Select Next"}
-                      </button>
+                      <div className="flex gap-2">
+                        {someSelected && (
+                          <button
+                            onClick={() => {
+                              // Deselect all zones in this region
+                              const visibleZones = regionGroups[region].slice(0, visibleZonesPerRegion[region]);
+                              setSelectedZoneCodes((prev) => {
+                                const next = prev.filter((z) => !visibleZones.includes(z));
+                                const sortedNext = sortZonesByRegionGroups(next);
+                                
+                                setZoneConfigs((old) => {
+                                  const keep = old.filter((z) => sortedNext.includes(z.zoneCode));
+                                  return keep;
+                                });
+                                
+                                return sortedNext;
+                              });
+                            }}
+                            className="px-4 py-2 rounded-lg font-medium transition-all bg-red-100 text-red-700 hover:bg-red-200"
+                            title="Deselect all zones in this region"
+                          >
+                            Deselect All
+                          </button>
+                        )}
+                        <button
+                          onClick={() => toggleRegionSelection(region)}
+                          className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                            allSelected
+                              ? "bg-blue-600 text-white hover:bg-blue-700"
+                              : someSelected
+                              ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                              : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          }`}
+                          title={allSelected ? "Deselect all zones in this region" : "Select next zone in sequence"}
+                        >
+                          {allSelected ? "Deselect All" : "Select Next"}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex flex-wrap gap-3">
@@ -1773,24 +1813,28 @@ const ZonePriceMatrix: React.FC = () => {
               return (
                 <button
                   key={z.zoneCode}
-                  onClick={() => {
-                    if (isLocked) {
-                      // BULLETPROOF TAB NAVIGATION LOCK - Show specific warning for locked tabs
-                      const currentZone = zoneConfigs[currentZoneIndex];
-                      const targetZone = zoneConfigs[idx];
-                      
-                      if (currentZone && !currentZone.isComplete) {
-                        alert(`⚠ Please complete ${currentZone.zoneName} first before proceeding to ${targetZone.zoneName}`);
-                      } else {
-                        const nextIncompleteZone = zoneConfigs.find((zone, index) => index > currentZoneIndex && !zone.isComplete);
-                        if (nextIncompleteZone) {
-                          alert(`⚠ Please complete ${nextIncompleteZone.zoneName} first before proceeding to ${targetZone.zoneName}`);
+                    onClick={() => {
+                      if (isLocked) {
+                        // BULLETPROOF TAB NAVIGATION LOCK - Show specific warning for locked tabs
+                        const currentZone = zoneConfigs[currentZoneIndex];
+                        const targetZone = zoneConfigs[idx];
+                        
+                        if (currentZone && !currentZone.isComplete) {
+                          alert(`⚠ Please complete ${currentZone.zoneName} first before proceeding to ${targetZone.zoneName}`);
+                        } else {
+                          const nextIncompleteZone = zoneConfigs.find((zone, index) => index > currentZoneIndex && !zone.isComplete);
+                          if (nextIncompleteZone) {
+                            alert(`⚠ Please complete ${nextIncompleteZone.zoneName} first before proceeding to ${targetZone.zoneName}`);
+                          }
                         }
+                        return;
                       }
-                      return;
-                    }
-                    setCurrentZoneIndex(idx);
-                  }}
+                      setCurrentZoneIndex(idx);
+                      // Scroll to top when manually switching zones
+                      setTimeout(() => {
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }, 100);
+                    }}
                   className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition-all ${
                     idx === currentZoneIndex
                       ? "bg-blue-600 text-white shadow-lg scale-105"
@@ -2119,56 +2163,54 @@ const ZonePriceMatrix: React.FC = () => {
             </div>
 
             {/* Price Matrix Grid */}
-            <div className="overflow-x-auto">
-              <div className="min-w-max">
-                <table className="w-full border-separate border-spacing-0">
-                  <thead>
-                    <tr>
-                      <th className="p-2 bg-slate-100 font-bold text-slate-800 text-sm border border-slate-300 text-center">
-                        FROM/TO
+            <div className="overflow-auto max-h-[600px] border border-slate-300 rounded-lg">
+              <table className="w-full border-separate border-spacing-0">
+                <thead className="sticky top-0 z-10">
+                  <tr>
+                    <th className="sticky left-0 z-20 p-2 bg-slate-100 font-bold text-slate-800 text-sm border border-slate-300 text-center min-w-[80px]">
+                      FROM/TO
+                    </th>
+                    {validZones.map((zone) => (
+                      <th
+                        key={zone.zoneCode}
+                        className="p-2 bg-slate-50 font-semibold text-slate-700 min-w-[60px] text-xs border border-slate-300 text-center"
+                      >
+                        {zone.zoneCode}
                       </th>
-                      {validZones.map((zone) => (
-                        <th
-                          key={zone.zoneCode}
-                          className="p-2 bg-slate-50 font-semibold text-slate-700 min-w-[40px] text-xs border border-slate-300 text-center"
-                        >
-                          {zone.zoneCode}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {validZones.map((fromZone) => (
-                      <tr key={fromZone.zoneCode}>
-                        <td className="p-2 bg-slate-50 font-semibold text-slate-700 text-xs border border-slate-300 text-center">
-                          {fromZone.zoneCode}
-                        </td>
-                        {validZones.map((toZone) => {
-                          const currentPrice = getPrice(fromZone.zoneCode, toZone.zoneCode);
-                          return (
-                            <td
-                              key={`${fromZone.zoneCode}-${toZone.zoneCode}`}
-                              className="p-2 border border-slate-300"
-                            >
-                              <DecimalInput
-                                value={currentPrice}
-                                onChange={(value) =>
-                                  updatePrice(fromZone.zoneCode, toZone.zoneCode, value)
-                                }
-                                placeholder="0.000"
-                                className="w-full h-full px-2 py-1 border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center text-sm hover:border-slate-300 transition-colors"
-                                max={999}
-                                maxDecimals={3}
-                                maxIntegerDigits={3}
-                              />
-                            </td>
-                          );
-                        })}
-                      </tr>
                     ))}
-                  </tbody>
-                </table>
-              </div>
+                  </tr>
+                </thead>
+                <tbody>
+                  {validZones.map((fromZone) => (
+                    <tr key={fromZone.zoneCode}>
+                      <td className="sticky left-0 z-10 p-2 bg-slate-50 font-semibold text-slate-700 text-xs border border-slate-300 text-center min-w-[80px]">
+                        {fromZone.zoneCode}
+                      </td>
+                      {validZones.map((toZone) => {
+                        const currentPrice = getPrice(fromZone.zoneCode, toZone.zoneCode);
+                        return (
+                          <td
+                            key={`${fromZone.zoneCode}-${toZone.zoneCode}`}
+                            className="p-1 border border-slate-300 min-w-[60px]"
+                          >
+                            <DecimalInput
+                              value={currentPrice}
+                              onChange={(value) =>
+                                updatePrice(fromZone.zoneCode, toZone.zoneCode, value)
+                              }
+                              placeholder="0.000"
+                              className="w-full h-full px-2 py-1 border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center text-xs hover:border-slate-300 transition-colors"
+                              max={999}
+                              maxDecimals={3}
+                              maxIntegerDigits={3}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
 
             {/* Summary */}
