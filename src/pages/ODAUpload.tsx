@@ -266,18 +266,48 @@ const ODAUpload: React.FC = () => {
     const toastId = toast.loading('Saving distance-weight matrix...');
 
     try {
+      const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://tester-backend-4nxc.onrender.com').replace(/\/+$/, '');
+      
+      // Get auth token
+      const token = localStorage.getItem('authToken') || 
+                   localStorage.getItem('token') || 
+                   document.cookie.split('; ').find(row => row.startsWith('authToken='))?.split('=')[1] || '';
+
       const matrixData = {
         weightRanges: weightRanges.map(r => r.label),
         distanceRanges: distanceRanges.map(r => r.label),
         matrix: distanceWeightMatrix,
-        timestamp: new Date().toISOString()
+        odaEntries: odaEntries || [],
+        vendorId: null, // Can be set if vendor-specific
       };
 
-      // Save to localStorage
-      localStorage.setItem('distanceWeightMatrix', JSON.stringify(matrixData));
-      sessionStorage.setItem('distanceWeightMatrix', JSON.stringify(matrixData));
+      // Save to backend API
+      const response = await fetch(`${API_BASE}/api/oda/upload`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(matrixData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to save ODA configuration');
+      }
+
+      // Also save to localStorage as backup
+      localStorage.setItem('distanceWeightMatrix', JSON.stringify({
+        ...matrixData,
+        timestamp: new Date().toISOString()
+      }));
+      sessionStorage.setItem('distanceWeightMatrix', JSON.stringify({
+        ...matrixData,
+        timestamp: new Date().toISOString()
+      }));
       
-      toast.success('Distance-Weight matrix saved successfully!', { id: toastId });
+      toast.success('ODA configuration saved successfully!', { id: toastId });
 
       // Navigate to dashboard
       setTimeout(() => {
@@ -287,6 +317,7 @@ const ODAUpload: React.FC = () => {
     } catch (error: any) {
       const message = error.message || 'Error saving data';
       toast.error(message, { id: toastId });
+      console.error('ODA upload error:', error);
     } finally {
       setIsLoading(false);
     }
