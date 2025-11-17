@@ -19,7 +19,7 @@ export function useVolumetric() {
   // default to centimeters with a sensible industry default (2800 cm³ shown in your UI)
   const [state, setState] = useState<VolumetricState>({
     unit: 'cm',
-    volumetricDivisor: 2800,
+    volumetricDivisor: null,
     cftFactor: null,
   });
 
@@ -73,7 +73,7 @@ export function useVolumetric() {
   const reset = useCallback(() => {
     setState({
       unit: 'cm',
-      volumetricDivisor: 2800,
+      volumetricDivisor: null,
       cftFactor: null,
     });
   }, []);

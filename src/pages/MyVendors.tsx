@@ -1,13 +1,9 @@
 // frontend/src/pages/MyVendors.tsx
-// debug: unique string to verify this file is bundled
-console.debug('***MYVENDORS FILE LOADED***', new Date().toISOString());
-
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { toast } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import { getTemporaryTransporters } from '../services/api';
 import Cookies from 'js-cookie';
-// ✅ NEW IMPORT
 import EditVendorModal from '../components/EditVendorModal';
 
 interface Vendor {
@@ -33,341 +29,251 @@ interface Vendor {
   updatedAt?: string;
 }
 
-const MyVendors: React.FC = () => {
+const MyVendors = () => {
   const { user } = useAuth();
   const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   
-  // ✅ NEW STATE - Simplified for new modal
+  // Edit modal state
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
 
-  // -------------------------
-  // Debug / test helpers
-  // -------------------------
-  console.debug('MyVendors render — user from useAuth():', user);
-
-  // Expose manual trigger for debugging from DevTools:
-  // `window.fetchVendors()` will call the inner loader.
-  (window as any).fetchVendors = (window as any).fetchVendors || undefined;
-
-  // -------------------------
-  // fetch logic (internal)
-  // -------------------------
-  const fetchVendorsInternal = async () => {
-    setLoading(true);
-    try {
-      console.debug('fetchVendorsInternal starting — user=', user);
-
-      // --- DERIVE ownerId from possible shapes ---
-      const ownerId =
-        (user && (user._id ?? user.id)) ||
-        (user && (user.customer && (user.customer._id ?? user.customer.id))) ||
-        null;
-
-      console.debug('fetchVendorsInternal: resolved ownerId=', ownerId);
-
-      if (!ownerId) {
-        console.debug('fetchVendorsInternal: no ownerId resolved — skipping fetch');
-        setLoading(false);
-        return;
-      }
-
-      // call central service (it will try endpoints/fallbacks)
-      const data = await getTemporaryTransporters(ownerId);
-
-      if (data === null) {
-        console.warn('fetchVendorsInternal: server returned unauthorized (null).');
-        toast.error('Authentication required. Please login.');
-        setVendors([]);
-        return;
-      }
-
-      if (!Array.isArray(data) || data.length === 0) {
-        console.debug('fetchVendorsInternal: no vendors returned', { 
-          length: Array.isArray(data) ? data.length : 'not-array' 
-        });
-        setVendors([]);
-        return;
-      }
-
-      console.debug('fetchVendorsInternal: got vendors count=', data.length);
-      setVendors(data);
-    } catch (err: any) {
-      console.error('fetchVendorsInternal error', err);
-      toast.error('Error fetching vendors');
-      setVendors([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Expose for manual invocation from DevTools:
-  (window as any).fetchVendors = async () => {
-    return fetchVendorsInternal();
-  };
-
-  // -------------------------
-  // Auto-run when user becomes available
-  // -------------------------
+  // Fetch vendors on mount
   useEffect(() => {
-    console.debug('MyVendors useEffect triggered — user =', user);
-    const ownerId =
-      (user && (user._id ?? user.id)) ||
-      (user && (user.customer && (user.customer._id ?? user.customer.id))) ||
-      null;
-
-    if (ownerId) {
-      fetchVendorsInternal();
-    } else {
-      console.debug('MyVendors useEffect: ownerId not present, fetch skipped');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchVendors();
   }, [user]);
 
-  // -------------------------
-  // ✅ NEW EDIT HANDLERS - Updated for new modal
-  // -------------------------
+  const fetchVendors = async () => {
+    try {
+      setIsLoading(true);
+      
+      const token = Cookies.get('authToken') || localStorage.getItem('authToken');
+      if (!token) {
+        toast.error('Please login to view vendors');
+        return;
+      }
+
+      // Extract customerID from token
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const customerID = payload?.customer?._id || payload?._id;
+
+      if (!customerID) {
+        toast.error('Invalid authentication token');
+        return;
+      }
+
+      console.log('📡 Fetching vendors for customerID:', customerID);
+
+      // Fetch vendors from API
+      const response = await getTemporaryTransporters(customerID);
+      
+      console.log('✅ Vendors fetched:', response);
+
+      if (response && Array.isArray(response)) {
+        setVendors(response);
+      } else {
+        setVendors([]);
+      }
+
+    } catch (error: any) {
+      console.error('❌ Error fetching vendors:', error);
+      toast.error('Failed to load vendors');
+      setVendors([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle edit button click
   const handleEditVendor = (vendor: Vendor) => {
     console.log('📝 Opening edit modal for vendor:', vendor);
     setSelectedVendor(vendor);
     setShowEditModal(true);
   };
 
+  // Handle modal close
   const handleCloseEditModal = () => {
-    console.log('🚪 Closing edit modal');
     setShowEditModal(false);
     setSelectedVendor(null);
   };
 
-  const handleSaveVendor = async (updatedVendor: any) => {
-    console.log('💾 Vendor saved, refreshing list');
-    // Refresh the vendor list after successful update
-    await fetchVendorsInternal();
+  // Handle successful save
+  const handleSaveVendor = async (updatedVendor: Vendor) => {
+    console.log('✅ Vendor saved, refreshing list');
+    
+    // Refresh the vendor list
+    await fetchVendors();
+    
+    toast.success('Vendor updated successfully!');
   };
 
-  // -------------------------
-  // Delete handler (unchanged)
-  // -------------------------
-  const handleDeleteVendor = async (vendorId: string, companyName: string) => {
-    // ═══════════════════════════════════════════════════════════
-    // DEBUG LOGGING - Check what data we have
-    // ═══════════════════════════════════════════════════════════
-    console.log('🗑️ ═══════ DELETE VENDOR FRONTEND ═══════');
-    console.log('📋 Function called with:');
-    console.log('  - vendorId:', vendorId);
-    console.log('  - companyName:', companyName);
-    console.log('───────────────────────────────────────');
-    console.log('👤 User data from useAuth():');
-    console.log('  - user object:', user);
-    console.log('  - user._id:', user?._id);
-    console.log('  - user.id:', user?.id);
-    console.log('  - user.customer?._id:', user?.customer?._id);
-    console.log('  - user.customer?.id:', user?.customer?.id);
-    console.log('───────────────────────────────────────');
-
-    // Get customerID from multiple possible sources with fallbacks
-    const customerId = 
-      user?._id || 
-      user?.id || 
-      user?.customer?._id ||
-      user?.customer?.id ||
-      Cookies.get('customerId') ||
-      Cookies.get('customerID') ||
-      localStorage.getItem('customerId') ||
-      localStorage.getItem('customerID');
-
-    console.log('💾 Checking storage:');
-    console.log('  - Cookies.customerId:', Cookies.get('customerId'));
-    console.log('  - Cookies.customerID:', Cookies.get('customerID'));
-    console.log('  - localStorage.customerId:', localStorage.getItem('customerId'));
-    console.log('  - localStorage.customerID:', localStorage.getItem('customerID'));
-    console.log('───────────────────────────────────────');
-    console.log('✅ Resolved customerId:', customerId);
-
-    if (!window.confirm(`Are you sure you want to delete ${companyName}?`)) {
-      console.log('❌ User cancelled deletion');
-      return;
+// Handle delete vendor
+const handleDeleteVendor = async (vendorId: string) => {
+  if (!window.confirm('Are you sure you want to delete this vendor?')) {
+    return;
+  }
+  try {
+    const token = Cookies.get('authToken') || localStorage.getItem('authToken');
+    const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://tester-backend-4nxc.onrender.com').replace(/\/+$/, '');
+    
+    // FIX: Changed from fetch`...` to fetch(...)
+    const response = await fetch(`${API_BASE}/api/transporter/delete-vendor/${vendorId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to delete vendor');
     }
+    
+    toast.success('Vendor deleted successfully');
+    fetchVendors(); // Refresh list
+  } catch (error: any) {
+    console.error('Error deleting vendor:', error);
+    toast.error(error.message || 'Failed to delete vendor');
+  }
+};
 
-    // Validation check
-    if (!customerId) {
-      console.error('❌ CRITICAL: No customerID found!');
-      console.error('   - user object is:', user);
-      toast.error('Unable to identify user. Please log in again.');
-      return;
-    }
-
-    try {
-      const token = Cookies.get('authToken') || 
-                    localStorage.getItem('token') || 
-                    localStorage.getItem('authToken');
-      
-      console.log('🔐 Auth token:', token ? 'Found' : 'NOT FOUND');
-
-      if (!token) {
-        console.error('❌ No auth token found');
-        toast.error('Authentication required to delete vendor');
-        return;
-      }
-
-      const payload = {
-        customerID: customerId,
-        companyName: companyName,
-        vendorId: vendorId
-      };
-
-      console.log('📦 Final payload to send:');
-      console.log(JSON.stringify(payload, null, 2));
-      console.log('═══════════════════════════════════════\n');
-
-      const response = await fetch('/api/transporter/remove-tied-up', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(payload),
-      });
-
-      console.log('📡 Response received:');
-      console.log('  - Status:', response.status);
-      console.log('  - Status Text:', response.statusText);
-
-      if (response.status === 401) {
-        console.error('❌ Unauthorized (401)');
-        toast.error('Not authorized. Please login again.');
-        return;
-      }
-
-      const data = await response.json();
-      console.log('  - Response data:', data);
-
-      if (data.success) {
-        console.log('✅ Vendor deleted successfully');
-        toast.success('Vendor deleted successfully');
-        await fetchVendorsInternal();
-      } else {
-        console.error('❌ Delete failed:', data);
-        toast.error(data.message || 'Failed to delete vendor');
-      }
-    } catch (err) {
-      console.error('💥 Error deleting vendor:', err);
-      toast.error('Error deleting vendor');
-    }
-  };
-
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return 'N/A';
-    try {
-      return new Date(dateString).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
-    } catch {
-      return 'Invalid date';
-    }
-  };
-
-  // -------------------------
-  // Render
-  // -------------------------
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading vendors...</p>
+          <div className="animate-spin h-12 w-12 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading vendors...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">My Vendors</h1>
-          <p className="mt-2 text-gray-600">Manage your added vendors and their details</p>
-        </div>
-
-        {vendors.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="mx-auto h-12 w-12 text-gray-400">
-              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth={2} 
-                  d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" 
-                />
-              </svg>
-            </div>
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No vendors found</h3>
-            <p className="mt-1 text-sm text-gray-500">Get started by adding your first vendor.</p>
-            <div className="mt-6">
-              <a
-                href="/addvendor"
-                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-              >
-                Add Vendor
-              </a>
-            </div>
-          </div>
-        ) : (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {vendors.map((vendor) => (
-              <div key={vendor._id} className="bg-white rounded-lg shadow-md p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-900">{vendor.companyName}</h3>
-                    <p className="text-sm text-gray-600 mt-1">Code: {vendor.vendorCode}</p>
-                    <div className="mt-3 space-y-1">
-                      <p className="text-sm text-gray-600"><span className="font-medium">Phone:</span> {vendor.vendorPhone}</p>
-                      <p className="text-sm text-gray-600"><span className="font-medium">Email:</span> {vendor.vendorEmail}</p>
-                      <p className="text-sm text-gray-600"><span className="font-medium">GST:</span> {vendor.gstNo}</p>
-                      <p className="text-sm text-gray-600"><span className="font-medium">Mode:</span> {vendor.mode}</p>
-                      <p className="text-sm text-gray-600"><span className="font-medium">Location:</span> {vendor.city}, {vendor.state} - {vendor.pincode}</p>
-                      {vendor.rating && vendor.rating > 0 && (
-                        <p className="text-sm text-gray-600"><span className="font-medium">Rating:</span> {vendor.rating}/5</p>
-                      )}
-                    </div>
-                    <div className="mt-3">
-                      <p className="text-xs text-gray-500">Added on {formatDate(vendor.createdAt)}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex space-x-2">
-                  {/* ✅ UPDATED - New onClick handler */}
-                  <button 
-                    onClick={() => handleEditVendor(vendor)} 
-                    className="flex-1 bg-blue-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-700"
-                  >
-                    Edit
-                  </button>
-                  <button 
-                    onClick={() => handleDeleteVendor(vendor._id, vendor.companyName)} 
-                    className="flex-1 bg-red-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-red-700"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* ✅ NEW MODAL - Replaced old inline modal with EditVendorModal component */}
-        {showEditModal && selectedVendor && (
-          <EditVendorModal
-            vendor={selectedVendor}
-            onClose={handleCloseEditModal}
-            onSave={handleSaveVendor}
-          />
-        )}
+    <div className="container mx-auto px-4 py-8">
+      
+      {/* Header */}
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-800">My Vendors</h1>
+        <p className="text-gray-600 mt-2">
+          Manage your transportation vendors ({vendors.length} total)
+        </p>
       </div>
+
+      {/* Vendor Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {vendors.map((vendor) => (
+          <div
+            key={vendor._id}
+            className="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow p-6"
+          >
+            {/* Vendor Header */}
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-800 mb-1">
+                  {vendor.companyName}
+                </h3>
+                {vendor.vendorCode && (
+                  <p className="text-sm text-gray-500">
+                    Code: {vendor.vendorCode}
+                  </p>
+                )}
+              </div>
+              {vendor.rating && (
+                <div className="flex items-center gap-1 bg-yellow-50 px-2 py-1 rounded">
+                  <span className="text-yellow-500">⭐</span>
+                  <span className="text-sm font-medium text-gray-700">
+                    {vendor.rating.toFixed(1)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Vendor Details */}
+            <div className="space-y-2 mb-4">
+              {vendor.vendorPhone && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-500">📞</span>
+                  <span className="text-gray-700">{vendor.vendorPhone}</span>
+                </div>
+              )}
+              {vendor.vendorEmail && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-500">📧</span>
+                  <span className="text-gray-700">{vendor.vendorEmail}</span>
+                </div>
+              )}
+              {vendor.mode && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-500">🚚</span>
+                  <span className="text-gray-700 capitalize">{vendor.mode}</span>
+                </div>
+              )}
+              {vendor.gstNo && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-500">📋</span>
+                  <span className="text-gray-700 font-mono text-xs">{vendor.gstNo}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Location */}
+            {(vendor.city || vendor.state) && (
+              <div className="mb-4 pt-4 border-t border-gray-100">
+                <p className="text-sm text-gray-600">
+                  📍 {vendor.city && vendor.state ? `${vendor.city}, ${vendor.state}` : vendor.city || vendor.state}
+                </p>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-2 pt-4 border-t border-gray-100">
+              <button
+                onClick={() => handleEditVendor(vendor)}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => handleDeleteVendor(vendor._id)}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+              >
+                Delete
+              </button>
+            </div>
+
+            {/* Timestamp */}
+            {vendor.createdAt && (
+              <p className="text-xs text-gray-400 mt-4 text-center">
+                Added on {new Date(vendor.createdAt).toLocaleDateString()}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Empty State */}
+      {vendors.length === 0 && (
+        <div className="text-center py-20">
+          <div className="text-6xl mb-4">📦</div>
+          <p className="text-gray-500 text-lg mb-2">No vendors found</p>
+          <p className="text-gray-400 text-sm mb-6">Get started by adding your first vendor</p>
+          <button
+            onClick={() => window.location.href = '/addvendor'}
+            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+          >
+            Add Your First Vendor
+          </button>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {showEditModal && selectedVendor && (
+        <EditVendorModal
+          vendor={selectedVendor}
+          onClose={handleCloseEditModal}
+          onSave={handleSaveVendor}
+        />
+      )}
+
     </div>
   );
 };

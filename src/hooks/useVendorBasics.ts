@@ -1,17 +1,16 @@
 /**
  * useVendorBasics hook
  * Manages vendor basic information state and validation
+ * Updated: Removed displayName and contactPersonName, added serviceModes and companyRating
  */
 
 import { useState, useCallback, useEffect } from 'react';
 import {
   validateCompanyName,
-  validateContactName,
   validatePhone,
   validateEmail,
   validateGST,
   validateLegalCompanyName,
-  validateDisplayName,
   validateSubVendor,
   validateVendorCode,
   validatePrimaryContactName,
@@ -26,26 +25,28 @@ import { emitDebug } from '../utils/debug';
 // TYPES
 // =============================================================================
 
+export type ServiceMode = 'Road LTL' | 'Road FTL';
+
 export interface VendorBasicsErrors {
   companyName?: string;
-  contactPersonName?: string;
   vendorPhoneNumber?: string;
   vendorEmailAddress?: string;
   gstin?: string;
   legalCompanyName?: string;
-  displayName?: string;
   subVendor?: string;
   vendorCode?: string;
   primaryContactName?: string;
   primaryContactPhone?: string;
   primaryContactEmail?: string;
   address?: string;
+  serviceModes?: string;
+  companyRating?: string;
 }
 
 export interface UseVendorBasicsReturn {
   basics: VendorBasics;
   errors: VendorBasicsErrors;
-  setField: (field: keyof VendorBasics, value: string) => void;
+  setField: (field: keyof VendorBasics, value: string | number | ServiceMode) => void;
   validateField: (field: keyof VendorBasics) => boolean;
   validateAll: () => boolean;
   reset: () => void;
@@ -58,19 +59,19 @@ export interface UseVendorBasicsReturn {
 
 const defaultBasics: VendorBasics = {
   companyName: '',
-  contactPersonName: '',
   vendorPhoneNumber: '',
   vendorEmailAddress: '',
   gstin: '',
   transportMode: 'road',
   legalCompanyName: '',
-  displayName: '',
   subVendor: '',
   vendorCode: '',
   primaryContactName: '',
   primaryContactPhone: '',
   primaryContactEmail: '',
   address: '',
+  serviceModes: 'Road LTL', // Default to Road LTL
+  companyRating: 4.0, // Default rating
 };
 
 // =============================================================================
@@ -110,7 +111,7 @@ export const useVendorBasics = (
    * Set a single field value
    */
   const setField = useCallback(
-    (field: keyof VendorBasics, value: string) => {
+    (field: keyof VendorBasics, value: string | number | ServiceMode) => {
       setBasics((prev) => {
         const updated = { ...prev, [field]: value };
         emitDebug('BASICS_FIELD_CHANGED', { field, value });
@@ -138,9 +139,6 @@ export const useVendorBasics = (
         case 'companyName':
           error = validateCompanyName(basics.companyName);
           break;
-        case 'contactPersonName':
-          error = validateContactName(basics.contactPersonName);
-          break;
         case 'vendorPhoneNumber':
           error = validatePhone(basics.vendorPhoneNumber);
           break;
@@ -152,9 +150,6 @@ export const useVendorBasics = (
           break;
         case 'legalCompanyName':
           error = validateLegalCompanyName(basics.legalCompanyName);
-          break;
-        case 'displayName':
-          error = validateDisplayName(basics.displayName);
           break;
         case 'subVendor':
           error = validateSubVendor(basics.subVendor);
@@ -173,6 +168,16 @@ export const useVendorBasics = (
           break;
         case 'address':
           error = validateAddress(basics.address);
+          break;
+        case 'serviceModes':
+          if (!basics.serviceModes) {
+            error = 'Please select a service mode';
+          }
+          break;
+        case 'companyRating':
+          if (basics.companyRating < 0 || basics.companyRating > 5) {
+            error = 'Rating must be between 0 and 5';
+          }
           break;
       }
 
@@ -199,17 +204,16 @@ export const useVendorBasics = (
   const validateAll = useCallback((): boolean => {
     const fields: (keyof VendorBasics)[] = [
       'companyName',
-      'contactPersonName',
       'vendorPhoneNumber',
       'vendorEmailAddress',
       'legalCompanyName',
-      'displayName',
       'subVendor',
       'vendorCode',
       'primaryContactName',
       'primaryContactPhone',
       'primaryContactEmail',
       'address',
+      'serviceModes',
     ];
 
     // Validate GSTIN if present
@@ -227,9 +231,6 @@ export const useVendorBasics = (
         case 'companyName':
           error = validateCompanyName(basics.companyName);
           break;
-        case 'contactPersonName':
-          error = validateContactName(basics.contactPersonName);
-          break;
         case 'vendorPhoneNumber':
           error = validatePhone(basics.vendorPhoneNumber);
           break;
@@ -241,9 +242,6 @@ export const useVendorBasics = (
           break;
         case 'legalCompanyName':
           error = validateLegalCompanyName(basics.legalCompanyName);
-          break;
-        case 'displayName':
-          error = validateDisplayName(basics.displayName);
           break;
         case 'subVendor':
           error = validateSubVendor(basics.subVendor);
@@ -262,6 +260,11 @@ export const useVendorBasics = (
           break;
         case 'address':
           error = validateAddress(basics.address);
+          break;
+        case 'serviceModes':
+          if (!basics.serviceModes) {
+            error = 'Please select a service mode';
+          }
           break;
       }
 

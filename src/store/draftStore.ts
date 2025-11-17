@@ -1,287 +1,277 @@
+// src/store/draftStore.ts
 /**
- * Draft persistence store for AddVendor v2
- * Manages localStorage-based draft saving and loading
+ * Draft storage for form data persistence
+ * Updated: Added context-aware storage to prevent cross-contamination between create and edit flows
+ * Version: v2.1 - Context Isolation Update
  */
 
-import { Charges, Geo, VolumetricConfig, ZoneRateMatrix } from '../utils/validators';
-import { emitDebug, emitDebugError } from '../utils/debug';
+import { emitDebug } from '../utils/debug';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
+export type ServiceMode = 'Road LTL' | 'Road FTL';
+
 /**
- * Vendor basics (company and contact info)
+ * Draft context to isolate create and edit flows
+ * - 'create': Used in AddVendor component (creating new vendors)
+ * - 'edit': Used in EditVendor component (editing existing vendors)
  */
+export type DraftContext = 'create' | 'edit';
+
 export interface VendorBasics {
   companyName: string;
-  contactPersonName: string;
   vendorPhoneNumber: string;
   vendorEmailAddress: string;
   gstin?: string;
   transportMode: 'road' | 'air' | 'rail' | 'ship';
   legalCompanyName: string;
-  displayName: string;
   subVendor: string;
   vendorCode: string;
   primaryContactName: string;
   primaryContactPhone: string;
   primaryContactEmail: string;
   address: string;
+  serviceModes: ServiceMode;
+  companyRating: number;
 }
 
-/**
- * Complete draft structure
- */
-export interface VendorDraft {
+export interface GeoData {
+  pincode: string;
+  state: string;
+  city: string;
+}
+
+export interface VolumetricData {
+  unit: 'cm' | 'in';
+  volumetricDivisor: number | null;
+  cftFactor: number | null;
+}
+
+export interface ChargeCardData {
+  mode: 'FIXED' | 'VARIABLE';
+  currency: 'INR' | 'USD';
+  fixedAmount: number;
+  variablePercent: number;
+  weightThreshold?: number;
+}
+
+export interface ChargesData {
+  docketCharges: number;
+  minWeightKg: number;
+  minCharges: number;
+  hamaliCharges: number;
+  greenTax: number;
+  miscCharges: number;
+  fuelSurchargePct: number;
+  handlingCharges: ChargeCardData;
+  rovCharges: ChargeCardData;
+  codCharges: ChargeCardData;
+  toPayCharges: ChargeCardData;
+  appointmentCharges: ChargeCardData;
+}
+
+export interface Draft {
   basics?: Partial<VendorBasics>;
-  geo?: Partial<Geo>;
-  volumetric?: Partial<VolumetricConfig>;
-  charges?: Partial<Charges>;
-  zoneRates?: Partial<ZoneRateMatrix>;
-  lastSaved?: string; // ISO timestamp
+  geo?: Partial<GeoData>;
+  volumetric?: Partial<VolumetricData>;
+  charges?: Partial<ChargesData>;
+  timestamp?: string;
+  context?: DraftContext; // Track which context created this draft
 }
 
 // =============================================================================
 // CONSTANTS
 // =============================================================================
 
-const DRAFT_KEY = 'addVendorV2_draft';
-const CACHE_KEY = 'addVendorV2_cache';
+const DRAFT_BASE_KEY = 'vendorDraft.v2';
 
 // =============================================================================
-// DRAFT OPERATIONS
+// HELPER FUNCTIONS
+// =============================================================================
+
+/**
+ * Generate context-specific localStorage key
+ * @param context - The draft context ('create' or 'edit')
+ * @returns Full localStorage key with context suffix
+ */
+function getDraftKey(context: DraftContext = 'create'): string {
+  return `${DRAFT_BASE_KEY}.${context}`;
+}
+
+// =============================================================================
+// PUBLIC FUNCTIONS
 // =============================================================================
 
 /**
  * Read draft from localStorage
- *
+ * @param context - The draft context (defaults to 'create' for backward compatibility)
  * @returns Draft object or null if not found
  */
-export const readDraft = (): VendorDraft | null => {
+export function readDraft(context: DraftContext = 'create'): Draft | null {
   try {
-    const stored = localStorage.getItem(DRAFT_KEY);
-    if (!stored) return null;
+    const key = getDraftKey(context);
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      emitDebug('DRAFT_READ', { context, found: false });
+      return null;
+    }
 
-    const draft: VendorDraft = JSON.parse(stored);
-    emitDebug('DRAFT_READ', {
-      hasBasics: !!draft.basics,
-      hasGeo: !!draft.geo,
-      hasVolumetric: !!draft.volumetric,
-      hasCharges: !!draft.charges,
-      hasZoneRates: !!draft.zoneRates,
-      lastSaved: draft.lastSaved,
-    });
-
-    return draft;
+    const parsed = JSON.parse(raw);
+    emitDebug('DRAFT_READ', { context, found: true, data: parsed });
+    return parsed;
   } catch (error) {
-    emitDebugError('DRAFT_READ_ERROR', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    emitDebug('DRAFT_READ_ERROR', { context, error });
     return null;
   }
-};
-
-/**
- * Write draft to localStorage
- *
- * @param draft - Draft object to save
- */
-export const writeDraft = (draft: VendorDraft): void => {
-  try {
-    draft.lastSaved = new Date().toISOString();
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-    emitDebug('DRAFT_WRITE', {
-      hasBasics: !!draft.basics,
-      hasGeo: !!draft.geo,
-      hasVolumetric: !!draft.volumetric,
-      hasCharges: !!draft.charges,
-      hasZoneRates: !!draft.zoneRates,
-      timestamp: draft.lastSaved,
-    });
-  } catch (error) {
-    emitDebugError('DRAFT_WRITE_ERROR', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-};
-
-/**
- * Persist partial draft (merge with existing)
- *
- * @param patch - Partial draft to merge
- */
-export const persistDraft = (patch: Partial<VendorDraft>): void => {
-  try {
-    const existing = readDraft() || {};
-    const merged: VendorDraft = {
-      ...existing,
-      ...patch,
-      lastSaved: new Date().toISOString(),
-    };
-
-    // Deep merge for nested objects
-    if (patch.basics) {
-      merged.basics = { ...existing.basics, ...patch.basics };
-    }
-    if (patch.geo) {
-      merged.geo = { ...existing.geo, ...patch.geo };
-    }
-    if (patch.volumetric) {
-      merged.volumetric = { ...existing.volumetric, ...patch.volumetric };
-    }
-    if (patch.charges) {
-      merged.charges = { ...existing.charges, ...patch.charges };
-    }
-    if (patch.zoneRates) {
-      merged.zoneRates = { ...existing.zoneRates, ...patch.zoneRates };
-    }
-
-    writeDraft(merged);
-  } catch (error) {
-    emitDebugError('DRAFT_PERSIST_ERROR', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-};
-
-/**
- * Clear draft from localStorage
- */
-export const clearDraft = (): void => {
-  try {
-    localStorage.removeItem(DRAFT_KEY);
-    emitDebug('DRAFT_CLEARED');
-  } catch (error) {
-    emitDebugError('DRAFT_CLEAR_ERROR', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-};
-
-// =============================================================================
-// CACHE OPERATIONS (for pincode lookups, etc.)
-// =============================================================================
-
-/**
- * Pincode cache entry
- */
-interface PincodeCacheEntry {
-  pincode: string;
-  state: string;
-  city: string;
-  timestamp: number;
 }
 
 /**
- * Pincode cache (in-memory + localStorage)
+ * Persist draft to localStorage
+ * @param partial - Partial draft data to merge with existing draft
+ * @param context - The draft context (defaults to 'create' for backward compatibility)
  */
-const pincodeCache = new Map<string, PincodeCacheEntry>();
-
-/**
- * Load pincode cache from localStorage
- */
-const loadPincodeCache = (): void => {
+export function persistDraft(
+  partial: Partial<Draft>,
+  context: DraftContext = 'create'
+): void {
   try {
-    const stored = localStorage.getItem(CACHE_KEY);
-    if (!stored) return;
+    const existing = readDraft(context) || {};
+    const updated: Draft = {
+      ...existing,
+      ...partial,
+      timestamp: new Date().toISOString(),
+      context, // Store the context in the draft
+    };
 
-    const data: PincodeCacheEntry[] = JSON.parse(stored);
-    const now = Date.now();
-    const MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-    data.forEach((entry) => {
-      // Only load entries that aren't stale
-      if (now - entry.timestamp < MAX_AGE) {
-        pincodeCache.set(entry.pincode, entry);
-      }
-    });
-
-    emitDebug('CACHE_LOADED', { count: pincodeCache.size });
+    const key = getDraftKey(context);
+    localStorage.setItem(key, JSON.stringify(updated));
+    emitDebug('DRAFT_PERSISTED', { context, data: updated });
   } catch (error) {
-    emitDebugError('CACHE_LOAD_ERROR', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    emitDebug('DRAFT_PERSIST_ERROR', { context, error });
   }
-};
+}
 
 /**
- * Save pincode cache to localStorage
+ * Clear draft from localStorage
+ * @param context - The draft context to clear (defaults to 'create' for backward compatibility)
  */
-const savePincodeCache = (): void => {
+export function clearDraft(context: DraftContext = 'create'): void {
   try {
-    const data = Array.from(pincodeCache.values());
-    localStorage.setItem(CACHE_KEY, JSON.stringify(data));
-    emitDebug('CACHE_SAVED', { count: data.length });
+    const key = getDraftKey(context);
+    localStorage.removeItem(key);
+    emitDebug('DRAFT_CLEARED', { context });
   } catch (error) {
-    emitDebugError('CACHE_SAVE_ERROR', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    emitDebug('DRAFT_CLEAR_ERROR', { context, error });
   }
-};
+}
 
 /**
- * Get pincode from cache
- *
- * @param pincode - Pincode to lookup
- * @returns Cache entry or null if not found
+ * Check if draft exists
+ * @param context - The draft context to check (defaults to 'create' for backward compatibility)
+ * @returns true if draft exists, false otherwise
  */
-export const getCachedPincode = (
-  pincode: string
-): Omit<PincodeCacheEntry, 'timestamp'> | null => {
-  if (!pincodeCache.size) {
-    loadPincodeCache();
+export function hasDraft(context: DraftContext = 'create'): boolean {
+  try {
+    const key = getDraftKey(context);
+    const exists = localStorage.getItem(key) !== null;
+    emitDebug('DRAFT_CHECK', { context, exists });
+    return exists;
+  } catch {
+    return false;
   }
+}
 
-  const entry = pincodeCache.get(pincode);
-  if (!entry) return null;
-
-  // Check if stale (7 days)
-  const MAX_AGE = 7 * 24 * 60 * 60 * 1000;
-  if (Date.now() - entry.timestamp > MAX_AGE) {
-    pincodeCache.delete(pincode);
-    return null;
+/**
+ * Clear all vendor drafts (both create and edit contexts)
+ * Useful for complete cleanup or reset operations
+ */
+export function clearAllDrafts(): void {
+  try {
+    clearDraft('create');
+    clearDraft('edit');
+    // Also clear old format if it exists
+    localStorage.removeItem(DRAFT_BASE_KEY);
+    emitDebug('ALL_DRAFTS_CLEARED');
+  } catch (error) {
+    emitDebug('CLEAR_ALL_DRAFTS_ERROR', { error });
   }
+}
 
-  emitDebug('CACHE_HIT', { pincode });
+/**
+ * Get all existing drafts (for debugging or migration)
+ * @returns Object with create and edit drafts
+ */
+export function getAllDrafts(): { create: Draft | null; edit: Draft | null } {
   return {
-    pincode: entry.pincode,
-    state: entry.state,
-    city: entry.city,
+    create: readDraft('create'),
+    edit: readDraft('edit'),
   };
-};
+}
 
 /**
- * Cache pincode lookup result
- *
- * @param pincode - Pincode
- * @param state - State name
- * @param city - City name
+ * Migrate old draft format to new context-aware format
+ * Call this once on app initialization if needed
  */
-export const cachePincode = (
-  pincode: string,
-  state: string,
-  city: string
-): void => {
-  pincodeCache.set(pincode, {
-    pincode,
-    state,
-    city,
-    timestamp: Date.now(),
-  });
+export function migrateOldDraft(): void {
+  try {
+    const oldDraft = localStorage.getItem(DRAFT_BASE_KEY);
+    if (oldDraft) {
+      // Move old draft to 'create' context
+      localStorage.setItem(getDraftKey('create'), oldDraft);
+      // Remove old key
+      localStorage.removeItem(DRAFT_BASE_KEY);
+      emitDebug('DRAFT_MIGRATED', { from: DRAFT_BASE_KEY, to: getDraftKey('create') });
+    }
+  } catch (error) {
+    emitDebug('DRAFT_MIGRATION_ERROR', { error });
+  }
+}
 
-  emitDebug('CACHE_SET', { pincode, state, city });
-
-  // Throttle saves (don't save on every cache set)
-  // In a real app, you might debounce this
-  savePincodeCache();
-};
+// =============================================================================
+// BACKWARD COMPATIBILITY NOTES
+// =============================================================================
 
 /**
- * Clear pincode cache
+ * BACKWARD COMPATIBILITY:
+ * 
+ * All existing function calls without context parameter will continue to work:
+ * - readDraft() → Uses 'create' context (default)
+ * - persistDraft(data) → Uses 'create' context (default)
+ * - clearDraft() → Uses 'create' context (default)
+ * - hasDraft() → Uses 'create' context (default)
+ * 
+ * This means existing AddVendor code works without changes.
+ * Only need to add 'edit' context where needed in EditVendor.
  */
-export const clearPincodeCache = (): void => {
-  pincodeCache.clear();
-  localStorage.removeItem(CACHE_KEY);
-  emitDebug('CACHE_CLEARED');
-};
+
+// =============================================================================
+// USAGE EXAMPLES
+// =============================================================================
+
+/**
+ * CREATE FLOW (AddVendor component):
+ * 
+ * // Read draft on mount
+ * const draft = readDraft('create'); // or just readDraft()
+ * 
+ * // Save draft as user types
+ * persistDraft({ basics: formData }, 'create'); // or just persistDraft({ basics: formData })
+ * 
+ * // Clear draft after successful save
+ * clearDraft('create'); // or just clearDraft()
+ * 
+ * ----
+ * 
+ * EDIT FLOW (EditVendor component):
+ * 
+ * // Optional: Read draft on mount
+ * const draft = readDraft('edit');
+ * 
+ * // Optional: Save draft as user types
+ * persistDraft({ basics: formData }, 'edit');
+ * 
+ * // CRITICAL: Clear draft after successful save
+ * clearDraft('edit'); // ← THIS IS THE KEY FIX
+ */
