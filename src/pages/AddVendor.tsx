@@ -10,7 +10,7 @@ import { usePincodeLookup } from '../hooks/usePincodeLookup';
 import { useVolumetric } from '../hooks/useVolumetric';
 import { useCharges } from '../hooks/useCharges';
 
-// ✅ NEW: Wizard storage hook
+// ✅ Wizard storage hook
 import { useWizardStorage } from '../hooks/useWizardStorage';
 
 // Components (keep your originals)
@@ -24,10 +24,10 @@ import { SavedVendorsTable } from '../components/SavedVendorsTable';
 import { readDraft, clearDraft } from '../store/draftStore';
 import { emitDebug, emitDebugError } from '../utils/debug';
 
-// New numeric helpers you created
+// New numeric helpers
 import { sanitizeDigitsOnly, clampNumericString } from '../utils/inputs';
 
-// ✅ NEW: Wizard validation utilities
+// Wizard validation utilities
 import {
   validateWizardData,
   getWizardStatus,
@@ -44,8 +44,10 @@ import isEmail from 'isemail';
 // ============================================================================
 // CONFIG / HELPERS
 // ============================================================================
+
+// ✅ Use your deployed backend (from the "working" version)
 const API_BASE =
-  (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/+$/, '');
+  (import.meta.env.VITE_API_BASE_URL || 'https://tester-backend-4nxc.onrender.com').replace(/\/+$/, '');
 
 const ZPM_KEY = 'zonePriceMatrixData';
 
@@ -67,7 +69,10 @@ function getAuthToken(): string {
 
 function base64UrlToJson<T = any>(b64url: string): T | null {
   try {
-    const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(b64url.length / 4) * 4, '=');
+    const b64 = b64url
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+      .padEnd(Math.ceil(b64url.length / 4) * 4, '=');
     const json = atob(b64);
     return JSON.parse(json) as T;
   } catch {
@@ -151,7 +156,7 @@ export const AddVendor: React.FC = () => {
   const volumetric = useVolumetric();
   const charges = useCharges();
 
-  // ✅ NEW: Wizard storage hook
+  // Wizard storage hook
   const { wizardData, isLoaded: wizardLoaded, clearWizard } = useWizardStorage();
 
   // Page-level state
@@ -165,13 +170,13 @@ export const AddVendor: React.FC = () => {
   const [tokenValue, setTokenValue] = useState<string>('');
   const [tokenPayload, setTokenPayload] = useState<any>(null);
 
-  // Zone Price Matrix (from wizard/localStorage) - Keep legacy for backwards compatibility
+  // Zone Price Matrix (from wizard/localStorage)
   const [zpm, setZpm] = useState<ZonePriceMatrixLS | null>(null);
-  
-  // ✅ NEW: Wizard validation state
+
+  // Wizard validation state
   const [wizardValidation, setWizardValidation] = useState<ValidationResult | null>(null);
   const [wizardStatus, setWizardStatus] = useState<WizardStatus | null>(null);
-  
+
   const navigate = useNavigate();
 
   // Prevent double-run in React StrictMode / dev double-mounts
@@ -183,14 +188,19 @@ export const AddVendor: React.FC = () => {
     setZpm(data);
     emitDebug('ZPM_LOADED', { hasData: !!data, data });
     if (!data && (!wizardData || !wizardData.priceMatrix)) {
-      toast.error('No zone matrix found. Open the wizard to create one.', { duration: 2200, id: 'zpm-missing' });
+      toast.error('No zone matrix found. Open the wizard to create one.', {
+        duration: 2200,
+        id: 'zpm-missing',
+      });
     } else if (data) {
-      // use toast id to avoid duplicate identical toasts
-      toast.success('Zone matrix loaded from browser', { duration: 1400, id: 'zpm-loaded' });
+      toast.success('Zone matrix loaded from browser', {
+        duration: 1400,
+        id: 'zpm-loaded',
+      });
     }
   }, [wizardData]);
 
-  // ✅ NEW: Validate wizard data when loaded
+  // Validate wizard data when loaded
   useEffect(() => {
     if (wizardLoaded && wizardData) {
       const validation = validateWizardData(wizardData);
@@ -231,7 +241,6 @@ export const AddVendor: React.FC = () => {
         if (draft.charges && typeof charges.loadFromDraft === 'function') {
           charges.loadFromDraft(draft.charges);
         }
-        // add toast id to dedupe duplicate visual toasts
         toast.success('Draft restored', { duration: 1600, id: 'draft-restored' });
       } catch (err) {
         emitDebugError('DRAFT_LOAD_ERROR', { err });
@@ -242,7 +251,7 @@ export const AddVendor: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===== Validation across sections =====
+  // ===== Local validation for basics =====
   const validateVendorBasicsLocal = (): { ok: boolean; errs: string[] } => {
     const errs: string[] = [];
     const b = vendorBasics.basics || {};
@@ -250,33 +259,59 @@ export const AddVendor: React.FC = () => {
     const name = capitalizeWords(safeGetField(b, 'name', 'companyName', 'company')).slice(0, 60);
     const displayName = capitalizeWords(safeGetField(b, 'displayName', 'display_name')).slice(0, 30);
     const companyName = capitalizeWords(safeGetField(b, 'companyName', 'company_name')).slice(0, 30);
-    const primaryCompanyName = capitalizeWords(safeGetField(b, 'primaryCompanyName', 'primaryCompany')).slice(0, 25);
+    const primaryCompanyName = capitalizeWords(
+      safeGetField(b, 'primaryCompanyName', 'primaryCompany'),
+    ).slice(0, 25);
     const subVendor = capitalizeWords(safeGetField(b, 'subVendor', 'sub_vendor')).slice(0, 20);
 
     const vendorCode = sanitizeDigitsOnly(safeGetField(b, 'vendorCode', 'vendor_code')).slice(0, 9);
-    const vendorPhone = sanitizeDigitsOnly(safeGetField(b, 'vendorPhoneNumber', 'vendorPhone', 'primaryContactPhone')).slice(0, 10);
-    const vendorEmail = safeGetField(b, 'vendorEmailAddress', 'vendorEmail', 'primaryContactEmail').trim();
-    const gstin = safeGetField(b, 'gstin', 'gst', 'gstNo').toUpperCase().replace(/\s+/g, '').slice(0, 15);
+    const vendorPhone = sanitizeDigitsOnly(
+      safeGetField(b, 'vendorPhoneNumber', 'vendorPhone', 'primaryContactPhone'),
+    ).slice(0, 10);
+    const vendorEmail = safeGetField(
+      b,
+      'vendorEmailAddress',
+      'vendorEmail',
+      'primaryContactEmail',
+    ).trim();
+    const gstin = safeGetField(b, 'gstin', 'gst', 'gstNo')
+      .toUpperCase()
+      .replace(/\s+/g, '')
+      .slice(0, 15);
     const address = safeGetField(b, 'address').trim().slice(0, 150);
 
     if (!name || name.trim().length === 0) errs.push('Name is required (max 60 chars).');
     if (name.trim().length > 60) errs.push('Name must be at most 60 characters.');
-    if (displayName && displayName.trim().length > 30) errs.push('Display name must be at most 30 characters.');
-    if (companyName && companyName.trim().length > 30) errs.push('Company name must be at most 30 characters.');
-    if (primaryCompanyName && primaryCompanyName.trim().length > 25) errs.push('Primary company name must be at most 25 characters.');
-    if (subVendor && subVendor.trim().length > 20) errs.push('Sub vendor must be at most 20 characters.');
-    if (!/^[0-9]{1,9}$/.test(vendorCode)) errs.push('Vendor code must be digits only, 1 to 9 digits.');
-    if (!/^[1-9][0-9]{9}$/.test(vendorPhone)) errs.push('Contact number must be 10 digits and cannot start with 0.');
+    if (displayName && displayName.trim().length > 30)
+      errs.push('Display name must be at most 30 characters.');
+    if (companyName && companyName.trim().length > 30)
+      errs.push('Company name must be at most 30 characters.');
+    if (primaryCompanyName && primaryCompanyName.trim().length > 25)
+      errs.push('Primary company name must be at most 25 characters.');
+    if (subVendor && subVendor.trim().length > 20)
+      errs.push('Sub vendor must be at most 20 characters.');
+    if (!/^[0-9]{1,9}$/.test(vendorCode))
+      errs.push('Vendor code must be digits only, 1 to 9 digits.');
+    if (!/^[1-9][0-9]{9}$/.test(vendorPhone))
+      errs.push('Contact number must be 10 digits and cannot start with 0.');
 
     let emailOk = false;
-    try { emailOk = !!(vendorEmail && (isEmail.validate ? isEmail.validate(vendorEmail) : isEmail(vendorEmail))); }
-    catch { emailOk = EMAIL_FALLBACK_RE.test(vendorEmail); }
+    try {
+      emailOk = !!(
+        vendorEmail &&
+        (isEmail.validate ? isEmail.validate(vendorEmail) : isEmail(vendorEmail))
+      );
+    } catch {
+      emailOk = EMAIL_FALLBACK_RE.test(vendorEmail);
+    }
     if (!emailOk) errs.push('Invalid email address (must include a domain and a dot).');
 
     if (!GST_REGEX.test(gstin)) errs.push('GST number must be a valid 15-character GSTIN.');
 
-    if (!address || address.trim().length === 0) errs.push('Address is required (max 150 chars).');
-    if (address.trim().length > 150) errs.push('Address must be at most 150 characters.');
+    if (!address || address.trim().length === 0)
+      errs.push('Address is required (max 150 chars).');
+    if (address.trim().length > 150)
+      errs.push('Address must be at most 150 characters.');
 
     try {
       const c = charges.charges || {};
@@ -284,10 +319,14 @@ export const AddVendor: React.FC = () => {
       if (!Number.isFinite(fuel) || fuel < 0 || fuel > 50) {
         errs.push('Fuel surcharge must be between 0 and 50.');
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     const geo = pincodeLookup.geo || {};
-    const pincodeStr = String(geo.pincode ?? '').replace(/\D+/g, '').slice(0, 6);
+    const pincodeStr = String(geo.pincode ?? '')
+      .replace(/\D+/g, '')
+      .slice(0, 6);
     if (pincodeStr && !(pincodeStr.length >= 3 && pincodeStr.length <= 6)) {
       errs.push('Pincode looks invalid (must be 3–6 digits).');
     }
@@ -295,225 +334,154 @@ export const AddVendor: React.FC = () => {
     return { ok: errs.length === 0, errs };
   };
 
-  // ----- REPLACE validateAll -----
-// Put this in place of your current validateAll() function
-const validateAll = (): boolean => {
-  let ok = true;
-  const errs: string[] = [];
+  // ===== GLOBAL VALIDATION (with detailed debug + toasts + bypassValidation) =====
+  const validateAll = (): boolean => {
+    let ok = true;
+    const errs: string[] = [];
 
-  emitDebug('VALIDATION_START', {
-    vendorBasics: vendorBasics.basics,
-    pincodeGeo: pincodeLookup.geo,
-    volumetric: volumetric.volumetric || volumetric.state || (volumetric as any).data,
-    charges: charges.charges,
-    wizardData,
-    zpm,
-  });
-  console.debug('[VALIDATION] Starting validation checks', {
-    vendorBasics: vendorBasics.basics,
-    pincodeGeo: pincodeLookup.geo,
-    volumetric: volumetric.volumetric || volumetric.state || (volumetric as any).data,
-    charges: charges.charges,
-    wizardData,
-    zpm,
-  });
-
-  // vendorBasics hook check
-  try {
-    const vbOk =
-      typeof vendorBasics.validateAll === 'function' ? vendorBasics.validateAll() : true;
-    console.debug('[VALIDATION] vendorBasics.validateAll ->', vbOk);
-    emitDebug('VALIDATION_VENDORBASICS', { ok: vbOk });
-    if (!vbOk) { errs.push('Company information is incomplete or invalid.'); ok = false; }
-  } catch (err) {
-    emitDebugError('HOOK_VALIDATE_VENDORBASICS_ERROR', { err });
-    console.error('[VALIDATION] vendorBasics.validateAll threw', err);
-    errs.push('Company information validation threw an error (check console).');
-    ok = false;
-  }
-
-  // pincodeLookup check
-  try {
-    const plOk = typeof pincodeLookup.validateGeo === 'function' ? pincodeLookup.validateGeo() : true;
-    console.debug('[VALIDATION] pincodeLookup.validateGeo ->', plOk, 'geo=', pincodeLookup.geo);
-    emitDebug('VALIDATION_PINCODE', { ok: plOk, geo: pincodeLookup.geo });
-    if (!plOk) { errs.push('Location information is incomplete.'); ok = false; }
-  } catch (err) {
-    emitDebugError('HOOK_VALIDATE_PINCODE_ERROR', { err });
-    console.error('[VALIDATION] pincodeLookup.validateGeo threw', err);
-    errs.push('Location validation threw an error (check console).');
-    ok = false;
-  }
-
-  // volumetric
-  try {
-    const volOk = typeof volumetric.validateVolumetric === 'function' ? volumetric.validateVolumetric() : true;
-    console.debug('[VALIDATION] volumetric.validateVolumetric ->', volOk, 'volData=', volumetric.volumetric || volumetric.state || (volumetric as any).data);
-    emitDebug('VALIDATION_VOLUMETRIC', { ok: volOk });
-    if (!volOk) { errs.push('Volumetric configuration is invalid.'); ok = false; }
-  } catch (err) {
-    emitDebugError('HOOK_VALIDATE_VOLUMETRIC_ERROR', { err });
-    console.error('[VALIDATION] volumetric.validateVolumetric threw', err);
-    errs.push('Volumetric validation threw an error (check console).');
-    ok = false;
-  }
-
-  // charges
-  try {
-    const chOk = typeof charges.validateAll === 'function' ? charges.validateAll() : true;
-    console.debug('[VALIDATION] charges.validateAll ->', chOk, 'charges=', charges.charges);
-    emitDebug('VALIDATION_CHARGES', { ok: chOk });
-    if (!chOk) { errs.push('Charges configuration is invalid.'); ok = false; }
-  } catch (err) {
-    emitDebugError('HOOK_VALIDATE_CHARGES_ERROR', { err });
-    console.error('[VALIDATION] charges.validateAll threw', err);
-    errs.push('Charges validation threw an error (check console).');
-    ok = false;
-  }
-
-  // Zone matrix requirement
-  const hasWizardMatrix = wizardData?.priceMatrix && Object.keys(wizardData.priceMatrix).length > 0;
-  const hasLegacyMatrix = zpm?.priceMatrix && Object.keys(zpm.priceMatrix).length > 0;
-  console.debug('[VALIDATION] zone matrix', { hasWizardMatrix, hasLegacyMatrix });
-  if (!hasWizardMatrix && !hasLegacyMatrix) {
-    errs.push('Zone Price Matrix is missing. Open the wizard, save, then Reload Data.');
-    ok = false;
-  }
-
-  // Wizard validation structural check
-  if (wizardData && !wizardValidation?.isValid) {
-    console.debug('[VALIDATION] wizardValidation failed', wizardValidation);
-    errs.push('Wizard configuration has errors. Please fix them before submitting.');
-    if (wizardValidation?.errors) errs.push(...wizardValidation.errors);
-    ok = false;
-  }
-
-  // local vendor basics checks (retain your local check but log the output)
-  try {
-    const local = validateVendorBasicsLocal();
-    console.debug('[VALIDATION] local vendor basics ->', local);
-    if (!local.ok) {
-      ok = false;
-      errs.push(...local.errs);
-    }
-  } catch (err) {
-    console.error('[VALIDATION] validateVendorBasicsLocal threw', err);
-    emitDebugError('VALIDATION_LOCAL_ERROR', { err });
-    errs.push('Local vendor validation threw an error (check console).');
-    ok = false;
-  }
-
-  // If a bypass param is present in the URL, allow skipping (temporary)
-  const urlParams = new URLSearchParams(window.location.search);
-  const bypass = urlParams.get('bypassValidation') === '1';
-  if (bypass) {
-    console.warn('[VALIDATION] bypassValidation=1 -> skipping validation FAILURE and proceeding (temporary).');
-    emitDebug('VALIDATION_BYPASSED');
-  }
-
-  if (!ok && !bypass) {
-    errs.forEach((m) => toast.error(m, { duration: 5200 }));
-    emitDebugError('VALIDATION_FAILED', { errs });
-  } else if (!ok && bypass) {
-    // still emit debug errors but don't block
-    emitDebugError('VALIDATION_FAILED_BYPASSED', { errs });
-  }
-
-  return ok || bypass;
-};
-// ----- END validateAll -----
-
-// ----- REPLACE handleSubmit -----
-// Put this in place of your current handleSubmit function
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  emitDebug('SUBMIT_STARTED');
-  console.debug('[SUBMIT] clicked - start');
-
-  // Validate (logs inside validateAll will tell us what failed)
-  const ok = validateAll();
-  console.debug('[SUBMIT] validateAll result ->', ok);
-  if (!ok) {
-    emitDebugError('VALIDATION_FAILED_ON_SUBMIT');
-    console.warn('[SUBMIT] Validation failed - aborting submit (no network).');
-    return;
-  }
-
-  setIsSubmitting(true);
-  try {
-    const payloadForApi = buildPayloadForApi();
-    emitDebug('SUBMIT_PAYLOAD_FOR_API', payloadForApi);
-    console.debug('[SUBMIT] payloadForApi', payloadForApi);
-
-    const fd = new FormData();
-    fd.append('customerID', String(payloadForApi.customerID || ''));
-    fd.append('companyName', payloadForApi.companyName);
-    fd.append('vendorCode', payloadForApi.vendorCode);
-    fd.append('vendorPhone', String(payloadForApi.vendorPhone));
-    fd.append('vendorEmail', payloadForApi.vendorEmail);
-    fd.append('gstNo', payloadForApi.gstNo);
-    fd.append('mode', payloadForApi.mode);
-    fd.append('address', payloadForApi.address);
-    fd.append('state', payloadForApi.state);
-    fd.append('pincode', String(payloadForApi.pincode));
-    fd.append('rating', '3');
-    fd.append('priceRate', JSON.stringify(payloadForApi.prices.priceRate));
-    fd.append('priceChart', JSON.stringify(payloadForApi.prices.priceChart));
-    if (priceChartFile) fd.append('priceChart', priceChartFile);
-    fd.append('vendorJson', JSON.stringify(payloadForApi));
-
-    const token = getAuthToken();
-    const url = `${API_BASE}/api/transporter/addtiedupcompanies`;
-    emitDebug('SUBMITTING_TO_API', { url, hasToken: !!token });
-    console.debug('[SUBMIT] sending fetch to', url, { hasToken: !!token });
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: fd,
+    emitDebug('VALIDATION_START', {
+      vendorBasics: vendorBasics.basics,
+      pincodeGeo: pincodeLookup.geo,
+      volumetric: volumetric.volumetric || (volumetric as any).state || (volumetric as any).data,
+      charges: charges.charges,
+      wizardData,
+      zpm,
+    });
+    console.debug('[VALIDATION] Starting validation checks', {
+      vendorBasics: vendorBasics.basics,
+      pincodeGeo: pincodeLookup.geo,
+      volumetric: volumetric.volumetric || (volumetric as any).state || (volumetric as any).data,
+      charges: charges.charges,
+      wizardData,
+      zpm,
     });
 
-    const json = await res.json().catch(() => ({} as any));
-    emitDebug('API_RESPONSE', { status: res.status, json });
-    console.debug('[SUBMIT] API_RESPONSE', res.status, json);
-
-    if (!res.ok || !json?.success) {
-      emitDebugError('SUBMIT_ERROR', { status: res.status, json });
-      toast.error(json?.message || `Failed to create vendor (${res.status})`, { duration: 5200 });
-      setIsSubmitting(false);
-      return;
-    }
-
-    toast.success('Vendor created successfully!', { duration: 3400 });
-    // same reset/cleanup as before...
-    clearDraft();
-    clearWizard();
-    localStorage.removeItem(ZPM_KEY);
+    // vendorBasics hook check
     try {
-      if (typeof vendorBasics.reset === 'function') vendorBasics.reset();
-      if (typeof pincodeLookup.reset === 'function') pincodeLookup.reset();
-      if (typeof volumetric.reset === 'function') volumetric.reset();
-      if (typeof charges.reset === 'function') charges.reset();
+      const vbOk =
+        typeof vendorBasics.validateAll === 'function' ? vendorBasics.validateAll() : true;
+      console.debug('[VALIDATION] vendorBasics.validateAll ->', vbOk);
+      emitDebug('VALIDATION_VENDORBASICS', { ok: vbOk });
+      if (!vbOk) {
+        errs.push('Company information is incomplete or invalid.');
+        ok = false;
+      }
     } catch (err) {
-      emitDebugError('RESET_HOOKS_ERROR', { err });
+      emitDebugError('HOOK_VALIDATE_VENDORBASICS_ERROR', { err });
+      console.error('[VALIDATION] vendorBasics.validateAll threw', err);
+      errs.push('Company information validation threw an error (check console).');
+      ok = false;
     }
-    setPriceChartFile(null);
-    setTransportMode('road');
-    setZpm(null);
-    setWizardValidation(null);
-    setWizardStatus(null);
-    setRefreshTrigger((x) => x + 1);
-  } catch (err) {
-    emitDebugError('SUBMIT_EXCEPTION', {
-      error: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : undefined,
-    });
-    toast.error('Unexpected error. Please try again.', { duration: 5200 });
-  } finally {
-    setIsSubmitting(false);
-  }
-};
-// ----- END handleSubmit -----
+
+    // pincodeLookup check
+    try {
+      const plOk =
+        typeof pincodeLookup.validateGeo === 'function' ? pincodeLookup.validateGeo() : true;
+      console.debug('[VALIDATION] pincodeLookup.validateGeo ->', plOk, 'geo=', pincodeLookup.geo);
+      emitDebug('VALIDATION_PINCODE', { ok: plOk, geo: pincodeLookup.geo });
+      if (!plOk) {
+        errs.push('Location information is incomplete.');
+        ok = false;
+      }
+    } catch (err) {
+      emitDebugError('HOOK_VALIDATE_PINCODE_ERROR', { err });
+      console.error('[VALIDATION] pincodeLookup.validateGeo threw', err);
+      errs.push('Location validation threw an error (check console).');
+      ok = false;
+    }
+
+    // volumetric
+    try {
+      const volOk =
+        typeof volumetric.validateVolumetric === 'function'
+          ? volumetric.validateVolumetric()
+          : true;
+      console.debug(
+        '[VALIDATION] volumetric.validateVolumetric ->',
+        volOk,
+        'volData=',
+        volumetric.volumetric || (volumetric as any).state || (volumetric as any).data,
+      );
+      emitDebug('VALIDATION_VOLUMETRIC', { ok: volOk });
+      if (!volOk) {
+        errs.push('Volumetric configuration is invalid.');
+        ok = false;
+      }
+    } catch (err) {
+      emitDebugError('HOOK_VALIDATE_VOLUMETRIC_ERROR', { err });
+      console.error('[VALIDATION] volumetric.validateVolumetric threw', err);
+      errs.push('Volumetric validation threw an error (check console).');
+      ok = false;
+    }
+
+    // charges
+    try {
+      const chOk = typeof charges.validateAll === 'function' ? charges.validateAll() : true;
+      console.debug('[VALIDATION] charges.validateAll ->', chOk, 'charges=', charges.charges);
+      emitDebug('VALIDATION_CHARGES', { ok: chOk });
+      if (!chOk) {
+        errs.push('Charges configuration is invalid.');
+        ok = false;
+      }
+    } catch (err) {
+      emitDebugError('HOOK_VALIDATE_CHARGES_ERROR', { err });
+      console.error('[VALIDATION] charges.validateAll threw', err);
+      errs.push('Charges validation threw an error (check console).');
+      ok = false;
+    }
+
+    // Zone matrix requirement
+    const hasWizardMatrix =
+      wizardData?.priceMatrix && Object.keys(wizardData.priceMatrix).length > 0;
+    const hasLegacyMatrix = zpm?.priceMatrix && Object.keys(zpm.priceMatrix).length > 0;
+    console.debug('[VALIDATION] zone matrix', { hasWizardMatrix, hasLegacyMatrix });
+    if (!hasWizardMatrix && !hasLegacyMatrix) {
+      errs.push('Zone Price Matrix is missing. Open the wizard, save, then Reload Data.');
+      ok = false;
+    }
+
+    // Wizard structural validation
+    if (wizardData && !wizardValidation?.isValid) {
+      console.debug('[VALIDATION] wizardValidation failed', wizardValidation);
+      errs.push('Wizard configuration has errors. Please fix them before submitting.');
+      if (wizardValidation?.errors) errs.push(...wizardValidation.errors);
+      ok = false;
+    }
+
+    // Local vendor basics checks
+    try {
+      const local = validateVendorBasicsLocal();
+      console.debug('[VALIDATION] local vendor basics ->', local);
+      if (!local.ok) {
+        ok = false;
+        errs.push(...local.errs);
+      }
+    } catch (err) {
+      console.error('[VALIDATION] validateVendorBasicsLocal threw', err);
+      emitDebugError('VALIDATION_LOCAL_ERROR', { err });
+      errs.push('Local vendor validation threw an error (check console).');
+      ok = false;
+    }
+
+    // Optional bypass via URL param ?bypassValidation=1
+    const urlParams = new URLSearchParams(window.location.search);
+    const bypass = urlParams.get('bypassValidation') === '1';
+    if (bypass) {
+      console.warn(
+        '[VALIDATION] bypassValidation=1 -> skipping validation FAILURE and proceeding (temporary).',
+      );
+      emitDebug('VALIDATION_BYPASSED');
+    }
+
+    if (!ok && !bypass) {
+      errs.forEach((m) => toast.error(m, { duration: 5200 }));
+      emitDebugError('VALIDATION_FAILED', { errs });
+    } else if (!ok && bypass) {
+      emitDebugError('VALIDATION_FAILED_BYPASSED', { errs });
+    }
+
+    return ok || bypass;
+  };
 
   // ===== Token debug panel =====
   const handleShowToken = () => {
@@ -525,7 +493,8 @@ const handleSubmit = async (e: React.FormEvent) => {
       setTokenPayload(null);
       return;
     }
-    const payload = tok.split('.').length >= 2 ? base64UrlToJson(tok.split('.')[1]) : null;
+    const payload =
+      tok.split('.').length >= 2 ? base64UrlToJson(tok.split('.')[1]) : null;
     setTokenValue(tok);
     setTokenPayload(payload);
     setTokenPanelOpen(true);
@@ -546,35 +515,74 @@ const handleSubmit = async (e: React.FormEvent) => {
     const geo = pincodeLookup.geo || {};
 
     const name = capitalizeWords(safeGetField(basics, 'name', 'companyName')).slice(0, 60);
-    const displayName = capitalizeWords(safeGetField(basics, 'displayName', 'display_name')).slice(0, 30);
-    const companyName = capitalizeWords(safeGetField(basics, 'companyName', 'company_name')).slice(0, 30);
-    const primaryCompanyName = capitalizeWords(safeGetField(basics, 'primaryCompanyName', 'primaryCompany')).slice(0, 25);
-    const subVendor = capitalizeWords(safeGetField(basics, 'subVendor', 'sub_vendor')).slice(0, 20);
+    const displayName = capitalizeWords(
+      safeGetField(basics, 'displayName', 'display_name'),
+    ).slice(0, 30);
+    const companyName = capitalizeWords(
+      safeGetField(basics, 'companyName', 'company_name'),
+    ).slice(0, 30);
+    const primaryCompanyName = capitalizeWords(
+      safeGetField(basics, 'primaryCompanyName', 'primaryCompany'),
+    ).slice(0, 25);
+    const subVendor = capitalizeWords(safeGetField(basics, 'subVendor', 'sub_vendor')).slice(
+      0,
+      20,
+    );
 
-    const vendorCode = sanitizeDigitsOnly(safeGetField(basics, 'vendorCode', 'vendor_code')).slice(0, 9);
+    const vendorCode = sanitizeDigitsOnly(
+      safeGetField(basics, 'vendorCode', 'vendor_code'),
+    ).slice(0, 9);
 
     const vendorPhoneStr = sanitizeDigitsOnly(
-      safeGetField(basics, 'vendorPhoneNumber', 'vendorPhone', 'primaryContactPhone')
+      safeGetField(basics, 'vendorPhoneNumber', 'vendorPhone', 'primaryContactPhone'),
     ).slice(0, 10);
-    const vendorPhoneNum = Number(clampNumericString(vendorPhoneStr, 1000000000, 9999999999, 10) || 0);
+    const vendorPhoneNum = Number(
+      clampNumericString(vendorPhoneStr, 1000000000, 9999999999, 10) || 0,
+    );
 
-    const vendorEmail = safeGetField(basics, 'vendorEmailAddress', 'vendorEmail', 'primaryContactEmail').trim();
-    const gstNo = safeGetField(basics, 'gstin', 'gstNo', 'gst').toUpperCase().replace(/\s+/g, '').slice(0, 15);
+    const vendorEmail = safeGetField(
+      basics,
+      'vendorEmailAddress',
+      'vendorEmail',
+      'primaryContactEmail',
+    ).trim();
+    const gstNo = safeGetField(basics, 'gstin', 'gstNo', 'gst')
+      .toUpperCase()
+      .replace(/\s+/g, '')
+      .slice(0, 15);
     const address = safeGetField(basics, 'address').trim().slice(0, 150);
 
-    const volData = volumetric.volumetric || volumetric.state || (volumetric as any).data || {};
-    const volUnit = safeGetField(volData, 'unit', 'volumetricUnit', 'selectedUnit') || 'cm';
+    const volData =
+      volumetric.volumetric || (volumetric as any).state || (volumetric as any).data || {};
+    const volUnit =
+      safeGetField(volData, 'unit', 'volumetricUnit', 'selectedUnit') || 'cm';
 
-    emitDebug('VOLUMETRIC_DATA_DEBUG', { volData, volUnit, fullVolumetricHook: volumetric });
+    emitDebug('VOLUMETRIC_DATA_DEBUG', {
+      volData,
+      volUnit,
+      fullVolumetricHook: volumetric,
+    });
 
     const volumetricBits =
       volUnit === 'cm' || volUnit === 'centimeters'
-        ? { divisor: safeGetNumber(volData, 0, 'volumetricDivisor', 'divisor') || null, cftFactor: null as number | null }
-        : { divisor: null as number | null, cftFactor: safeGetNumber(volData, 0, 'cftFactor', 'factor') || null };
+        ? {
+            divisor:
+              safeGetNumber(volData, 0, 'volumetricDivisor', 'divisor') || null,
+            cftFactor: null as number | null,
+          }
+        : {
+            divisor: null as number | null,
+            cftFactor: safeGetNumber(volData, 0, 'cftFactor', 'factor') || null,
+          };
 
     emitDebug('VOLUMETRIC_BITS_MAPPED', volumetricBits);
 
-    const parseCharge = (val: any, min = 0, max = 100000, digitLimit?: number) => {
+    const parseCharge = (
+      val: any,
+      min = 0,
+      max = 100000,
+      digitLimit?: number,
+    ): number => {
       if (val === undefined || val === null || val === '') return 0;
       const s = String(val);
       const digitsOnly = sanitizeDigitsOnly(s);
@@ -584,64 +592,196 @@ const handleSubmit = async (e: React.FormEvent) => {
 
     const c = charges.charges || {};
     const priceRate = {
-      minWeight: parseCharge(safeGetNumber(c, 0, 'minChargeableWeight', 'minWeight'), 0, 10000, 5),
-      docketCharges: parseCharge(safeGetNumber(c, 0, 'docketCharges'), 0, 10000, 5),
-      fuel: parseCharge(safeGetNumber(c, 0, 'fuelSurcharge', 'fuel'), 0, 50, 2),
+      minWeight: parseCharge(
+        safeGetNumber(c, 0, 'minChargeableWeight', 'minWeight'),
+        0,
+        10000,
+        5,
+      ),
+      docketCharges: parseCharge(
+        safeGetNumber(c, 0, 'docketCharges'),
+        0,
+        10000,
+        5,
+      ),
+      fuel: parseCharge(
+        safeGetNumber(c, 0, 'fuelSurcharge', 'fuel'),
+        0,
+        50,
+        2,
+      ),
 
       rovCharges: {
-        variable: parseCharge(safeGetNumber(c.rovCharges || c, 0, 'variable', 'rovVariable'), 0, 100000),
-        fixed: parseCharge(safeGetNumber(c.rovCharges || c, 0, 'fixed', 'rovFixed'), 0, 100000),
+        variable: parseCharge(
+          safeGetNumber(c.rovCharges || c, 0, 'variable', 'rovVariable'),
+          0,
+          100000,
+        ),
+        fixed: parseCharge(
+          safeGetNumber(c.rovCharges || c, 0, 'fixed', 'rovFixed'),
+          0,
+          100000,
+        ),
       },
       codCharges: {
-        variable: parseCharge(safeGetNumber(c.codCharges || c, 0, 'variable', 'codVariable'), 0, 100000),
-        fixed: parseCharge(safeGetNumber(c.codCharges || c, 0, 'fixed', 'codFixed'), 0, 100000),
+        variable: parseCharge(
+          safeGetNumber(c.codCharges || c, 0, 'variable', 'codVariable'),
+          0,
+          100000,
+        ),
+        fixed: parseCharge(
+          safeGetNumber(c.codCharges || c, 0, 'fixed', 'codFixed'),
+          0,
+          100000,
+        ),
       },
       topayCharges: {
-        variable: parseCharge(safeGetNumber(c.topayCharges || c, 0, 'variable', 'topayVariable'), 0, 100000),
-        fixed: parseCharge(safeGetNumber(c.topayCharges || c, 0, 'fixed', 'topayFixed'), 0, 100000),
+        variable: parseCharge(
+          safeGetNumber(c.topayCharges || c, 0, 'variable', 'topayVariable'),
+          0,
+          100000,
+        ),
+        fixed: parseCharge(
+          safeGetNumber(c.topayCharges || c, 0, 'fixed', 'topayFixed'),
+          0,
+          100000,
+        ),
       },
       handlingCharges: {
-        variable: parseCharge(safeGetNumber(c.handlingCharges || c, 0, 'variable', 'handlingVariable'), 0, 100000),
-        fixed: parseCharge(safeGetNumber(c.handlingCharges || c, 0, 'fixed', 'handlingFixed'), 0, 100000),
+        variable: parseCharge(
+          safeGetNumber(
+            c.handlingCharges || c,
+            0,
+            'variable',
+            'handlingVariable',
+          ),
+          0,
+          100000,
+        ),
+        fixed: parseCharge(
+          safeGetNumber(c.handlingCharges || c, 0, 'fixed', 'handlingFixed'),
+          0,
+          100000,
+        ),
         threshholdweight: parseCharge(
-          safeGetNumber(c.handlingCharges || c, 0, 'threshholdweight', 'handlingThresholdWeight', 'thresholdWeight'),
-          0, 100000
+          safeGetNumber(
+            c.handlingCharges || c,
+            0,
+            'threshholdweight',
+            'handlingThresholdWeight',
+            'thresholdWeight',
+          ),
+          0,
+          100000,
         ),
       },
       appointmentCharges: {
-        variable: parseCharge(safeGetNumber(c.appointmentCharges || c, 0, 'variable', 'appointmentVariable'), 0, 100000),
-        fixed: parseCharge(safeGetNumber(c.appointmentCharges || c, 0, 'fixed', 'appointmentFixed'), 0, 100000),
+        variable: parseCharge(
+          safeGetNumber(
+            c.appointmentCharges || c,
+            0,
+            'variable',
+            'appointmentVariable',
+          ),
+          0,
+          100000,
+        ),
+        fixed: parseCharge(
+          safeGetNumber(c.appointmentCharges || c, 0, 'fixed', 'appointmentFixed'),
+          0,
+          100000,
+        ),
       },
 
       ...volumetricBits,
 
-      minCharges: parseCharge(safeGetNumber(c, 0, 'minimumCharges', 'minCharges'), 0, 100000),
-      greenTax: parseCharge(safeGetNumber(c, 0, 'greenTax', 'ngt'), 0, 100000),
-      daccCharges: parseCharge(safeGetNumber(c, 0, 'daccCharges'), 0, 100000),
-      miscellanousCharges: parseCharge(safeGetNumber(c, 0, 'miscCharges', 'miscellanousCharges'), 0, 100000),
+      minCharges: parseCharge(
+        safeGetNumber(c, 0, 'minimumCharges', 'minCharges'),
+        0,
+        100000,
+      ),
+      greenTax: parseCharge(
+        safeGetNumber(c, 0, 'greenTax', 'ngt'),
+        0,
+        100000,
+      ),
+      daccCharges: parseCharge(
+        safeGetNumber(c, 0, 'daccCharges'),
+        0,
+        100000,
+      ),
+      miscellanousCharges: parseCharge(
+        safeGetNumber(c, 0, 'miscCharges', 'miscellanousCharges'),
+        0,
+        100000,
+      ),
 
       insuaranceCharges: {
-        variable: parseCharge(safeGetNumber(c.insuranceCharges || c.insuaranceCharges || c, 0, 'variable', 'insuranceVariable'), 0, 100000),
-        fixed: parseCharge(safeGetNumber(c.insuranceCharges || c.insuaranceCharges || c, 0, 'fixed', 'insuranceFixed'), 0, 100000),
+        variable: parseCharge(
+          safeGetNumber(
+            c.insuranceCharges || c.insuaranceCharges || c,
+            0,
+            'variable',
+            'insuranceVariable',
+          ),
+          0,
+          100000,
+        ),
+        fixed: parseCharge(
+          safeGetNumber(
+            c.insuranceCharges || c.insuaranceCharges || c,
+            0,
+            'fixed',
+            'insuranceFixed',
+          ),
+          0,
+          100000,
+        ),
       },
       odaCharges: {
-        variable: parseCharge(safeGetNumber(c.odaCharges || c, 0, 'variable'), 0, 100000),
-        fixed: parseCharge(safeGetNumber(c.odaCharges || c, 0, 'fixed'), 0, 100000),
+        variable: parseCharge(
+          safeGetNumber(c.odaCharges || c, 0, 'variable'),
+          0,
+          100000,
+        ),
+        fixed: parseCharge(
+          safeGetNumber(c.odaCharges || c, 0, 'fixed'),
+          0,
+          100000,
+        ),
       },
       prepaidCharges: {
-        variable: parseCharge(safeGetNumber(c.prepaidCharges || c, 0, 'variable'), 0, 100000),
-        fixed: parseCharge(safeGetNumber(c.prepaidCharges || c, 0, 'fixed'), 0, 100000),
+        variable: parseCharge(
+          safeGetNumber(c.prepaidCharges || c, 0, 'variable'),
+          0,
+          100000,
+        ),
+        fixed: parseCharge(
+          safeGetNumber(c.prepaidCharges || c, 0, 'fixed'),
+          0,
+          100000,
+        ),
       },
       fmCharges: {
-        variable: parseCharge(safeGetNumber(c.fmCharges || c, 0, 'variable'), 0, 100000),
-        fixed: parseCharge(safeGetNumber(c.fmCharges || c, 0, 'fixed'), 0, 100000),
+        variable: parseCharge(
+          safeGetNumber(c.fmCharges || c, 0, 'variable'),
+          0,
+          100000,
+        ),
+        fixed: parseCharge(
+          safeGetNumber(c.fmCharges || c, 0, 'fixed'),
+          0,
+          100000,
+        ),
       },
     };
 
-    // ✅ PRIORITIZE: Use wizard data if available, fallback to legacy localStorage
+    // Use wizard data if available, fallback to legacy localStorage
     const priceChart = (wizardData?.priceMatrix || zpm?.priceMatrix || {}) as PriceMatrix;
 
-    const pincodeStr = String(geo.pincode ?? '').replace(/\D+/g, '').slice(0, 6);
+    const pincodeStr = String(geo.pincode ?? '')
+      .replace(/\D+/g, '')
+      .slice(0, 6);
     const pincodeNum = Number(pincodeStr || 0);
 
     const payloadForApi = {
@@ -666,9 +806,14 @@ const handleSubmit = async (e: React.FormEvent) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     emitDebug('SUBMIT_STARTED');
+    console.debug('[SUBMIT] clicked - start');
 
-    if (!validateAll()) {
+    // Validate (logs inside validateAll will tell us what failed)
+    const ok = validateAll();
+    console.debug('[SUBMIT] validateAll result ->', ok);
+    if (!ok) {
       emitDebugError('VALIDATION_FAILED_ON_SUBMIT');
+      console.warn('[SUBMIT] Validation failed - aborting submit (no network).');
       return;
     }
 
@@ -676,6 +821,7 @@ const handleSubmit = async (e: React.FormEvent) => {
     try {
       const payloadForApi = buildPayloadForApi();
       emitDebug('SUBMIT_PAYLOAD_FOR_API', payloadForApi);
+      console.debug('[SUBMIT] payloadForApi', payloadForApi);
 
       const fd = new FormData();
       fd.append('customerID', String(payloadForApi.customerID || ''));
@@ -689,21 +835,15 @@ const handleSubmit = async (e: React.FormEvent) => {
       fd.append('state', payloadForApi.state);
       fd.append('pincode', String(payloadForApi.pincode));
       fd.append('rating', '3'); // Default rating
-      
-      // Backend expects priceRate and priceChart as separate fields, not nested in prices
       fd.append('priceRate', JSON.stringify(payloadForApi.prices.priceRate));
       fd.append('priceChart', JSON.stringify(payloadForApi.prices.priceChart));
-
-      if (priceChartFile) {
-        fd.append('priceChart', priceChartFile);
-      }
-
+      if (priceChartFile) fd.append('priceChart', priceChartFile);
       fd.append('vendorJson', JSON.stringify(payloadForApi));
 
       const token = getAuthToken();
       const url = `${API_BASE}/api/transporter/addtiedupcompanies`;
-
       emitDebug('SUBMITTING_TO_API', { url, hasToken: !!token });
+      console.debug('[SUBMIT] sending fetch to', url, { hasToken: !!token });
 
       const res = await fetch(url, {
         method: 'POST',
@@ -713,20 +853,23 @@ const handleSubmit = async (e: React.FormEvent) => {
 
       const json = await res.json().catch(() => ({} as any));
       emitDebug('API_RESPONSE', { status: res.status, json });
+      console.debug('[SUBMIT] API_RESPONSE', res.status, json);
 
       if (!res.ok || !json?.success) {
         emitDebugError('SUBMIT_ERROR', { status: res.status, json });
-        toast.error(json?.message || `Failed to create vendor (${res.status})`, { duration: 5200 });
+        toast.error(json?.message || `Failed to create vendor (${res.status})`, {
+          duration: 5200,
+        });
         setIsSubmitting(false);
         return;
       }
 
       toast.success('Vendor created successfully!', { duration: 3400 });
 
-      // ✅ Clear draft, reset form, clear wizard data AND legacy localStorage
+      // Clear draft, reset form, clear wizard data AND legacy localStorage
       clearDraft();
-      clearWizard(); // Clear wizard storage
-      localStorage.removeItem(ZPM_KEY); // Clear legacy localStorage
+      clearWizard();
+      localStorage.removeItem(ZPM_KEY);
       try {
         if (typeof vendorBasics.reset === 'function') vendorBasics.reset();
         if (typeof pincodeLookup.reset === 'function') pincodeLookup.reset();
@@ -770,7 +913,7 @@ const handleSubmit = async (e: React.FormEvent) => {
   };
 
   // ========================================================================
-  // PAGE UI
+  // PAGE UI (your preferred UI)
   // ========================================================================
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-100 to-slate-200">
@@ -783,7 +926,9 @@ const handleSubmit = async (e: React.FormEvent) => {
             </div>
             <div>
               <h1 className="text-xl font-semibold text-slate-900">Add Vendor</h1>
-              <p className="text-xs text-slate-600">Freight Cost Calculator · Transporter Setup</p>
+              <p className="text-xs text-slate-600">
+                Freight Cost Calculator · Transporter Setup
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -829,7 +974,9 @@ const handleSubmit = async (e: React.FormEvent) => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => copyText(JSON.stringify(tokenPayload, null, 2))}
+                  onClick={() =>
+                    copyText(JSON.stringify(tokenPayload, null, 2) || '')
+                  }
                   className="px-2 py-1 text-xs rounded-md border border-slate-300 hover:bg-slate-50"
                 >
                   Copy payload
@@ -865,7 +1012,10 @@ const handleSubmit = async (e: React.FormEvent) => {
           <div className="rounded-2xl border border-slate-200 bg-white/90 shadow-sm overflow-hidden">
             <div className="grid grid-cols-1 gap-0 divide-y divide-slate-200">
               <div className="p-6 md:p-8">
-                <CompanySection vendorBasics={vendorBasics} pincodeLookup={pincodeLookup} />
+                <CompanySection
+                  vendorBasics={vendorBasics}
+                  pincodeLookup={pincodeLookup}
+                />
               </div>
 
               <div className="p-6 md:p-8 bg-slate-50/60">
@@ -880,11 +1030,13 @@ const handleSubmit = async (e: React.FormEvent) => {
                 <ChargesSection charges={charges} />
               </div>
 
-              {/* ✅ ENHANCED: Zone Price Matrix section with validation */}
+              {/* Zone Price Matrix section with validation */}
               <div className="p-6 md:p-8 bg-slate-50/60">
                 <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-slate-900">Zone Price Matrix</h3>
+                    <h3 className="text-lg font-semibold text-slate-900">
+                      Zone Price Matrix
+                    </h3>
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -924,7 +1076,9 @@ const handleSubmit = async (e: React.FormEvent) => {
                         <>
                           <XCircleIcon className="h-6 w-6 text-red-600 flex-shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-red-900">No zone data configured</p>
+                            <p className="text-sm font-medium text-red-900">
+                              No zone data configured
+                            </p>
                             <p className="text-xs text-red-700">
                               Please open the wizard to configure zones
                             </p>
@@ -934,58 +1088,67 @@ const handleSubmit = async (e: React.FormEvent) => {
                     </div>
 
                     {/* Validation Errors */}
-                    {wizardValidation && !wizardValidation.isValid && wizardValidation.errors.length > 0 && (
-                      <div className="p-4 rounded-lg border-2 border-red-300 bg-red-50">
-                        <div className="flex items-start gap-3">
-                          <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-red-900 mb-2">
-                              Configuration Issues:
-                            </p>
-                            <ul className="space-y-1 text-sm text-red-800">
-                              {wizardValidation.errors.map((error, idx) => (
-                                <li key={idx} className="flex items-start gap-2">
-                                  <span className="text-red-600 mt-0.5">•</span>
-                                  <span>{error}</span>
-                                </li>
-                              ))}
-                            </ul>
+                    {wizardValidation &&
+                      !wizardValidation.isValid &&
+                      wizardValidation.errors.length > 0 && (
+                        <div className="p-4 rounded-lg border-2 border-red-300 bg-red-50">
+                          <div className="flex items-start gap-3">
+                            <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-red-900 mb-2">
+                                Configuration Issues:
+                              </p>
+                              <ul className="space-y-1 text-sm text-red-800">
+                                {wizardValidation.errors.map((error, idx) => (
+                                  <li key={idx} className="flex items-start gap-2">
+                                    <span className="text-red-600 mt-0.5">•</span>
+                                    <span>{error}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     {/* Validation Warnings */}
-                    {wizardValidation && wizardValidation.isValid && wizardValidation.warnings.length > 0 && (
-                      <div className="p-4 rounded-lg border-2 border-yellow-300 bg-yellow-50">
-                        <div className="flex items-start gap-3">
-                          <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-yellow-900 mb-2">Warnings:</p>
-                            <ul className="space-y-1 text-sm text-yellow-800">
-                              {wizardValidation.warnings.map((warning, idx) => (
-                                <li key={idx} className="flex items-start gap-2">
-                                  <span className="text-yellow-600 mt-0.5">•</span>
-                                  <span>{warning}</span>
-                                </li>
-                              ))}
-                            </ul>
+                    {wizardValidation &&
+                      wizardValidation.isValid &&
+                      wizardValidation.warnings.length > 0 && (
+                        <div className="p-4 rounded-lg border-2 border-yellow-300 bg-yellow-50">
+                          <div className="flex items-start gap-3">
+                            <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-yellow-900 mb-2">
+                                Warnings:
+                              </p>
+                              <ul className="space-y-1 text-sm text-yellow-800">
+                                {wizardValidation.warnings.map((warning, idx) => (
+                                  <li key={idx} className="flex items-start gap-2">
+                                    <span className="text-yellow-600 mt-0.5">•</span>
+                                    <span>{warning}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     {/* Success State */}
-                    {wizardValidation && wizardValidation.isValid && wizardValidation.warnings.length === 0 && wizardStatus?.hasPriceMatrix && (
-                      <div className="p-4 rounded-lg border-2 border-green-300 bg-green-50">
-                        <div className="flex items-center gap-3">
-                          <CheckCircleIcon className="h-5 w-5 text-green-600 flex-shrink-0" />
-                          <p className="text-sm text-green-800">
-                            Configuration is complete and valid
-                          </p>
+                    {wizardValidation &&
+                      wizardValidation.isValid &&
+                      wizardValidation.warnings.length === 0 &&
+                      wizardStatus?.hasPriceMatrix && (
+                        <div className="p-4 rounded-lg border-2 border-green-300 bg-green-50">
+                          <div className="flex items-center gap-3">
+                            <CheckCircleIcon className="h-5 w-5 text-green-600 flex-shrink-0" />
+                            <p className="text-sm text-green-800">
+                              Configuration is complete and valid
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     {/* Progress Bar */}
                     {wizardStatus && wizardStatus.completionPercentage > 0 && (
@@ -1001,7 +1164,9 @@ const handleSubmit = async (e: React.FormEvent) => {
                         <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-gradient-to-r from-blue-600 to-green-600 transition-all duration-500"
-                            style={{ width: `${wizardStatus.completionPercentage}%` }}
+                            style={{
+                              width: `${wizardStatus.completionPercentage}%`,
+                            }}
                           />
                         </div>
                       </div>
@@ -1014,7 +1179,8 @@ const handleSubmit = async (e: React.FormEvent) => {
                         vendorWizard.v1
                       </code>
                       . After configuring zones and pricing, click{' '}
-                      <strong className="text-slate-900">Reload Data</strong> to load it here.
+                      <strong className="text-slate-900">Reload Data</strong> to load it
+                      here.
                     </p>
                   </div>
                 </div>
@@ -1022,7 +1188,10 @@ const handleSubmit = async (e: React.FormEvent) => {
 
               {/* Keep file upload for CSV/Excel import */}
               <div className="p-6 md:p-8">
-                <PriceChartUpload file={priceChartFile} onFileChange={setPriceChartFile} />
+                <PriceChartUpload
+                  file={priceChartFile}
+                  onFileChange={setPriceChartFile}
+                />
               </div>
 
               {/* Footer actions */}
@@ -1046,7 +1215,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                   <span className="inline-flex items-center gap-2">
                     {isSubmitting ? (
                       <>
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
                         Saving…
                       </>
                     ) : (

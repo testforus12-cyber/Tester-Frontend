@@ -75,7 +75,7 @@ export type VehiclePricingData = {
 /** --- Config (use env when available) --- */
 const BASE_URL =
   (import.meta.env.VITE_BACKEND_URL?.replace(/\/$/, "") ||
-    "http://localhost:8000");
+    "https://tester-backend-4nxc.onrender.com");
 
 const AUTH_HEADER = (token?: string) =>
   token ? { Authorization: `Bearer ${token}` } : undefined;
@@ -459,7 +459,7 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
     } catch (error) {
       // Try to calculate distance using pincode coordinates as fallback
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/vendor/wheelseye-distance`, {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://tester-backend-4nxc.onrender.com'}/api/vendor/wheelseye-distance`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

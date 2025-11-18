@@ -556,7 +556,7 @@ useEffect(() => {
     if (!user || !token) return;
     try {
       const response = await axios.get(
-        `http://localhost:8000/api/transporter/getpackinglist?customerId=${
+        `https://tester-backend-4nxc.onrender.com/api/transporter/getpackinglist?customerId=${
           (user as any).customer._id
         }`,
         { headers: { Authorization: `Bearer ${token}` } }
@@ -577,7 +577,7 @@ useEffect(() => {
     if (window.confirm("Delete this preset permanently?")) {
       try {
         await axios.delete(
-          `http://localhost:8000/api/transporter/deletepackinglist/${presetId}`,
+          `https://tester-backend-4nxc.onrender.com/api/transporter/deletepackinglist/${presetId}`,
           {
             headers: { Authorization: `Bearer ${token}` },
           }
@@ -712,7 +712,7 @@ useEffect(() => {
 
     try {
       await axios.post(
-        `http://localhost:8000/api/transporter/savepackinglist`,
+        `https://tester-backend-4nxc.onrender.com/api/transporter/savepackinglist`,
         payload,
         {
           headers: { Authorization: `Bearer ${token}` },
@@ -842,7 +842,7 @@ useEffect(() => {
 
     try {
       const resp = await axios.post(
-        "http://localhost:8000/api/transporter/calculate",
+        "https://tester-backend-4nxc.onrender.com/api/transporter/calculate",
         {
           customerID: (user as any).customer._id,
           userogpincode: (user as any).customer.pincode,
