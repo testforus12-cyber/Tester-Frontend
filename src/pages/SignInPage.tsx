@@ -13,7 +13,7 @@ const BrandLogo = () => (
         <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center">
             <LogIn className="w-6 h-6 text-white" />
         </div>
-        <span>Logi-Quick</span>
+        <span>Freight Compare</span>
     </div>
 );
 
