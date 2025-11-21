@@ -53,8 +53,8 @@ export default function AboutUsPage() {
         </MotionSection>
 
         {/* --- Our Story Section --- */}
-        <MotionSection>
-             <div className="bg-white rounded-2xl shadow-xl p-8 sm:p-12 border border-slate-200/60">
+<MotionSection>
+            <div className="bg-white rounded-2xl shadow-xl p-8 sm:p-12 border border-slate-200/60">
                 <div className="grid lg:grid-cols-3 gap-8 lg:gap-12 items-center">
                     <div className="lg:col-span-2 text-slate-600 leading-relaxed space-y-4 text-base sm:text-lg">
                         <h2 className="text-3xl font-bold text-slate-800 mb-4">Our Story: From In-House Tool to National Platform</h2>
@@ -64,8 +64,12 @@ export default function AboutUsPage() {
                     </div>
                     <div className="lg:col-span-1">
                         <div className="bg-slate-100 rounded-2xl p-8 text-center shadow-inner">
-                            {/* Replace with an actual photo of Uttam Goyal */}
-                            <img className="w-32 h-32 rounded-full mx-auto mb-4 border-4 border-white shadow-lg object-cover" src="https://media.licdn.com/dms/image/C4D03AQE4t1HREmT7Xw/profile-displayphoto-shrink_400_400/0/1517031354394?e=1721260800&v=beta&t=j-M2HkK6C7wEKTmm1RshgKq0I-Uo6uR-g_R2kU1lHso" alt="Uttam Goyal, CEO" />
+                            {/* Updated Image Source pointing to Public folder */}
+                            <img 
+                                className="w-32 h-32 rounded-full mx-auto mb-4 border-4 border-white shadow-lg object-cover" 
+                                src="/uttamgoyal.jpg" 
+                                alt="Uttam Goyal, CEO" 
+                            />
                             <h4 className="text-xl font-bold text-slate-800">Uttam Goyal</h4>
                             <p className="text-blue-600 font-semibold">CEO & Founder</p>
                             <p className="text-sm text-slate-500 mt-1">Alumnus, IIT Roorkee</p>

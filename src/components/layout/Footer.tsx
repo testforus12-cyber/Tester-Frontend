@@ -113,24 +113,34 @@ const Footer: React.FC = () => {
             </p>
           </motion.div>
 
-          {/* Column 2: Quick Links */}
-          <motion.div className="col-span-1" variants={itemVariants}>
-            <FooterSectionTitle>Quick Links</FooterSectionTitle>
-            <div className="space-y-3">
-              <FooterLink to="/aboutus">About Us</FooterLink>
-              <FooterLink to="/features">Features</FooterLink>
-              <FooterLink to="/contactus">Contact</FooterLink>
-              <FooterLink to="/transporter-login">Transporter Login</FooterLink>
-              <a
-                href="https://docs.google.com/forms/d/e/1FAIpQLSe7UpRbS03kxdU6UUBOWU0OJFlmEtqaDXqe6XFUiGqaNlZETw/viewform?usp=header"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-slate-400 hover:text-white hover:pl-1 transition-all duration-200 block"
-              >
-                Feedback
-              </a>
-            </div>
-          </motion.div>
+{/* Column 2: Quick Links */}
+<motion.div className="col-span-1" variants={itemVariants}>
+  <FooterSectionTitle>Quick Links</FooterSectionTitle>
+  <div className="space-y-3">
+    <FooterLink to="/aboutus">About Us</FooterLink>
+    <FooterLink to="/features">Features</FooterLink>
+    <FooterLink to="/contactus">Contact</FooterLink>
+    
+    {/* UPDATED: Transporter Login as an external link */}
+    <a
+      href="https://transporter-signup.netlify.app"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-slate-400 hover:text-white hover:pl-1 transition-all duration-200 block"
+    >
+      Transporter Login
+    </a>
+
+    <a
+      href="https://docs.google.com/forms/d/e/1FAIpQLSe7UpRbS03kxdU6UUBOWU0OJFlmEtqaDXqe6XFUiGqaNlZETw/viewform?usp=header"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-slate-400 hover:text-white hover:pl-1 transition-all duration-200 block"
+    >
+      Feedback
+    </a>
+  </div>
+</motion.div>
 
           {/* Column 3: Resources */}
           <motion.div className="col-span-1" variants={itemVariants}>
