@@ -124,24 +124,30 @@ export default function AboutUsPage() {
             </div>
         </MotionSection>
         
-        {/* --- Warehouses & Map --- */}
-        <MotionSection>
-            <div className="grid lg:grid-cols-2 gap-12 items-center">
-                <div className="text-left">
-                    <h2 className="text-3xl font-extrabold text-slate-900">Anchored by a National Presence</h2>
-                    <p className="mt-4 text-lg text-slate-600">Our logistics operations are backed by Forus Electric's strategically located warehouses, forming the core of our physical distribution network across India.</p>
-                        <div className="mt-6 space-y-3">
-                        <div className="flex gap-3 items-center"><MapPin className="w-6 h-6 text-blue-600 flex-shrink-0"/><p className="font-semibold text-slate-700">Delhi NCR (Okhla Phase 1)</p></div>
-                        <div className="flex gap-3 items-center"><MapPin className="w-6 h-6 text-blue-600 flex-shrink-0"/><p className="font-semibold text-slate-700">Mumbai (Vikhroli)</p></div>
-                        <div className="flex gap-3 items-center"><MapPin className="w-6 h-6 text-blue-600 flex-shrink-0"/><p className="font-semibold text-slate-700">Bengaluru (Electronics City)</p></div>
-                    </div>
-                </div>
-                {/* A simple map placeholder image. */}
-                <div className="p-4 bg-white rounded-2xl shadow-xl border">
-                        <img src="https://i.imgur.com/k2nFj59.png" alt="Map of India showing warehouse locations" className="rounded-lg object-cover"/>
-                </div>
+{/* --- Warehouses & Map --- */}
+<MotionSection>
+    <div className="grid lg:grid-cols-2 gap-12 items-center">
+        <div className="text-left">
+            <h2 className="text-3xl font-extrabold text-slate-900">Anchored by a National Presence</h2>
+            <p className="mt-4 text-lg text-slate-600">Our logistics operations are backed by Forus Electric's strategically located warehouses, forming the core of our physical distribution network across India.</p>
+            <div className="mt-6 space-y-3">
+                <div className="flex gap-3 items-center"><MapPin className="w-6 h-6 text-blue-600 flex-shrink-0"/><p className="font-semibold text-slate-700">Delhi NCR (Okhla Phase 1)</p></div>
+                <div className="flex gap-3 items-center"><MapPin className="w-6 h-6 text-blue-600 flex-shrink-0"/><p className="font-semibold text-slate-700">Mumbai (Vikhroli)</p></div>
+                <div className="flex gap-3 items-center"><MapPin className="w-6 h-6 text-blue-600 flex-shrink-0"/><p className="font-semibold text-slate-700">Bengaluru (Electronics City)</p></div>
             </div>
-        </MotionSection>
+        </div>
+        
+        {/* Map Image Section */}
+        {/* Added 'max-w-md' and 'mx-auto' to fix the size issue */}
+        <div className="p-4 bg-white rounded-2xl shadow-xl border max-w-md mx-auto w-full">
+            <img 
+                src="/indiamap.jpg" 
+                alt="Map of India showing warehouse locations" 
+                className="rounded-lg object-cover w-full h-auto"
+            />
+        </div>
+    </div>
+</MotionSection>
 
       </main>
     </div>
