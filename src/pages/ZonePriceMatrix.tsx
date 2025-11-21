@@ -197,6 +197,117 @@ const ZonePriceMatrix: React.FC = () => {
   }, [currentConfig, byStateByRegion, currentZoneIndex, zoneConfigs]);
 
   /* =========================================================
+     NEW HELPER FUNCTIONS FOR CONSTRAINTS
+     ======================================================= */
+
+  // Check if a zone can be selected based on sequential constraints
+  const canSelectZone = (code: string, currentSelection: string[]): boolean => {
+    const region = codeToRegion(code);
+    const regionZones = regionGroups[region];
+    const selectedInRegion = currentSelection.filter(z => regionGroups[region].includes(z));
+    
+    if (selectedInRegion.length === 0) {
+      // If no zones selected in this region, must start with first zone
+      return code === regionZones[0];
+    }
+    
+    // Get indices of selected zones in this region
+    const selectedIndices = selectedInRegion.map(z => regionZones.indexOf(z)).sort((a, b) => a - b);
+    const targetIndex = regionZones.indexOf(code);
+    
+    // Check if there's a gap before this zone
+    const minIndex = Math.min(...selectedIndices);
+    const maxIndex = Math.max(...selectedIndices);
+    
+    // Can select if it's adjacent to the current selection (no gaps)
+    if (targetIndex === maxIndex + 1 || targetIndex === minIndex - 1) {
+      return true;
+    }
+    
+    // Can select if it fills a gap in the current selection
+    if (targetIndex > minIndex && targetIndex < maxIndex) {
+      // Check if this would complete a continuous sequence
+      for (let i = minIndex; i <= maxIndex; i++) {
+        if (!selectedInRegion.includes(regionZones[i]) && i !== targetIndex) {
+          return false; // There's another gap
+        }
+      }
+      return true;
+    }
+    
+    return false;
+  };
+
+  // Check if a zone can be deselected based on sequential constraints
+  const canDeselectZone = (code: string, currentSelection: string[]): boolean => {
+    const region = codeToRegion(code);
+    const regionZones = regionGroups[region];
+    const selectedInRegion = currentSelection.filter(z => regionGroups[region].includes(z));
+    
+    if (selectedInRegion.length === 0) return false;
+    
+    // Get indices of selected zones in this region
+    const selectedIndices = selectedInRegion.map(z => regionZones.indexOf(z)).sort((a, b) => a - b);
+    const targetIndex = regionZones.indexOf(code);
+    
+    // Can only deselect from the ends of the sequence
+    const minIndex = Math.min(...selectedIndices);
+    const maxIndex = Math.max(...selectedIndices);
+    
+    return targetIndex === minIndex || targetIndex === maxIndex;
+  };
+
+  // Select all zones in a region
+  const selectAllInRegion = (region: RegionGroup) => {
+    const regionZones = regionGroups[region];
+    const currentlySelected = selectedZoneCodes.filter(z => !regionGroups[region].includes(z));
+    const newSelection = [...currentlySelected, ...regionZones];
+    
+    if (newSelection.length > MAX_ZONES) {
+      alert(`Cannot select all zones in ${region}. Maximum ${MAX_ZONES} zones allowed.`);
+      return;
+    }
+    
+    const sorted = sortZonesByOrder(newSelection);
+    setSelectedZoneCodes(sorted);
+    
+    // Update zone configs
+    setZoneConfigs((old) => {
+      const existing = old.filter(z => !regionGroups[region].includes(z.zoneCode));
+      const newZones = regionZones.map(code => {
+        const existingZone = old.find(z => z.zoneCode === code);
+        if (existingZone) return existingZone;
+        
+        return {
+          zoneCode: code,
+          zoneName: code,
+          region: codeToRegion(code),
+          selectedStates: [],
+          selectedCities: [],
+          isComplete: false,
+        };
+      });
+      
+      const updated = [...existing, ...newZones];
+      return updated.sort((a, b) => {
+        const indexA = ZONE_ORDER.indexOf(a.zoneCode);
+        const indexB = ZONE_ORDER.indexOf(b.zoneCode);
+        return indexA - indexB;
+      });
+    });
+  };
+
+  // Deselect all zones in a region
+  const deselectAllInRegion = (region: RegionGroup) => {
+    const newSelection = selectedZoneCodes.filter(z => !regionGroups[region].includes(z));
+    const sorted = sortZonesByOrder(newSelection);
+    setSelectedZoneCodes(sorted);
+    
+    // Remove from configs
+    setZoneConfigs((old) => old.filter(z => !regionGroups[region].includes(z.zoneCode)));
+  };
+
+  /* =========================================================
      STEP 1: ZONE SELECTION
      ======================================================= */
 
@@ -205,7 +316,13 @@ const ZonePriceMatrix: React.FC = () => {
       const isSelected = prev.includes(code);
 
       if (isSelected) {
-        // Deselection
+        // Deselection - check if allowed
+        if (!canDeselectZone(code, prev)) {
+          const region = codeToRegion(code);
+          alert(`You can only deselect zones from the ends of the sequence in ${region} region.`);
+          return prev;
+        }
+        
         const next = prev.filter((c) => c !== code);
         const sorted = sortZonesByOrder(next);
 
@@ -214,7 +331,13 @@ const ZonePriceMatrix: React.FC = () => {
 
         return sorted;
       } else {
-        // Selection
+        // Selection - check if allowed
+        if (!canSelectZone(code, prev)) {
+          const region = codeToRegion(code);
+          alert(`You must select zones sequentially in ${region} region. No gaps allowed.`);
+          return prev;
+        }
+        
         if (prev.length >= MAX_ZONES) {
           alert(`Maximum ${MAX_ZONES} zones allowed`);
           return prev;
@@ -436,42 +559,98 @@ const ZonePriceMatrix: React.FC = () => {
 
           <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 md:p-8">
             <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900">Select Your Zones</h1>
-            <p className="mt-1 text-slate-600">Pick up to {MAX_ZONES} zones from the regions below.</p>
+            <p className="mt-1 text-slate-600">Pick up to {MAX_ZONES} zones from the regions below. Zones must be selected sequentially within each region.</p>
 
             {/* Region Groups */}
             <div className="mt-6 space-y-6">
-              {(Object.keys(regionGroups) as RegionGroup[]).map((region) => (
-                <div key={region} className="border border-slate-200 rounded-xl p-5">
-                  <div className="flex items-center gap-3 mb-3">
-                    <MapPin className="h-6 w-6 text-blue-600" />
-                    <h3 className="text-xl font-semibold text-slate-900">{region}</h3>
-                  </div>
+              {(Object.keys(regionGroups) as RegionGroup[]).map((region) => {
+                const regionZones = regionGroups[region];
+                const selectedInRegion = selectedZoneCodes.filter(z => regionZones.includes(z));
+                const hasAnySelected = selectedInRegion.length > 0;
+                const allSelected = selectedInRegion.length === regionZones.length;
 
-                  <div className="flex flex-wrap gap-3">
-                    {regionGroups[region].map((code) => {
-                      const selected = selectedZoneCodes.includes(code);
-                      const disabled = !selected && selectedZoneCodes.length >= MAX_ZONES;
-
-                      return (
+                return (
+                  <div key={region} className="border border-slate-200 rounded-xl p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <MapPin className="h-6 w-6 text-blue-600" />
+                        <h3 className="text-xl font-semibold text-slate-900">{region}</h3>
+                        <span className="text-sm text-slate-500">
+                          ({selectedInRegion.length}/{regionZones.length} selected)
+                        </span>
+                      </div>
+                      
+                      {/* Select All / Deselect All Buttons */}
+                      <div className="flex gap-2">
                         <button
-                          key={code}
-                          onClick={() => !disabled && toggleZoneSelection(code)}
-                          disabled={disabled}
-                          className={`px-5 py-3 rounded-xl font-semibold transition-all ${
-                            selected
-                              ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-md scale-105"
-                              : disabled
+                          onClick={() => selectAllInRegion(region)}
+                          disabled={allSelected || (selectedZoneCodes.length + regionZones.length - selectedInRegion.length > MAX_ZONES)}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                            allSelected || (selectedZoneCodes.length + regionZones.length - selectedInRegion.length > MAX_ZONES)
                               ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                              : "bg-slate-100 text-slate-800 hover:bg-slate-200"
+                              : "bg-green-100 text-green-700 hover:bg-green-200"
                           }`}
                         >
-                          {code}
+                          Select All
                         </button>
-                      );
-                    })}
+                        <button
+                          onClick={() => deselectAllInRegion(region)}
+                          disabled={!hasAnySelected}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                            !hasAnySelected
+                              ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                              : "bg-red-100 text-red-700 hover:bg-red-200"
+                          }`}
+                        >
+                          Deselect All
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-3">
+                      {regionZones.map((code) => {
+                        const selected = selectedZoneCodes.includes(code);
+                        const canSelect = !selected && canSelectZone(code, selectedZoneCodes);
+                        const canDeselect = selected && canDeselectZone(code, selectedZoneCodes);
+                        const disabled = !selected && (selectedZoneCodes.length >= MAX_ZONES || !canSelect);
+                        const notAllowed = selected && !canDeselect;
+
+                        return (
+                          <button
+                            key={code}
+                            onClick={() => {
+                              if (!disabled && !notAllowed) {
+                                toggleZoneSelection(code);
+                              } else if (notAllowed) {
+                                alert(`You can only deselect zones from the ends of the sequence. Deselect zones after ${code} first.`);
+                              }
+                            }}
+                            disabled={disabled}
+                            className={`px-5 py-3 rounded-xl font-semibold transition-all ${
+                              selected
+                                ? notAllowed
+                                  ? "bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md opacity-75 cursor-not-allowed"
+                                  : "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-md scale-105"
+                                : disabled
+                                ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                                : "bg-slate-100 text-slate-800 hover:bg-slate-200"
+                            }`}
+                            title={
+                              notAllowed
+                                ? "Can only deselect from the end of the sequence"
+                                : disabled && !selected && !canSelect
+                                ? "Must select zones sequentially"
+                                : ""
+                            }
+                          >
+                            {code}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Selected Zones Summary */}
@@ -558,8 +737,17 @@ const ZonePriceMatrix: React.FC = () => {
                 <h3 className="text-lg font-semibold text-slate-900 mb-3">States</h3>
                 <div className="space-y-2 max-h-[500px] overflow-y-auto">
                   {availableStates.map((state) => {
-                    const allKeys = getAllCityKeysForState(state, currentConfig.region);
+                    // ✅ FIX APPLIED HERE:
+                    // We get available keys (which excludes OTHER zones, but includes current zone)
+                    const availableKeys = getAvailableCityKeys(state, currentConfig.region, currentZoneIndex);
+                    
+                    // Calculate how many are selected in THIS zone
                     const selectedCount = currentConfig.selectedCities.filter((k) => parseCsKey(k).state === state).length;
+                    
+                    // Denominator is strictly the cities available for this zone (Total - OtherZones)
+                    // This ensures that if N1 took 4/11, N2 sees "0/7" initially.
+                    const totalForThisZone = availableKeys.length; 
+                    
                     const isActive = activeState === state;
 
                     return (
@@ -577,7 +765,7 @@ const ZonePriceMatrix: React.FC = () => {
                         <div className="flex items-center justify-between">
                           <div className="font-medium text-slate-900">{state}</div>
                           <div className="text-sm text-slate-600">
-                            {selectedCount}/{allKeys.length}
+                            {selectedCount}/{totalForThisZone}
                           </div>
                         </div>
                       </div>

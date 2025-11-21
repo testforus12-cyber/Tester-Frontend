@@ -1151,26 +1151,28 @@ export const AddVendor: React.FC = () => {
                       )}
 
                     {/* Progress Bar */}
-                    {wizardStatus && wizardStatus.completionPercentage > 0 && (
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-medium text-slate-700">
-                            Configuration Progress
-                          </span>
-                          <span className="text-xs font-semibold text-slate-900">
-                            {wizardStatus.completionPercentage}%
-                          </span>
-                        </div>
-                        <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-blue-600 to-green-600 transition-all duration-500"
-                            style={{
-                              width: `${wizardStatus.completionPercentage}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    )}
+{wizardStatus && wizardStatus.completionPercentage > 0 && (
+  <div>
+    <div className="flex items-center justify-between mb-2">
+      <span className="text-xs font-medium text-slate-700">
+        Configuration Progress
+      </span>
+      <span className="text-xs font-semibold text-slate-900">
+        {/* FORCE 100% IF MATRIX IS LOADED, OTHERWISE USE CALCULATION */}
+        {wizardStatus.hasPriceMatrix ? 100 : wizardStatus.completionPercentage}%
+      </span>
+    </div>
+    <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+      <div
+        className="h-full bg-gradient-to-r from-blue-600 to-green-600 transition-all duration-500"
+        style={{
+          // FORCE 100% WIDTH IF MATRIX IS LOADED
+          width: `${wizardStatus.hasPriceMatrix ? 100 : wizardStatus.completionPercentage}%`,
+        }}
+      />
+    </div>
+  </div>
+)}
 
                     {/* Info Note */}
                     <p className="text-xs text-slate-600 leading-relaxed">
@@ -1231,10 +1233,7 @@ export const AddVendor: React.FC = () => {
           </div>
         </form>
 
-        {/* Saved Vendors Table */}
-        <div className="mt-8">
-          <SavedVendorsTable refreshTrigger={refreshTrigger} />
-        </div>
+        
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 /**
  * useCharges hook
  * Manages both simple numeric charges and card-based charges with complex validation
+ * UPDATED: Added daccCharges field support
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
@@ -29,6 +30,7 @@ export interface ChargesErrors {
   greenTax?: string;
   miscCharges?: string;
   fuelSurchargePct?: string;
+  daccCharges?: string; // ← ADDED
 
   // Card-based charges (nested errors)
   handlingCharges?: Record<string, string>;
@@ -69,7 +71,8 @@ const SIMPLE_CHARGE_RANGES: Record<string, { min: number; max: number }> = {
   hamaliCharges: { min: 1, max: 10000 },
   greenTax: { min: 1, max: 10000 },
   miscCharges: { min: 1, max: 10000 },
-  fuelSurchargePct: { min: 0, max: 40 },
+  fuelSurchargePct: { min: 0, max: 50 },
+  daccCharges: { min: 1, max: 10000 }, // ← ADDED
 };
 
 // =============================================================================
@@ -85,6 +88,7 @@ const defaultCharges: Charges = {
   greenTax: 0,
   miscCharges: 0,
   fuelSurchargePct: 0,
+  daccCharges: 0, // ← ADDED
 
   // Card-based charges
   handlingCharges: createDefaultChargeCard(),

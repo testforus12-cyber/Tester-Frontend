@@ -108,7 +108,7 @@ export const validatePincode = (pincode: string): string => {
 export const validateFuel = (fuel: string | number): string => {
   const n = Number(fuel);
   if (isNaN(n)) return 'Fuel surcharge must be a number';
-  if (n < 0 || n > 40) return 'Fuel surcharge must be between 0 and 40';
+  if (n < 0 || n > 50) return 'Fuel surcharge must be between 0 and 40';
   return '';
 };
 

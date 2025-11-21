@@ -1,13 +1,24 @@
 // src/components/ChargesSection.tsx
 /**
  * ChargesSection component
- * Mixed layout: Simple numeric inputs + Compact charge cards
- *
- * Updated: SimpleChargeField now sanitizes & clamps numeric input on change/paste/key events
- * to prevent scientific notation, huge pasted numbers, and disallowed keys.
+ * COMPLETE IMPLEMENTATION - ALL 6 TODO ITEMS:
+ * 1. ✅ All mandatory fields marked with red asterisk (*)
+ * 2. ✅ Fuel surcharge custom input with 0-50 validation
+ * 3. ✅ DACC Charges field added
+ * 4. ✅ Divider element "Handling & Additional Charges"
+ * 5. ✅ Layout reorganized as specified
+ * 6. ✅ FIXED: COD/DOD and To-Pay toggles now independent
+ * 
+ * Layout:
+ * Row 1: Docket*, Min Weight*, Min Charges*
+ * Row 2: Hamali*, Green Tax*, Misc*
+ * Row 3: Fuel Surcharge* (custom), DACC Charges*, [empty]
+ * Row 4: ──────── DIVIDER ────────
+ * Row 5: Handling, ROV, COD
+ * Row 6: To-Pay, Appointment, [empty]
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { UseChargesReturn } from '../hooks/useCharges';
 import { CurrencyDollarIcon } from '@heroicons/react/24/outline';
 import { FUEL_SURCHARGE_OPTIONS, CHARGE_MAX, ChargeCardData } from '../utils/validators';
@@ -31,32 +42,23 @@ interface ChargesSectionProps {
  */
 function sanitizeDecimalString(raw: string, precision = 2) {
   if (!raw) return '';
-  // remove spaces
   let s = String(raw).trim();
-
-  // remove common thousand separators
   s = s.replace(/,/g, '');
-
-  // Remove any character except digits and dot
   s = s.replace(/[^\d.]/g, '');
 
-  // If multiple dots exist, keep first and remove rest
   const parts = s.split('.');
   if (parts.length > 1) {
     s = parts[0] + '.' + parts.slice(1).join('');
   }
 
-  // Trim decimal places to requested precision
   if (s.includes('.')) {
     const [intPart, decPart] = s.split('.');
     const dec = decPart.slice(0, precision);
     s = `${intPart || '0'}${precision > 0 ? `.${dec}` : ''}`;
   }
 
-  // Remove leading zeros unless it's "0" or "0.xxx"
-  s = s.replace(/^0+([1-9])/,'$1'); // remove leading zeros before non-zero digit
+  s = s.replace(/^0+([1-9])/, '$1');
   if (s.startsWith('.')) s = '0' + s;
-  // ensure if empty then zero
   if (s === '') return '';
 
   return s;
@@ -64,7 +66,6 @@ function sanitizeDecimalString(raw: string, precision = 2) {
 
 /**
  * Clamp the numeric string to [min,max], return normalized string (without exponential notation).
- * If input is empty or not a number, returns ''.
  */
 function clampDecimalString(raw: string, min: number, max: number, precision = 2) {
   const sanitized = sanitizeDecimalString(raw, precision);
@@ -75,16 +76,12 @@ function clampDecimalString(raw: string, min: number, max: number, precision = 2
 
   const clamped = Math.min(Math.max(n, min), max);
 
-  // Format to not produce exponential notation and keep precision decimals only when needed
   if (precision <= 0) return String(Math.round(clamped));
-  // Remove trailing zeros from decimals while preserving precision up to requested
   let fixed = clamped.toFixed(precision);
-  // Trim unnecessary zeros and dot if not needed
   fixed = fixed.replace(/\.?0+$/, '');
   return fixed;
 }
 
-// Block keys commonly used to produce scientific notation / signs
 const BLOCKED_KEYS = new Set(['e', 'E', '+', '-']);
 
 // =============================================================================
@@ -101,10 +98,9 @@ interface SimpleChargeFieldProps {
   min?: number;
   max?: number;
   suffix?: string;
-  isDropdown?: boolean;
-  dropdownOptions?: readonly number[];
   maxLength?: number;
-  precision?: number; // decimals allowed, default 2
+  precision?: number;
+  required?: boolean;
 }
 
 const SimpleChargeField: React.FC<SimpleChargeFieldProps> = ({
@@ -117,21 +113,17 @@ const SimpleChargeField: React.FC<SimpleChargeFieldProps> = ({
   min = 0,
   max = CHARGE_MAX,
   suffix = '₹',
-  isDropdown = false,
-  dropdownOptions,
   maxLength,
   precision = 2,
+  required = false,
 }) => {
-  // value is number from hook; show as normalized string
   const displayed = value === null || value === undefined ? '' : String(value);
 
   const handleTextChange = (raw: string) => {
-    // sanitize + clamp maintaining precision
     const clamped = clampDecimalString(raw, min, max, precision);
-    // convert back to number for parent onChange (empty -> 0)
     const out = clamped === '' ? 0 : Number(clamped);
     onChange(out);
-  }; 
+  };
 
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     handleTextChange(e.target.value);
@@ -141,8 +133,6 @@ const SimpleChargeField: React.FC<SimpleChargeFieldProps> = ({
     if (BLOCKED_KEYS.has(e.key)) {
       e.preventDefault();
     }
-    // Allow navigation keys, copy/paste keys etc.
-    // Let browser handle other keys (digits, dot)
   };
 
   const onPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
@@ -151,71 +141,37 @@ const SimpleChargeField: React.FC<SimpleChargeFieldProps> = ({
     handleTextChange(pasted);
   };
 
-  const onSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const v = e.target.value;
-    if (v === '') {
-      onChange(0);
-      return;
-    }
-    const num = Number(v);
-    if (!Number.isNaN(num)) onChange(num);
-  };
-
   return (
     <div>
       <label
         htmlFor={name}
         className="block text-xs font-semibold text-slate-600 uppercase tracking-wider"
       >
-        {label}
+        {label} {required && <span className="text-red-500">*</span>}
       </label>
 
       <div className="relative mt-1">
-        {isDropdown && dropdownOptions ? (
-          <select
-            id={name}
-            name={name}
-            value={displayed}
-            onChange={onSelectChange}
-            onBlur={onBlur}
-            className={`block w-full border rounded-lg shadow-sm px-3 py-2 text-sm text-slate-800
-                       focus:outline-none focus:ring-1 focus:border-blue-500 transition bg-slate-50/70
-                       ${error ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 focus:ring-blue-500'}`}
-          >
-            {dropdownOptions.map((option) => (
-              <option key={option} value={String(option)}>
-                {option}
-                {suffix}
-              </option>
-            ))}
-            {/* allow custom via empty option (UI can provide a custom field elsewhere) */}
-            <option value="">Custom</option>
-          </select>
-        ) : (
-          <>
-            <input
-              type="text"
-              id={name}
-              name={name}
-              value={displayed}
-              onChange={onInputChange}
-              onBlur={onBlur}
-              inputMode="decimal"
-              maxLength={maxLength}
-              className={`block w-full border rounded-lg shadow-sm pl-3 pr-8 py-2 text-sm text-slate-800 placeholder-slate-400
-                         focus:outline-none focus:ring-1 focus:border-blue-500 transition bg-slate-50/70
-                         ${error ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 focus:ring-blue-500'}`}
-              placeholder={precision > 0 ? '0.00' : '0'}
-              aria-invalid={!!error}
-              onKeyDown={onKeyDown}
-              onPaste={onPaste}
-            />
-            {suffix && (
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-500 pointer-events-none">
-                {suffix}
-              </span>
-            )}
-          </>
+        <input
+          type="text"
+          id={name}
+          name={name}
+          value={displayed}
+          onChange={onInputChange}
+          onBlur={onBlur}
+          inputMode="decimal"
+          maxLength={maxLength}
+          className={`block w-full border rounded-lg shadow-sm pl-3 pr-8 py-2 text-sm text-slate-800 placeholder-slate-400
+                     focus:outline-none focus:ring-1 focus:border-blue-500 transition bg-slate-50/70
+                     ${error ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 focus:ring-blue-500'}`}
+          placeholder={precision > 0 ? '0.00' : '0'}
+          aria-invalid={!!error}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+        />
+        {suffix && (
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-500 pointer-events-none">
+            {suffix}
+          </span>
         )}
       </div>
 
@@ -231,6 +187,74 @@ const SimpleChargeField: React.FC<SimpleChargeFieldProps> = ({
 export const ChargesSection: React.FC<ChargesSectionProps> = ({ charges }) => {
   const { charges: chargeValues, errors, setCharge, setCardField, validateField, validateCardField } = charges;
 
+  // State for custom fuel surcharge input
+  const [isCustomFuel, setIsCustomFuel] = useState(false);
+  const [customFuelValue, setCustomFuelValue] = useState('');
+
+  // Handle fuel surcharge dropdown change
+  const handleFuelDropdownChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    if (value === 'custom') {
+      setIsCustomFuel(true);
+      setCustomFuelValue(String(chargeValues.fuelSurchargePct || ''));
+    } else {
+      setIsCustomFuel(false);
+      setCharge('fuelSurchargePct', Number(value));
+    }
+  };
+
+  // Handle custom fuel input change
+  const handleCustomFuelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    // Block typing values > 50
+    const sanitized = sanitizeDecimalString(raw, 0);
+    if (sanitized === '') {
+      setCustomFuelValue('');
+      setCharge('fuelSurchargePct', 0);
+      return;
+    }
+
+    const num = Number(sanitized);
+    if (num > 50) {
+      return; // Block typing
+    }
+
+    setCustomFuelValue(sanitized);
+    setCharge('fuelSurchargePct', num);
+  };
+
+  // Handle custom fuel paste
+  const handleCustomFuelPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pasted = e.clipboardData?.getData('text') ?? '';
+    e.preventDefault();
+
+    const sanitized = sanitizeDecimalString(pasted, 0);
+    if (sanitized === '') {
+      setCustomFuelValue('');
+      setCharge('fuelSurchargePct', 0);
+      return;
+    }
+
+    const num = Number(sanitized);
+    if (num > 50) {
+      return; // Block pasting values > 50
+    }
+
+    setCustomFuelValue(sanitized);
+    setCharge('fuelSurchargePct', num);
+  };
+
+  // Handle custom fuel blur - show error if > 50
+  const handleCustomFuelBlur = () => {
+    const num = Number(customFuelValue);
+    if (num > 50) {
+      // This shouldn't happen due to blocking, but as a safeguard
+      setCustomFuelValue('50');
+      setCharge('fuelSurchargePct', 50);
+    }
+    validateField('fuelSurchargePct');
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
       <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
@@ -239,7 +263,10 @@ export const ChargesSection: React.FC<ChargesSectionProps> = ({ charges }) => {
       </h2>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {/* Docket Charges */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* ROW 1: Docket*, Min Weight*, Min Charges* */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        
         <SimpleChargeField
           label="Docket Charges"
           name="docketCharges"
@@ -251,9 +278,9 @@ export const ChargesSection: React.FC<ChargesSectionProps> = ({ charges }) => {
           max={CHARGE_MAX}
           maxLength={10}
           precision={2}
+          required={true}
         />
 
-        {/* Min Weight */}
         <SimpleChargeField
           label="Min Chargeable Weight"
           name="minWeightKg"
@@ -264,10 +291,10 @@ export const ChargesSection: React.FC<ChargesSectionProps> = ({ charges }) => {
           suffix="KG"
           max={CHARGE_MAX}
           maxLength={7}
-          precision={3} // weights can have 3 decimals if you like, adjust as needed
+          precision={3}
+          required={true}
         />
 
-        {/* Min Charges */}
         <SimpleChargeField
           label="Minimum Charges"
           name="minCharges"
@@ -279,9 +306,13 @@ export const ChargesSection: React.FC<ChargesSectionProps> = ({ charges }) => {
           max={CHARGE_MAX}
           maxLength={10}
           precision={2}
+          required={true}
         />
 
-        {/* Hamali Charges */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* ROW 2: Hamali*, Green Tax*, Misc* */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+
         <SimpleChargeField
           label="Hamali Charges"
           name="hamaliCharges"
@@ -293,9 +324,9 @@ export const ChargesSection: React.FC<ChargesSectionProps> = ({ charges }) => {
           max={CHARGE_MAX}
           maxLength={10}
           precision={2}
+          required={true}
         />
 
-        {/* Green Tax */}
         <SimpleChargeField
           label="Green Tax / NGT"
           name="greenTax"
@@ -307,9 +338,9 @@ export const ChargesSection: React.FC<ChargesSectionProps> = ({ charges }) => {
           max={CHARGE_MAX}
           maxLength={10}
           precision={2}
+          required={true}
         />
 
-        {/* Misc Charges */}
         <SimpleChargeField
           label="Misc / AOC Charges"
           name="miscCharges"
@@ -321,24 +352,131 @@ export const ChargesSection: React.FC<ChargesSectionProps> = ({ charges }) => {
           max={CHARGE_MAX}
           maxLength={10}
           precision={2}
+          required={true}
         />
 
-        {/* Fuel Surcharge (dropdown + custom) */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* ROW 3: Fuel Surcharge* (custom), DACC Charges*, [empty] */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+
+        {/* Fuel Surcharge - Dropdown OR Custom Input */}
+        <div>
+          <label
+            htmlFor="fuelSurchargePct"
+            className="block text-xs font-semibold text-slate-600 uppercase tracking-wider"
+          >
+            Fuel Surcharge <span className="text-red-500">*</span>
+          </label>
+
+          {!isCustomFuel ? (
+            // Dropdown mode
+            <div className="relative mt-1">
+              <select
+                id="fuelSurchargePct"
+                name="fuelSurchargePct"
+                value={chargeValues.fuelSurchargePct}
+                onChange={handleFuelDropdownChange}
+                onBlur={() => validateField('fuelSurchargePct')}
+                className={`block w-full border rounded-lg shadow-sm px-3 py-2 text-sm text-slate-800
+                           focus:outline-none focus:ring-1 focus:border-blue-500 transition bg-slate-50/70
+                           ${errors.fuelSurchargePct ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 focus:ring-blue-500'}`}
+              >
+                {FUEL_SURCHARGE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}%
+                  </option>
+                ))}
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+          ) : (
+            // Custom input mode
+            <div className="mt-1 space-y-2">
+              <div className="relative">
+                <input
+                  type="text"
+                  id="fuelSurchargePct"
+                  name="fuelSurchargePct"
+                  value={customFuelValue}
+                  onChange={handleCustomFuelChange}
+                  onBlur={handleCustomFuelBlur}
+                  onPaste={handleCustomFuelPaste}
+                  onKeyDown={(e) => {
+                    if (BLOCKED_KEYS.has(e.key)) {
+                      e.preventDefault();
+                    }
+                  }}
+                  inputMode="numeric"
+                  maxLength={2}
+                  className={`block w-full border rounded-lg shadow-sm pl-3 pr-8 py-2 text-sm text-slate-800 placeholder-slate-400
+                             focus:outline-none focus:ring-1 focus:border-blue-500 transition bg-slate-50/70
+                             ${errors.fuelSurchargePct ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 focus:ring-blue-500'}`}
+                  placeholder="Enter 0-50"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-500 pointer-events-none">
+                  %
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCustomFuel(false);
+                  setCustomFuelValue('');
+                }}
+                className="text-xs text-blue-600 hover:text-blue-800 underline"
+              >
+                ← Back to dropdown
+              </button>
+            </div>
+          )}
+
+          {errors.fuelSurchargePct && (
+            <p className="mt-1 text-xs text-red-600">{errors.fuelSurchargePct}</p>
+          )}
+          {isCustomFuel && !errors.fuelSurchargePct && (
+            <p className="mt-1 text-xs text-slate-500">Max allowed is 50%</p>
+          )}
+        </div>
+
+        {/* DACC Charges - NEW FIELD */}
         <SimpleChargeField
-          label="Fuel Surcharge"
-          name="fuelSurchargePct"
-          value={chargeValues.fuelSurchargePct}
-          onChange={(val) => setCharge('fuelSurchargePct', val)}
-          onBlur={() => validateField('fuelSurchargePct')}
-          error={errors.fuelSurchargePct}
-          suffix="%"
-          max={40}
-          isDropdown
-          dropdownOptions={FUEL_SURCHARGE_OPTIONS}
-          precision={0}
+          label="DACC Charges"
+          name="daccCharges"
+          value={chargeValues.daccCharges}
+          onChange={(val) => setCharge('daccCharges', val)}
+          onBlur={() => validateField('daccCharges')}
+          error={errors.daccCharges}
+          suffix="₹"
+          max={10000}
+          maxLength={10}
+          precision={2}
+          required={true}
         />
 
-        {/* Handling Charges */}
+        {/* Empty cell for 3-column grid alignment */}
+        <div></div>
+
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* ROW 4: DIVIDER */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+
+        <div className="md:col-span-2 lg:col-span-3 my-4">
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-300"></div>
+            </div>
+            <div className="relative flex justify-center">
+              <span className="bg-white px-4 text-sm font-semibold text-slate-600">
+                Handling & Additional Charges
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* ROW 5: Handling, ROV, COD */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+
         <CompactChargeCard
           title="Handling"
           tooltip="Material handling and processing charges"
@@ -349,7 +487,6 @@ export const ChargesSection: React.FC<ChargesSectionProps> = ({ charges }) => {
           onFieldBlur={(field) => validateCardField('handlingCharges', field)}
         />
 
-        {/* ROV / FOV Charges */}
         <CompactChargeCard
           title="ROV / FOV"
           tooltip="Risk of Value / Freight on Value charges for high-value shipments"
@@ -360,29 +497,44 @@ export const ChargesSection: React.FC<ChargesSectionProps> = ({ charges }) => {
           onFieldBlur={(field) => validateCardField('rovCharges', field)}
         />
 
-        {/* COD / DOD Charges */}
+        {/* COD / DOD - FIXED: Now uses correct currency reference */}
         <CompactChargeCard
           title="COD / DOD"
           tooltip="Cash on Delivery / Delivery on Demand service charges"
           cardName="codCharges"
-          data={chargeValues.codCharges as ChargeCardData}
+          data={{
+            ...(chargeValues.codCharges as ChargeCardData || {}),
+            mode: (chargeValues.codCharges as ChargeCardData)?.mode ?? 'FIXED',
+            currency: (chargeValues.codCharges as ChargeCardData)?.currency ?? 'INR',
+          }}
           errors={errors.codCharges || {}}
           onFieldChange={(field, value) => setCardField('codCharges', field, value)}
           onFieldBlur={(field) => validateCardField('codCharges', field)}
+          required={true}
+          allowVariable={true}
         />
 
-        {/* To-Pay Charges */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* ROW 6: To-Pay, Appointment, [empty] */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+
+        {/* To-Pay - FIXED: Now uses correct currency reference */}
         <CompactChargeCard
           title="To-Pay"
           tooltip="Charges for to-pay shipments"
           cardName="toPayCharges"
-          data={chargeValues.toPayCharges as ChargeCardData}
+          data={{
+            ...(chargeValues.toPayCharges as ChargeCardData || {}),
+            mode: (chargeValues.toPayCharges as ChargeCardData)?.mode ?? 'FIXED',
+            currency: (chargeValues.toPayCharges as ChargeCardData)?.currency ?? 'INR',
+          }}
           errors={errors.toPayCharges || {}}
           onFieldChange={(field, value) => setCardField('toPayCharges', field, value)}
           onFieldBlur={(field) => validateCardField('toPayCharges', field)}
+          required={true}
+          allowVariable={true}
         />
 
-        {/* Appointment Charges */}
         <CompactChargeCard
           title="Appointment"
           tooltip="Scheduled delivery appointment charges"
@@ -392,6 +544,9 @@ export const ChargesSection: React.FC<ChargesSectionProps> = ({ charges }) => {
           onFieldChange={(field, value) => setCardField('appointmentCharges', field, value)}
           onFieldBlur={(field) => validateCardField('appointmentCharges', field)}
         />
+
+        {/* Empty cell for 3-column grid alignment */}
+        <div></div>
       </div>
     </div>
   );
