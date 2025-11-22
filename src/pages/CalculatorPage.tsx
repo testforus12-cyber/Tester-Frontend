@@ -1826,10 +1826,39 @@ useEffect(() => {
                     });
                   };
 
-                  const tiedUpVendors = processQuotes(data);
-                  const otherVendors = processQuotes(hiddendata);
+                  const tiedUpVendorsRaw = processQuotes(data);
+const otherVendorsRaw = processQuotes(hiddendata);
 
-                  const allProcessedQuotes = [...tiedUpVendors, ...otherVendors];
+const vendorKey = (q: any) =>
+  (q.transporterData?._id ||
+    q.transporterID ||
+    q.companyName ||
+    q.transporterName ||
+    ""
+  )
+    .toString()
+    .toLowerCase();
+
+const seenVendors = new Set<string>();
+
+const tiedUpVendors = tiedUpVendorsRaw.filter(q => {
+  const key = vendorKey(q);
+  if (!key) return true;
+  if (seenVendors.has(key)) return false;
+  seenVendors.add(key);
+  return true;
+});
+
+const otherVendors = otherVendorsRaw.filter(q => {
+  const key = vendorKey(q);
+  if (!key) return true;
+  if (seenVendors.has(key)) return false;
+  seenVendors.add(key);
+  return true;
+});
+
+const allProcessedQuotes = [...tiedUpVendors, ...otherVendors];
+
                   const priced = allProcessedQuotes
                     .map((q) => getQuotePrice(q))
                     .filter((n) => Number.isFinite(n) && n > 0);
