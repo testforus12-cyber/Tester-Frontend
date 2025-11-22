@@ -40,12 +40,17 @@ export interface VendorBasicsErrors {
   primaryContactPhone?: string;
   primaryContactEmail?: string;
   address?: string;
+  // newly tracked errors
+  transportMode?: string; // <--- ADDED THIS
+  serviceMode?: string;
+  companyRating?: string;
 }
 
 export interface UseVendorBasicsReturn {
   basics: VendorBasics;
   errors: VendorBasicsErrors;
-  setField: (field: keyof VendorBasics, value: string) => void;
+  // setField now accepts string | number | null to allow rating (number) and null defaults
+  setField: (field: keyof VendorBasics, value: string | number | null) => void;
   validateField: (field: keyof VendorBasics) => boolean;
   validateAll: () => boolean;
   reset: () => void;
@@ -62,7 +67,8 @@ const defaultBasics: VendorBasics = {
   vendorPhoneNumber: '',
   vendorEmailAddress: '',
   gstin: '',
-  transportMode: 'road',
+  // keep transportMode but set to null if you want no preselected option
+  transportMode: null as any,
   legalCompanyName: '',
   displayName: '',
   subVendor: '',
@@ -71,6 +77,9 @@ const defaultBasics: VendorBasics = {
   primaryContactPhone: '',
   primaryContactEmail: '',
   address: '',
+  // NEW keys: explicitly set to null (one-time defaults)
+  serviceMode: null as any,   // possible values: 'FTL' | 'LTL' | null
+  companyRating: null as any, // number 1-5 or null
 };
 
 // =============================================================================
@@ -110,9 +119,9 @@ export const useVendorBasics = (
    * Set a single field value
    */
   const setField = useCallback(
-    (field: keyof VendorBasics, value: string) => {
+    (field: keyof VendorBasics, value: string | number | null) => {
       setBasics((prev) => {
-        const updated = { ...prev, [field]: value };
+        const updated = { ...prev, [field]: value } as VendorBasics;
         emitDebug('BASICS_FIELD_CHANGED', { field, value });
         return updated;
       });
@@ -174,6 +183,34 @@ export const useVendorBasics = (
         case 'address':
           error = validateAddress(basics.address);
           break;
+
+        // --- ADDED THIS BLOCK ---
+        case 'transportMode':
+          if (!basics.transportMode) {
+            error = 'Transport Mode is required';
+          }
+          break;
+        // ------------------------
+
+        // NEW: basic validation for serviceMode & companyRating
+        case 'serviceMode': {
+          const v = (basics as any).serviceMode;
+          if (!v || (v !== 'FTL' && v !== 'LTL')) {
+            error = 'Please select a service mode';
+          }
+          break;
+        }
+
+        case 'companyRating': {
+          const r = (basics as any).companyRating;
+          if (r !== null && r !== undefined) {
+            const n = Number(r);
+            if (!Number.isFinite(n) || n < 1 || n > 5) {
+              error = 'Rating must be between 1 and 5';
+            }
+          }
+          break;
+        }
       }
 
       if (error) {
@@ -210,11 +247,18 @@ export const useVendorBasics = (
       'primaryContactPhone',
       'primaryContactEmail',
       'address',
+      'transportMode', // <--- ADDED THIS
+      'serviceMode',
     ];
 
     // Validate GSTIN if present
     if (basics.gstin) {
       fields.push('gstin');
+    }
+
+    // companyRating is optional — validate only if present
+    if ((basics as any).companyRating !== null && (basics as any).companyRating !== undefined) {
+      fields.push('companyRating');
     }
 
     let isValid = true;
@@ -263,6 +307,33 @@ export const useVendorBasics = (
         case 'address':
           error = validateAddress(basics.address);
           break;
+
+        // --- ADDED THIS BLOCK ---
+        case 'transportMode':
+          if (!basics.transportMode) {
+            error = 'Please select a transport mode';
+          }
+          break;
+        // ------------------------
+
+        case 'serviceMode': {
+          const v = (basics as any).serviceMode;
+          if (!v || (v !== 'FTL' && v !== 'LTL')) {
+            error = 'Please select a service mode';
+          }
+          break;
+        }
+
+        case 'companyRating': {
+          const r = (basics as any).companyRating;
+          if (r !== null && r !== undefined) {
+            const n = Number(r);
+            if (!Number.isFinite(n) || n < 1 || n > 5) {
+              error = 'Rating must be between 1 and 5';
+            }
+          }
+          break;
+        }
       }
 
       if (error) {

@@ -36,7 +36,7 @@ import {
 } from '../utils/wizardValidation';
 
 // Icons
-import { CheckCircleIcon, XCircleIcon, AlertTriangle, RefreshCw } from 'lucide-react';
+import { CheckCircleIcon, XCircleIcon, AlertTriangle, RefreshCw, FileText } from 'lucide-react';
 
 // Optional email validator
 import isEmail from 'isemail';
@@ -164,6 +164,11 @@ export const AddVendor: React.FC = () => {
   const [priceChartFile, setPriceChartFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Invoice Value State (New)
+  const [invoicePercentage, setInvoicePercentage] = useState<string>('');
+  const [invoiceMinAmount, setInvoiceMinAmount] = useState<string>('');
+  const [invoiceUseMax, setInvoiceUseMax] = useState<boolean>(false);
 
   // Token viewer (debug)
   const [tokenPanelOpen, setTokenPanelOpen] = useState(false);
@@ -335,152 +340,84 @@ export const AddVendor: React.FC = () => {
   };
 
   // ===== GLOBAL VALIDATION (with detailed debug + toasts + bypassValidation) =====
+  // ===== GLOBAL VALIDATION (EXACT ERROR REPORTING) =====
   const validateAll = (): boolean => {
-    let ok = true;
-    const errs: string[] = [];
+    // We use a Set to automatically remove duplicate error messages
+    const uniqueErrors = new Set<string>();
 
-    emitDebug('VALIDATION_START', {
-      vendorBasics: vendorBasics.basics,
-      pincodeGeo: pincodeLookup.geo,
-      volumetric: volumetric.volumetric || (volumetric as any).state || (volumetric as any).data,
-      charges: charges.charges,
-      wizardData,
-      zpm,
-    });
-    console.debug('[VALIDATION] Starting validation checks', {
-      vendorBasics: vendorBasics.basics,
-      pincodeGeo: pincodeLookup.geo,
-      volumetric: volumetric.volumetric || (volumetric as any).state || (volumetric as any).data,
-      charges: charges.charges,
-      wizardData,
-      zpm,
-    });
+    console.debug('[VALIDATION] Starting exact validation checks');
 
-    // vendorBasics hook check
-    try {
-      const vbOk =
-        typeof vendorBasics.validateAll === 'function' ? vendorBasics.validateAll() : true;
-      console.debug('[VALIDATION] vendorBasics.validateAll ->', vbOk);
-      emitDebug('VALIDATION_VENDORBASICS', { ok: vbOk });
-      if (!vbOk) {
-        errs.push('Company information is incomplete or invalid.');
-        ok = false;
-      }
-    } catch (err) {
-      emitDebugError('HOOK_VALIDATE_VENDORBASICS_ERROR', { err });
-      console.error('[VALIDATION] vendorBasics.validateAll threw', err);
-      errs.push('Company information validation threw an error (check console).');
-      ok = false;
-    }
-
-    // pincodeLookup check
-    try {
-      const plOk =
-        typeof pincodeLookup.validateGeo === 'function' ? pincodeLookup.validateGeo() : true;
-      console.debug('[VALIDATION] pincodeLookup.validateGeo ->', plOk, 'geo=', pincodeLookup.geo);
-      emitDebug('VALIDATION_PINCODE', { ok: plOk, geo: pincodeLookup.geo });
-      if (!plOk) {
-        errs.push('Location information is incomplete.');
-        ok = false;
-      }
-    } catch (err) {
-      emitDebugError('HOOK_VALIDATE_PINCODE_ERROR', { err });
-      console.error('[VALIDATION] pincodeLookup.validateGeo threw', err);
-      errs.push('Location validation threw an error (check console).');
-      ok = false;
-    }
-
-    // volumetric
-    try {
-      const volOk =
-        typeof volumetric.validateVolumetric === 'function'
-          ? volumetric.validateVolumetric()
-          : true;
-      console.debug(
-        '[VALIDATION] volumetric.validateVolumetric ->',
-        volOk,
-        'volData=',
-        volumetric.volumetric || (volumetric as any).state || (volumetric as any).data,
-      );
-      emitDebug('VALIDATION_VOLUMETRIC', { ok: volOk });
-      if (!volOk) {
-        errs.push('Volumetric configuration is invalid.');
-        ok = false;
-      }
-    } catch (err) {
-      emitDebugError('HOOK_VALIDATE_VOLUMETRIC_ERROR', { err });
-      console.error('[VALIDATION] volumetric.validateVolumetric threw', err);
-      errs.push('Volumetric validation threw an error (check console).');
-      ok = false;
-    }
-
-    // charges
-    try {
-      const chOk = typeof charges.validateAll === 'function' ? charges.validateAll() : true;
-      console.debug('[VALIDATION] charges.validateAll ->', chOk, 'charges=', charges.charges);
-      emitDebug('VALIDATION_CHARGES', { ok: chOk });
-      if (!chOk) {
-        errs.push('Charges configuration is invalid.');
-        ok = false;
-      }
-    } catch (err) {
-      emitDebugError('HOOK_VALIDATE_CHARGES_ERROR', { err });
-      console.error('[VALIDATION] charges.validateAll threw', err);
-      errs.push('Charges validation threw an error (check console).');
-      ok = false;
-    }
-
-    // Zone matrix requirement
-    const hasWizardMatrix =
-      wizardData?.priceMatrix && Object.keys(wizardData.priceMatrix).length > 0;
-    const hasLegacyMatrix = zpm?.priceMatrix && Object.keys(zpm.priceMatrix).length > 0;
-    console.debug('[VALIDATION] zone matrix', { hasWizardMatrix, hasLegacyMatrix });
-    if (!hasWizardMatrix && !hasLegacyMatrix) {
-      errs.push('Zone Price Matrix is missing. Open the wizard, save, then Reload Data.');
-      ok = false;
-    }
-
-    // Wizard structural validation
-    if (wizardData && !wizardValidation?.isValid) {
-      console.debug('[VALIDATION] wizardValidation failed', wizardValidation);
-      errs.push('Wizard configuration has errors. Please fix them before submitting.');
-      if (wizardValidation?.errors) errs.push(...wizardValidation.errors);
-      ok = false;
-    }
-
-    // Local vendor basics checks
+    // 1. EXACT LOCAL CHECKS (Run these FIRST to get specific messages)
     try {
       const local = validateVendorBasicsLocal();
-      console.debug('[VALIDATION] local vendor basics ->', local);
       if (!local.ok) {
-        ok = false;
-        errs.push(...local.errs);
+        local.errs.forEach(e => uniqueErrors.add(e));
       }
     } catch (err) {
       console.error('[VALIDATION] validateVendorBasicsLocal threw', err);
-      emitDebugError('VALIDATION_LOCAL_ERROR', { err });
-      errs.push('Local vendor validation threw an error (check console).');
-      ok = false;
+      uniqueErrors.add('Error checking specific company details (check console).');
     }
 
-    // Optional bypass via URL param ?bypassValidation=1
+    // 2. WIZARD / ZONE CHECKS (Extract specific zone errors)
+    if (wizardData && !wizardValidation?.isValid) {
+      if (wizardValidation?.errors && wizardValidation.errors.length > 0) {
+        // Add specific errors like "Zone NE2 is incomplete"
+        wizardValidation.errors.forEach(e => uniqueErrors.add(e));
+      } else {
+        uniqueErrors.add('Wizard configuration is invalid (check Zone setup).');
+      }
+    }
+
+    // 3. HOOK STATE CHECKS (Trigger Red Borders)
+    // We still run these functions because they turn the input borders red in the UI,
+    // but we only add a message if we haven't already caught a specific error for that section.
+    
+    // Vendor Basics (UI Red Borders)
+    const vbOk = typeof vendorBasics.validateAll === 'function' ? vendorBasics.validateAll() : true;
+    // Note: We rely on 'validateVendorBasicsLocal' (step 1) for the text message, so we don't push a generic one here.
+
+    // Pincode (UI Red Borders + Message)
+    const plOk = typeof pincodeLookup.validateGeo === 'function' ? pincodeLookup.validateGeo() : true;
+    if (!plOk) uniqueErrors.add('Location/Pincode information is incomplete.');
+
+    // Volumetric (UI Red Borders + Message)
+    const volOk = typeof volumetric.validateVolumetric === 'function' ? volumetric.validateVolumetric() : true;
+    if (!volOk) uniqueErrors.add('Volumetric configuration is invalid.');
+
+    // Charges (UI Red Borders + Message)
+    const chOk = typeof charges.validateAll === 'function' ? charges.validateAll() : true;
+    if (!chOk) uniqueErrors.add('Charges configuration is invalid.');
+
+    // 4. Matrix Check (Essential)
+    const hasWizardMatrix = wizardData?.priceMatrix && Object.keys(wizardData.priceMatrix).length > 0;
+    const hasLegacyMatrix = zpm?.priceMatrix && Object.keys(zpm.priceMatrix).length > 0;
+
+    if (!hasWizardMatrix && !hasLegacyMatrix) {
+      uniqueErrors.add('Zone Price Matrix is missing. Please Open Wizard > Save > Reload Data.');
+    }
+
+    // 5. BYPASS CHECK
     const urlParams = new URLSearchParams(window.location.search);
     const bypass = urlParams.get('bypassValidation') === '1';
-    if (bypass) {
-      console.warn(
-        '[VALIDATION] bypassValidation=1 -> skipping validation FAILURE and proceeding (temporary).',
-      );
-      emitDebug('VALIDATION_BYPASSED');
+    
+    if (bypass && uniqueErrors.size > 0) {
+      console.warn('[VALIDATION] Bypassing errors:', Array.from(uniqueErrors));
+      toast.success('Validation bypassed (Dev Mode)', { icon: '⚠️' });
+      return true;
     }
 
-    if (!ok && !bypass) {
-      errs.forEach((m) => toast.error(m, { duration: 5200 }));
-      emitDebugError('VALIDATION_FAILED', { errs });
-    } else if (!ok && bypass) {
-      emitDebugError('VALIDATION_FAILED_BYPASSED', { errs });
+    // 6. FINAL VERDICT
+    if (uniqueErrors.size > 0) {
+      // Convert Set back to Array and show toasts
+      Array.from(uniqueErrors).forEach((msg) => {
+        toast.error(msg, { duration: 5000 });
+      });
+      
+      emitDebugError('VALIDATION_FAILED', { errs: Array.from(uniqueErrors) });
+      return false;
     }
 
-    return ok || bypass;
+    return true;
   };
 
   // ===== Token debug panel =====
@@ -510,297 +447,319 @@ export const AddVendor: React.FC = () => {
   };
 
   // ===== Build API payload (uses wizard data OR legacy localStorage) =====
-  const buildPayloadForApi = () => {
-    const basics = vendorBasics.basics || {};
-    const geo = pincodeLookup.geo || {};
+const buildPayloadForApi = () => {
+  const basics = vendorBasics.basics || {};
+  const geo = pincodeLookup.geo || {};
 
-    const name = capitalizeWords(safeGetField(basics, 'name', 'companyName')).slice(0, 60);
-    const displayName = capitalizeWords(
-      safeGetField(basics, 'displayName', 'display_name'),
-    ).slice(0, 30);
-    const companyName = capitalizeWords(
-      safeGetField(basics, 'companyName', 'company_name'),
-    ).slice(0, 30);
-    const primaryCompanyName = capitalizeWords(
-      safeGetField(basics, 'primaryCompanyName', 'primaryCompany'),
-    ).slice(0, 25);
-    const subVendor = capitalizeWords(safeGetField(basics, 'subVendor', 'sub_vendor')).slice(
-      0,
-      20,
-    );
+  const name = capitalizeWords(safeGetField(basics, 'name', 'companyName')).slice(0, 60);
+  const displayName = capitalizeWords(
+    safeGetField(basics, 'displayName', 'display_name'),
+  ).slice(0, 30);
+  const companyName = capitalizeWords(
+    safeGetField(basics, 'companyName', 'company_name'),
+  ).slice(0, 30);
+  const primaryCompanyName = capitalizeWords(
+    safeGetField(basics, 'primaryCompanyName', 'primaryCompany'),
+  ).slice(0, 25);
+  const subVendor = capitalizeWords(safeGetField(basics, 'subVendor', 'sub_vendor')).slice(
+    0,
+    20,
+  );
 
-    const vendorCode = sanitizeDigitsOnly(
-      safeGetField(basics, 'vendorCode', 'vendor_code'),
-    ).slice(0, 9);
+  const vendorCode = sanitizeDigitsOnly(
+    safeGetField(basics, 'vendorCode', 'vendor_code'),
+  ).slice(0, 9);
 
-    const vendorPhoneStr = sanitizeDigitsOnly(
-      safeGetField(basics, 'vendorPhoneNumber', 'vendorPhone', 'primaryContactPhone'),
-    ).slice(0, 10);
-    const vendorPhoneNum = Number(
-      clampNumericString(vendorPhoneStr, 1000000000, 9999999999, 10) || 0,
-    );
+  const vendorPhoneStr = sanitizeDigitsOnly(
+    safeGetField(basics, 'vendorPhoneNumber', 'vendorPhone', 'primaryContactPhone'),
+  ).slice(0, 10);
+  const vendorPhoneNum = Number(
+    clampNumericString(vendorPhoneStr, 1000000000, 9999999999, 10) || 0,
+  );
 
-    const vendorEmail = safeGetField(
-      basics,
-      'vendorEmailAddress',
-      'vendorEmail',
-      'primaryContactEmail',
-    ).trim();
-    const gstNo = safeGetField(basics, 'gstin', 'gstNo', 'gst')
-      .toUpperCase()
-      .replace(/\s+/g, '')
-      .slice(0, 15);
-    const address = safeGetField(basics, 'address').trim().slice(0, 150);
+  const vendorEmail = safeGetField(
+    basics,
+    'vendorEmailAddress',
+    'vendorEmail',
+    'primaryContactEmail',
+  ).trim();
+  const gstNo = safeGetField(basics, 'gstin', 'gstNo', 'gst')
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .slice(0, 15);
+  const address = safeGetField(basics, 'address').trim().slice(0, 150);
 
-    const volData =
-      volumetric.volumetric || (volumetric as any).state || (volumetric as any).data || {};
-    const volUnit =
-      safeGetField(volData, 'unit', 'volumetricUnit', 'selectedUnit') || 'cm';
+  const volData =
+    volumetric.volumetric || (volumetric as any).state || (volumetric as any).data || {};
+  const volUnit =
+    safeGetField(volData, 'unit', 'volumetricUnit', 'selectedUnit') || 'cm';
 
-    emitDebug('VOLUMETRIC_DATA_DEBUG', {
-      volData,
-      volUnit,
-      fullVolumetricHook: volumetric,
-    });
+  emitDebug('VOLUMETRIC_DATA_DEBUG', {
+    volData,
+    volUnit,
+    fullVolumetricHook: volumetric,
+  });
 
-    const volumetricBits =
-      volUnit === 'cm' || volUnit === 'centimeters'
-        ? {
-            divisor:
-              safeGetNumber(volData, 0, 'volumetricDivisor', 'divisor') || null,
-            cftFactor: null as number | null,
-          }
-        : {
-            divisor: null as number | null,
-            cftFactor: safeGetNumber(volData, 0, 'cftFactor', 'factor') || null,
-          };
+  const volumetricBits =
+    volUnit === 'cm' || volUnit === 'centimeters'
+      ? {
+          divisor:
+            safeGetNumber(volData, 0, 'volumetricDivisor', 'divisor') || null,
+          cftFactor: null as number | null,
+        }
+      : {
+          divisor: null as number | null,
+          cftFactor: safeGetNumber(volData, 0, 'cftFactor', 'factor') || null,
+        };
 
-    emitDebug('VOLUMETRIC_BITS_MAPPED', volumetricBits);
+  emitDebug('VOLUMETRIC_BITS_MAPPED', volumetricBits);
 
-    const parseCharge = (
-      val: any,
-      min = 0,
-      max = 100000,
-      digitLimit?: number,
-    ): number => {
-      if (val === undefined || val === null || val === '') return 0;
-      const s = String(val);
-      const digitsOnly = sanitizeDigitsOnly(s);
-      const clamped = clampNumericString(digitsOnly, min, max, digitLimit);
-      return Number(clamped || 0);
-    };
-
-    const c = charges.charges || {};
-    const priceRate = {
-      minWeight: parseCharge(
-        safeGetNumber(c, 0, 'minChargeableWeight', 'minWeight'),
-        0,
-        10000,
-        5,
-      ),
-      docketCharges: parseCharge(
-        safeGetNumber(c, 0, 'docketCharges'),
-        0,
-        10000,
-        5,
-      ),
-      fuel: parseCharge(
-        safeGetNumber(c, 0, 'fuelSurcharge', 'fuel'),
-        0,
-        50,
-        2,
-      ),
-
-      rovCharges: {
-        variable: parseCharge(
-          safeGetNumber(c.rovCharges || c, 0, 'variable', 'rovVariable'),
-          0,
-          100000,
-        ),
-        fixed: parseCharge(
-          safeGetNumber(c.rovCharges || c, 0, 'fixed', 'rovFixed'),
-          0,
-          100000,
-        ),
-      },
-      codCharges: {
-        variable: parseCharge(
-          safeGetNumber(c.codCharges || c, 0, 'variable', 'codVariable'),
-          0,
-          100000,
-        ),
-        fixed: parseCharge(
-          safeGetNumber(c.codCharges || c, 0, 'fixed', 'codFixed'),
-          0,
-          100000,
-        ),
-      },
-      topayCharges: {
-        variable: parseCharge(
-          safeGetNumber(c.topayCharges || c, 0, 'variable', 'topayVariable'),
-          0,
-          100000,
-        ),
-        fixed: parseCharge(
-          safeGetNumber(c.topayCharges || c, 0, 'fixed', 'topayFixed'),
-          0,
-          100000,
-        ),
-      },
-      handlingCharges: {
-        variable: parseCharge(
-          safeGetNumber(
-            c.handlingCharges || c,
-            0,
-            'variable',
-            'handlingVariable',
-          ),
-          0,
-          100000,
-        ),
-        fixed: parseCharge(
-          safeGetNumber(c.handlingCharges || c, 0, 'fixed', 'handlingFixed'),
-          0,
-          100000,
-        ),
-        threshholdweight: parseCharge(
-          safeGetNumber(
-            c.handlingCharges || c,
-            0,
-            'threshholdweight',
-            'handlingThresholdWeight',
-            'thresholdWeight',
-          ),
-          0,
-          100000,
-        ),
-      },
-      appointmentCharges: {
-        variable: parseCharge(
-          safeGetNumber(
-            c.appointmentCharges || c,
-            0,
-            'variable',
-            'appointmentVariable',
-          ),
-          0,
-          100000,
-        ),
-        fixed: parseCharge(
-          safeGetNumber(c.appointmentCharges || c, 0, 'fixed', 'appointmentFixed'),
-          0,
-          100000,
-        ),
-      },
-
-      ...volumetricBits,
-
-      minCharges: parseCharge(
-        safeGetNumber(c, 0, 'minimumCharges', 'minCharges'),
-        0,
-        100000,
-      ),
-      greenTax: parseCharge(
-        safeGetNumber(c, 0, 'greenTax', 'ngt'),
-        0,
-        100000,
-      ),
-      daccCharges: parseCharge(
-        safeGetNumber(c, 0, 'daccCharges'),
-        0,
-        100000,
-      ),
-      miscellanousCharges: parseCharge(
-        safeGetNumber(c, 0, 'miscCharges', 'miscellanousCharges'),
-        0,
-        100000,
-      ),
-
-      insuaranceCharges: {
-        variable: parseCharge(
-          safeGetNumber(
-            c.insuranceCharges || c.insuaranceCharges || c,
-            0,
-            'variable',
-            'insuranceVariable',
-          ),
-          0,
-          100000,
-        ),
-        fixed: parseCharge(
-          safeGetNumber(
-            c.insuranceCharges || c.insuaranceCharges || c,
-            0,
-            'fixed',
-            'insuranceFixed',
-          ),
-          0,
-          100000,
-        ),
-      },
-      odaCharges: {
-        variable: parseCharge(
-          safeGetNumber(c.odaCharges || c, 0, 'variable'),
-          0,
-          100000,
-        ),
-        fixed: parseCharge(
-          safeGetNumber(c.odaCharges || c, 0, 'fixed'),
-          0,
-          100000,
-        ),
-      },
-      prepaidCharges: {
-        variable: parseCharge(
-          safeGetNumber(c.prepaidCharges || c, 0, 'variable'),
-          0,
-          100000,
-        ),
-        fixed: parseCharge(
-          safeGetNumber(c.prepaidCharges || c, 0, 'fixed'),
-          0,
-          100000,
-        ),
-      },
-      fmCharges: {
-        variable: parseCharge(
-          safeGetNumber(c.fmCharges || c, 0, 'variable'),
-          0,
-          100000,
-        ),
-        fixed: parseCharge(
-          safeGetNumber(c.fmCharges || c, 0, 'fixed'),
-          0,
-          100000,
-        ),
-      },
-    };
-
-    // Use wizard data if available, fallback to legacy localStorage
-    const priceChart = (wizardData?.priceMatrix || zpm?.priceMatrix || {}) as PriceMatrix;
-
-    const pincodeStr = String(geo.pincode ?? '')
-      .replace(/\D+/g, '')
-      .slice(0, 6);
-    const pincodeNum = Number(pincodeStr || 0);
-
-    const payloadForApi = {
-      customerID: getCustomerIDFromToken(),
-      companyName: companyName.trim(),
-      vendorCode: vendorCode,
-      vendorPhone: vendorPhoneNum,
-      vendorEmail: vendorEmail,
-      gstNo,
-      mode: transportMode || 'road',
-      address,
-      state: String(geo.state ?? '').toUpperCase(),
-      pincode: pincodeNum,
-      human: { name, displayName, primaryCompanyName, subVendor },
-      prices: { priceRate, priceChart },
-    };
-
-    return payloadForApi;
+  const parseCharge = (
+    val: any,
+    min = 0,
+    max = 100000,
+    digitLimit?: number,
+  ): number => {
+    if (val === undefined || val === null || val === '') return 0;
+    const s = String(val);
+    const digitsOnly = sanitizeDigitsOnly(s);
+    const clamped = clampNumericString(digitsOnly, min, max, digitLimit);
+    return Number(clamped || 0);
   };
+
+  const c = charges.charges || {};
+  const priceRate = {
+    minWeight: parseCharge(
+      safeGetNumber(c, 0, 'minChargeableWeight', 'minWeight'),
+      0,
+      10000,
+      5,
+    ),
+    docketCharges: parseCharge(
+      safeGetNumber(c, 0, 'docketCharges'),
+      0,
+      10000,
+      5,
+    ),
+    fuel: parseCharge(
+      safeGetNumber(c, 0, 'fuelSurcharge', 'fuel'),
+      0,
+      50,
+      2,
+    ),
+
+    rovCharges: {
+      variable: parseCharge(
+        safeGetNumber(c.rovCharges || c, 0, 'variable', 'rovVariable'),
+        0,
+        100000,
+      ),
+      fixed: parseCharge(
+        safeGetNumber(c.rovCharges || c, 0, 'fixed', 'rovFixed'),
+        0,
+        100000,
+      ),
+    },
+    codCharges: {
+      variable: parseCharge(
+        safeGetNumber(c.codCharges || c, 0, 'variable', 'codVariable'),
+        0,
+        100000,
+      ),
+      fixed: parseCharge(
+        safeGetNumber(c.codCharges || c, 0, 'fixed', 'codFixed'),
+        0,
+        100000,
+      ),
+    },
+    topayCharges: {
+      variable: parseCharge(
+        safeGetNumber(c.topayCharges || c, 0, 'variable', 'topayVariable'),
+        0,
+        100000,
+      ),
+      fixed: parseCharge(
+        safeGetNumber(c.topayCharges || c, 0, 'fixed', 'topayFixed'),
+        0,
+        100000,
+      ),
+    },
+    handlingCharges: {
+      variable: parseCharge(
+        safeGetNumber(
+          c.handlingCharges || c,
+          0,
+          'variable',
+          'handlingVariable',
+        ),
+        0,
+        100000,
+      ),
+      fixed: parseCharge(
+        safeGetNumber(c.handlingCharges || c, 0, 'fixed', 'handlingFixed'),
+        0,
+        100000,
+      ),
+      threshholdweight: parseCharge(
+        safeGetNumber(
+          c.handlingCharges || c,
+          0,
+          'threshholdweight',
+          'handlingThresholdWeight',
+          'thresholdWeight',
+        ),
+        0,
+        100000,
+      ),
+    },
+    appointmentCharges: {
+      variable: parseCharge(
+        safeGetNumber(
+          c.appointmentCharges || c,
+          0,
+          'variable',
+          'appointmentVariable',
+        ),
+        0,
+        100000,
+      ),
+      fixed: parseCharge(
+        safeGetNumber(c.appointmentCharges || c, 0, 'fixed', 'appointmentFixed'),
+        0,
+        100000,
+      ),
+    },
+
+    // ❌ REMOVED - Don't put invoice config inside priceRate!
+    // invoiceValueConfig: {
+    //   percentage: Number(invoicePercentage || 0),
+    //   minAmount: Number(invoiceMinAmount || 0),
+    //   useMax: invoiceUseMax,
+    // },
+
+    ...volumetricBits,
+
+    minCharges: parseCharge(
+      safeGetNumber(c, 0, 'minimumCharges', 'minCharges'),
+      0,
+      100000,
+    ),
+    greenTax: parseCharge(
+      safeGetNumber(c, 0, 'greenTax', 'ngt'),
+      0,
+      100000,
+    ),
+    daccCharges: parseCharge(
+      safeGetNumber(c, 0, 'daccCharges'),
+      0,
+      100000,
+    ),
+    miscellanousCharges: parseCharge(
+      safeGetNumber(c, 0, 'miscCharges', 'miscellanousCharges'),
+      0,
+      100000,
+    ),
+
+    insuaranceCharges: {
+      variable: parseCharge(
+        safeGetNumber(
+          c.insuranceCharges || c.insuaranceCharges || c,
+          0,
+          'variable',
+          'insuranceVariable',
+        ),
+        0,
+        100000,
+      ),
+      fixed: parseCharge(
+        safeGetNumber(
+          c.insuranceCharges || c.insuaranceCharges || c,
+          0,
+          'fixed',
+          'insuranceFixed',
+        ),
+        0,
+        100000,
+      ),
+    },
+    odaCharges: {
+      variable: parseCharge(
+        safeGetNumber(c.odaCharges || c, 0, 'variable'),
+        0,
+        100000,
+      ),
+      fixed: parseCharge(
+        safeGetNumber(c.odaCharges || c, 0, 'fixed'),
+        0,
+        100000,
+      ),
+    },
+    prepaidCharges: {
+      variable: parseCharge(
+        safeGetNumber(c.prepaidCharges || c, 0, 'variable'),
+        0,
+        100000,
+      ),
+      fixed: parseCharge(
+        safeGetNumber(c.prepaidCharges || c, 0, 'fixed'),
+        0,
+        100000,
+      ),
+    },
+    fmCharges: {
+      variable: parseCharge(
+        safeGetNumber(c.fmCharges || c, 0, 'variable'),
+        0,
+        100000,
+      ),
+      fixed: parseCharge(
+        safeGetNumber(c.fmCharges || c, 0, 'fixed'),
+        0,
+        100000,
+      ),
+    },
+  };
+
+  // Use wizard data if available, fallback to legacy localStorage
+  const priceChart = (wizardData?.priceMatrix || zpm?.priceMatrix || {}) as PriceMatrix;
+
+  const pincodeStr = String(geo.pincode ?? '')
+    .replace(/\D+/g, '')
+    .slice(0, 6);
+  const pincodeNum = Number(pincodeStr || 0);
+
+  // ✅ AUTO-ENABLE if user entered any values
+  const hasInvoicePercentage = invoicePercentage && Number(invoicePercentage) > 0;
+  const hasInvoiceMinAmount = invoiceMinAmount && Number(invoiceMinAmount) > 0;
+  const invoiceAutoEnabled = hasInvoicePercentage || hasInvoiceMinAmount;
+
+  const payloadForApi = {
+    customerID: getCustomerIDFromToken(),
+    companyName: companyName.trim(),
+    vendorCode: vendorCode,
+    vendorPhone: vendorPhoneNum,
+    vendorEmail: vendorEmail,
+    gstNo,
+    mode: transportMode || 'road',
+    address,
+    state: String(geo.state ?? '').toUpperCase(),
+    pincode: pincodeNum,
+    human: { name, displayName, primaryCompanyName, subVendor },
+    prices: { priceRate, priceChart },
+    
+    // ✅ NEW: Invoice Value Charges at ROOT level (matches backend schema)
+    invoiceValueCharges: {
+      enabled: invoiceAutoEnabled,
+      percentage: Number(invoicePercentage || 0),
+      minimumAmount: Number(invoiceMinAmount || 0),
+      description: 'Invoice Value Handling Charges',
+    },
+  };
+  // 👇 ADD THIS
+  console.log('🔍 FINAL PAYLOAD:', payloadForApi.invoiceValueCharges);
+  // 👆 JUST THIS ONE LINE
+  return payloadForApi;
+};
 
   // ===== Submit =====
   const handleSubmit = async (e: React.FormEvent) => {
@@ -820,6 +779,12 @@ export const AddVendor: React.FC = () => {
     setIsSubmitting(true);
     try {
       const payloadForApi = buildPayloadForApi();
+      console.log('🔍 INVOICE DEBUG:', {
+    invoicePercentage,
+    invoiceMinAmount,
+    invoiceUseMax,
+  });
+  // 👆 JUST THIS ONE LINE
       emitDebug('SUBMIT_PAYLOAD_FOR_API', payloadForApi);
       console.debug('[SUBMIT] payloadForApi', payloadForApi);
 
@@ -880,6 +845,9 @@ export const AddVendor: React.FC = () => {
       }
       setPriceChartFile(null);
       setTransportMode('road');
+      setInvoicePercentage('');
+      setInvoiceMinAmount('');
+      setInvoiceUseMax(false);
       setZpm(null);
       setWizardValidation(null);
       setWizardStatus(null);
@@ -908,6 +876,9 @@ export const AddVendor: React.FC = () => {
     }
     setPriceChartFile(null);
     setTransportMode('road');
+    setInvoicePercentage('');
+    setInvoiceMinAmount('');
+    setInvoiceUseMax(false);
     clearDraft();
     toast.success('Form reset', { duration: 1200 });
   };
@@ -1028,6 +999,105 @@ export const AddVendor: React.FC = () => {
 
               <div className="p-6 md:p-8">
                 <ChargesSection charges={charges} />
+              </div>
+
+              {/* Invoice Value Charges Section (Placed Intelligently here) */}
+              <div className="p-6 md:p-8 bg-slate-50/60 border-t border-slate-200">
+                <div className="max-w-4xl">
+                  <div className="flex items-center gap-2 mb-4">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                    <h3 className="text-lg font-semibold text-slate-900">
+                      Invoice Value Configuration
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Percentage Input */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Invoice Value Percentage (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={invoicePercentage}
+                          onChange={(e) => {
+                            // Allow numbers and one dot, standard regex for floats or integers
+                            const val = e.target.value.replace(/[^0-9.]/g, '');
+                            // Simple validation to prevent multiple dots if needed, but keeping it flexible as per 'numeric only'
+                            if ((val.match(/\./g) || []).length <= 1) {
+                                setInvoicePercentage(val);
+                            }
+                          }}
+                          placeholder="0.00"
+                          className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500 pl-3 pr-8"
+                        />
+                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                          <span className="text-slate-400 text-sm">%</span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">Numeric values only.</p>
+                    </div>
+
+                    {/* Min Amount Input */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Minimum Amount (₹)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={invoiceMinAmount}
+                          onChange={(e) => {
+                            const val = sanitizeDigitsOnly(e.target.value);
+                            setInvoiceMinAmount(val);
+                          }}
+                          placeholder="0"
+                          className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500 pl-3 pr-8"
+                        />
+                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                          <span className="text-slate-400 text-sm">₹</span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">Numeric values only.</p>
+                    </div>
+                  </div>
+
+                  {/* UI Matching Toggle */}
+                  <div className="mt-6 flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
+                    <div className="flex-1">
+                      <span className="text-sm font-semibold text-slate-900">Calculation Method</span>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Use the maximum of the percentage value and the minimum amount?
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 bg-slate-100 p-1.5 rounded-lg border border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => setInvoiceUseMax(true)}
+                        className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all shadow-sm ${
+                          invoiceUseMax
+                            ? 'bg-white text-blue-600 ring-1 ring-black/5'
+                            : 'bg-transparent text-slate-500 hover:text-slate-700 shadow-none'
+                        }`}
+                      >
+                        Yes, Use Max
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInvoiceUseMax(false)}
+                        className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all shadow-sm ${
+                          !invoiceUseMax
+                            ? 'bg-white text-slate-900 ring-1 ring-black/5'
+                            : 'bg-transparent text-slate-500 hover:text-slate-700 shadow-none'
+                        }`}
+                      >
+                        No
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Zone Price Matrix section with validation */}

@@ -1,7 +1,7 @@
 /**
  * useCharges hook
  * Manages both simple numeric charges and card-based charges with complex validation
- * UPDATED: Added daccCharges field support
+ * UPDATED: Added daccCharges field support AND invoiceValueSurcharge
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
@@ -30,7 +30,8 @@ export interface ChargesErrors {
   greenTax?: string;
   miscCharges?: string;
   fuelSurchargePct?: string;
-  daccCharges?: string; // ← ADDED
+  daccCharges?: string;
+  invoiceValueSurcharge?: string; // <-- ADDED THIS
 
   // Card-based charges (nested errors)
   handlingCharges?: Record<string, string>;
@@ -65,14 +66,17 @@ export interface UseChargesReturn {
 // =============================================================================
 
 const SIMPLE_CHARGE_RANGES: Record<string, { min: number; max: number }> = {
-  docketCharges: { min: 1, max: 10000 },
-  minWeightKg: { min: 1, max: 10000 },
-  minCharges: { min: 1, max: 10000 },
-  hamaliCharges: { min: 1, max: 10000 },
-  greenTax: { min: 1, max: 10000 },
-  miscCharges: { min: 1, max: 10000 },
+  docketCharges: { min: 0, max: 10000 }, // Changed min to 0 to match validator
+  minWeightKg: { min: 0, max: 10000 },
+  minCharges: { min: 0, max: 10000 },
+  hamaliCharges: { min: 0, max: 10000 },
+  greenTax: { min: 0, max: 10000 },
+  miscCharges: { min: 0, max: 10000 },
+  daccCharges: { min: 0, max: 10000 },
+  
+  // Percentages
   fuelSurchargePct: { min: 0, max: 50 },
-  daccCharges: { min: 1, max: 10000 }, // ← ADDED
+  invoiceValueSurcharge: { min: 0, max: 100 }, // <-- ADDED THIS (Assuming it's a %)
 };
 
 // =============================================================================
@@ -88,7 +92,8 @@ const defaultCharges: Charges = {
   greenTax: 0,
   miscCharges: 0,
   fuelSurchargePct: 0,
-  daccCharges: 0, // ← ADDED
+  daccCharges: 0,
+  invoiceValueSurcharge: 0, // <-- ADDED THIS
 
   // Card-based charges
   handlingCharges: createDefaultChargeCard(),
@@ -219,12 +224,13 @@ export const useCharges = (
 
       // Check if in range
       if (!isNumberInRange(value, range.min, range.max)) {
-        const error = field === 'fuelSurchargePct'
-          ? `Must be between ${range.min} and ${range.max}`
-          : 'Enter amount between 1-10,000';
+        let errorMsg = 'Enter amount between 1-10,000';
+        if (field === 'fuelSurchargePct') errorMsg = `Must be between ${range.min} and ${range.max}`;
+        if (field === 'invoiceValueSurcharge') errorMsg = `Must be between ${range.min} and ${range.max}`;
+        
         setErrors((prev) => ({
           ...prev,
-          [field]: error,
+          [field]: errorMsg,
         }));
         return false;
       }
@@ -311,9 +317,9 @@ export const useCharges = (
       }
 
       if (!isNumberInRange(value, range.min, range.max)) {
-        newErrors[field as keyof ChargesErrors] = field === 'fuelSurchargePct'
+        newErrors[field as keyof ChargesErrors] = (field === 'fuelSurchargePct' || field === 'invoiceValueSurcharge')
           ? `Must be between ${range.min} and ${range.max}`
-          : 'Enter amount between 1-10,000';
+          : 'Enter amount between 0-10,000';
         isValid = false;
       }
     });

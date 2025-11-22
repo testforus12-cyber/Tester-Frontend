@@ -47,12 +47,27 @@ export const TransportSection: React.FC<Props> = ({
             onChange={(e) => onTransportModeChange(e.target.value as Mode)}
             className="w-full rounded-md border-slate-300 focus:ring-blue-500 focus:border-blue-500"
           >
-            <option value="road">Road</option>
-            <option value="air">Air</option>
-            <option value="rail">Rail</option>
-            <option value="ship">Ship</option>
+         {[
+  { value: 'road', label: 'Road', enabled: true },
+  { value: 'air', label: 'Air', enabled: false },
+  { value: 'rail', label: 'Rail', enabled: false },
+  { value: 'ship', label: 'Ship', enabled: false },
+].map((opt) => (
+  <option
+    key={opt.value}
+    value={opt.value}
+    disabled={!opt.enabled}
+    title={!opt.enabled ? `${opt.label} — Coming soon` : undefined}
+  >
+    {opt.label}
+    {!opt.enabled ? ' — Coming soon' : ''}
+  </option>
+))}
+
           </select>
         </div>
+
+
 
         {/* Volumetric Unit Toggle */}
         <div className="col-span-2">

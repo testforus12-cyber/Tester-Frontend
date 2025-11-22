@@ -235,6 +235,7 @@ const ChargeCardSchema = z.object({
 });
 
 // Charges schema (mixed: simple numbers + card structures)
+// Charges schema (mixed: simple numbers + card structures)
 const ChargesSchema = z.object({
   // Simple numeric charges (unchanged)
   docketCharges: z.number().min(0, 'Docket charges must be >= 0'),
@@ -247,6 +248,17 @@ const ChargesSchema = z.object({
     .number()
     .min(0, 'Fuel surcharge must be >= 0')
     .max(40, 'Fuel surcharge must be <= 40'),
+
+  // --- UPDATED INVOICE FIELDS ---
+  invoiceValueSurcharge: z
+    .number()
+    .min(0, 'Invoice Value Surcharge must be >= 0')
+    .optional(),
+  invoiceValueMinAmount: z
+    .number()
+    .min(0, 'Invoice Value Min Amount must be >= 0')
+    .optional(),
+  // ------------------------------
 
   // Card-based charges (redesigned)
   handlingCharges: ChargeCardSchema,

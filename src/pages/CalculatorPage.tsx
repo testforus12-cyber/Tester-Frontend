@@ -2071,6 +2071,9 @@ const FineTuneModal = ({
 // -----------------------------------------------------------------------------
 // Bifurcation Details (unchanged UI)
 // -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Bifurcation Details (with Invoice Value + Invoice Charges)
+// -----------------------------------------------------------------------------
 const BifurcationDetails = ({ quote }: { quote: any }) => {
   const formatCurrency = (value: number | undefined) =>
     new Intl.NumberFormat("en-IN", {
@@ -2087,13 +2090,16 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
     { label: "ODA Charges", keys: ["odaCharges", "oda_charges", "oda"] },
     { label: "Fuel Surcharge", keys: ["fuelCharges", "fuel_surcharge", "fuel"] },
     { label: "Handling Charges", keys: ["handlingCharges", "handling_charges", "handling"] },
-    { label: "Insurance Charges", keys: ["insuranceCharges", "insurance_charges", "insurance"] },
+    { label: "Insurance Charges", keys: ["insuaranceCharges", "insuranceCharges", "insurance_charges", "insurance"] },
     { label: "Green Tax", keys: ["greenTax", "green_tax", "green"] },
     { label: "Appointment Charges", keys: ["appointmentCharges", "appointment_charges", "appointment"] },
     { label: "Minimum Charges", keys: ["minCharges", "minimum_charges", "minimum"] },
     { label: "ROV Charges", keys: ["rovCharges", "rov_charges", "rov"] },
     { label: "FM Charges", keys: ["fmCharges", "fm_charges", "fm"] },
     { label: "Miscellaneous Charges", keys: ["miscCharges", "miscellaneous_charges", "misc"] },
+
+    // 🔥 NEW: Invoice value based surcharge row
+    { label: "Invoice Value Charges", keys: ["invoiceAddon", "invoiceValueCharge"] },
   ];
 
   const getChargeValue = (keys: string[]) => {
@@ -2118,6 +2124,7 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
       transition={{ duration: 0.3, ease: "easeInOut" }}
       className="overflow-hidden"
     >
+      {/* Cost breakdown (only for normal LTL vendors) */}
       {!isFTLVendor && (
         <div className="border-t border-slate-200 mt-4 pt-4">
           <h4 className="font-semibold text-slate-700 mb-3">Cost Breakdown</h4>
@@ -2127,14 +2134,42 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
               return value > 0 ? (
                 <div key={item.label} className="flex justify-between">
                   <span className="text-slate-500">{item.label}:</span>
-                  <span className="font-medium text-slate-800">{formatCurrency(value)}</span>
+                  <span className="font-medium text-slate-800">
+                    {formatCurrency(value)}
+                  </span>
                 </div>
               ) : null;
             })}
           </div>
+
+          {/* 🔍 Show what invoice value was used for the surcharge */}
+          {typeof quote.invoiceValue === "number" && quote.invoiceValue > 0 && (
+            <div className="mt-4 flex justify-between text-sm">
+              <span className="text-slate-500">Invoice Value (used for charges):</span>
+              <span className="font-semibold text-slate-900">
+                {new Intl.NumberFormat("en-IN", {
+                  style: "currency",
+                  currency: "INR",
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0,
+                }).format(quote.invoiceValue)}
+              </span>
+            </div>
+          )}
+
+          {/* Optional: show total before invoice charges, if backend sent it */}
+          {typeof quote.totalChargesWithoutInvoiceAddon === "number" && (
+            <div className="mt-1 flex justify-between text-xs text-slate-500">
+              <span>Total before Invoice Value Charges:</span>
+              <span className="font-semibold text-slate-800">
+                {formatCurrency(quote.totalChargesWithoutInvoiceAddon)}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
+      {/* Shipment Info (unchanged) */}
       <div className={`border-t border-slate-200 mt-4 pt-4`}>
         <h4 className="font-semibold text-slate-700 mb-3">Shipment Info</h4>
 
@@ -2250,6 +2285,7 @@ const BifurcationDetails = ({ quote }: { quote: any }) => {
     </motion.div>
   );
 };
+
 
 // -----------------------------------------------------------------------------
 // Result Card
