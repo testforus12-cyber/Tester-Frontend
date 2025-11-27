@@ -89,6 +89,9 @@ const AUTH_HEADER = (token?: string) =>
 /**
  * Calculate pricing using local pricing data instead of API calls
  * (now uses our JSON + engine instead of WHEELSEYE_PRICING_DATA)
+ * 
+ * NOTE: chargeableWeight parameter should ALREADY be max(actual, volumetric)
+ * This function uses it directly for pricing/vehicle selection
  */
 export function calculateLocalWheelseyePrice(
   chargeableWeight: number,
@@ -96,12 +99,13 @@ export function calculateLocalWheelseyePrice(
   shipment: ShipmentBox[]
 ): WheelseyeBreakdown {
   console.log(
-    `🧠 Wheelseye engine input: weight=${chargeableWeight}kg, distance=${distanceKm}km`
+    `🧠 Wheelseye engine input: chargeableWeight=${chargeableWeight}kg, distance=${distanceKm}km`
   );
 
+  // Use chargeableWeight for engine calculation (vehicle selection + pricing)
   const engineResult = computeWheelseyePrice(chargeableWeight, distanceKm);
 
-  // weights from boxes
+  // Calculate weights from boxes for the breakdown (informational only)
   let totalVolumetricWeight = 0;
   let totalActualWeight = 0;
 
@@ -112,6 +116,7 @@ export function calculateLocalWheelseyePrice(
     totalActualWeight += box.weight * box.count;
   });
 
+  // finalChargeableWeight should match what was passed in
   const finalChargeableWeight = Math.max(
     totalActualWeight,
     totalVolumetricWeight
@@ -177,6 +182,7 @@ export function calculateLocalWheelseyePrice(
 
 /**
  * Get vehicle type by weight (fallback function)
+ * NOTE: weight parameter should be chargeableWeight (max of actual, volumetric)
  */
 function getVehicleByWeight(weight: number): string {
   if (weight <= 1000) return "Tata Ace";
@@ -191,6 +197,7 @@ function getVehicleByWeight(weight: number): string {
 
 /**
  * Get vehicle length by weight (fallback function)
+ * NOTE: weight parameter should be chargeableWeight (max of actual, volumetric)
  */
 function getVehicleLengthByWeight(weight: number): number {
   if (weight <= 1000) return 7;
@@ -306,7 +313,10 @@ export async function getDistanceKmByAPI(
   return km;
 }
 
-/** Wheelseye price — use local pricing data first, fallback to API */
+/** 
+ * Wheelseye price — use local pricing data first, fallback to API 
+ * NOTE: chargeableWeight should ALREADY be max(actual, volumetric)
+ */
 export async function getWheelseyePriceFromDB(
   chargeableWeight: number,
   distanceKm: number,
@@ -315,7 +325,7 @@ export async function getWheelseyePriceFromDB(
 ): Promise<WheelseyeBreakdown> {
   // First, try to calculate using local pricing data
   try {
-    console.log(`🚛 Using local Wheelseye pricing data for calculation`);
+    console.log(`🚛 Using local Wheelseye pricing data for calculation (chargeableWeight=${chargeableWeight}kg)`);
     const localResult = calculateLocalWheelseyePrice(chargeableWeight, distanceKm, shipment);
     console.log(`✅ Local pricing calculation successful: ₹${localResult.price}`);
     return localResult;
@@ -341,13 +351,23 @@ export async function getWheelseyePriceFromDB(
     } catch (apiError) {
       console.error(`❌ Both local and API pricing calculations failed:`, apiError);
       
-      // Final fallback with basic calculation
+      // Final fallback with basic calculation - use chargeableWeight
       const fallbackPrice = Math.max(3000, Math.round(distanceKm * 25 + chargeableWeight * 2));
+      
+      // Calculate weights from shipment for breakdown
+      let totalVolumetricWeight = 0;
+      let totalActualWeight = 0;
+      shipment.forEach((box) => {
+        const volumetric = (box.length * box.width * box.height * box.count) / 5000;
+        totalVolumetricWeight += volumetric;
+        totalActualWeight += box.weight * box.count;
+      });
+      
       return {
         price: fallbackPrice,
         weightBreakdown: {
-          actualWeight: chargeableWeight,
-          volumetricWeight: chargeableWeight,
+          actualWeight: totalActualWeight,
+          volumetricWeight: totalVolumetricWeight,
           chargeableWeight: chargeableWeight
         },
         vehicle: getVehicleByWeight(chargeableWeight),
@@ -363,6 +383,11 @@ export async function getWheelseyePriceFromDB(
  * End-to-end builder:
  * - DOES NOT call any distance route unless distanceKmOverride is missing *and* VITE_DISTANCE_ENDPOINT is set.
  * - Prefer passing distance from your /calculate response via distanceKmOverride.
+ * 
+ * VOLUMETRIC WEIGHT FIX:
+ * - Computes chargeableWeight = max(actualWeight, volumetricWeight) BEFORE any pricing calls
+ * - All pricing, vehicle selection, and load-split logic uses chargeableWeight
+ * - UI values (actualWeight, volumetricWeight) are still returned separately
  */
 export async function buildFtlAndWheelseyeQuotes(opts: {
   fromPincode: string;
@@ -439,36 +464,60 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
     }
   }
 
-  // 2) Compute Wheelseye + FTL
+  // ============================================================================
+  // 2) VOLUMETRIC WEIGHT FIX: Compute weights FIRST, before any pricing calls
+  // ============================================================================
+  
+  // Calculate volumetric weight from shipment boxes
+  let totalVolumetricWeight = 0;
+  shipment.forEach((box) => {
+    const volumetric = (box.length * box.width * box.height * box.count) / 5000;
+    totalVolumetricWeight += volumetric;
+  });
+
+  // actualWeight = totalWeight passed from caller (sum of box weights)
+  // volumetricWeight = calculated from dimensions
+  // chargeableWeight = MAX of the two (this is what determines pricing & vehicle)
+  const actualWeight = totalWeight;
+  const volumetricWeight = totalVolumetricWeight;
+  const chargeableWeight = Math.max(actualWeight, volumetricWeight);
+
+  console.log(`📦 Weight calculation:`);
+  console.log(`   - Actual weight: ${actualWeight}kg`);
+  console.log(`   - Volumetric weight: ${Math.round(volumetricWeight)}kg`);
+  console.log(`   - Chargeable weight (max): ${Math.round(chargeableWeight)}kg`);
+  console.log(`   - Using ${volumetricWeight > actualWeight ? 'VOLUMETRIC' : 'ACTUAL'} weight for pricing`);
+
+  // ============================================================================
+  // 3) Compute Wheelseye + FTL using CHARGEABLE weight
+  // ============================================================================
+  
   let ftlPrice = 0;
   let wheelseyePrice = 0;
   let wheelseyeResult: WheelseyeBreakdown | null = null;
-  let actualWeight = totalWeight;
-  let volumetricWeight = totalWeight;
-  let chargeableWeight = totalWeight;
 
   try {
-    console.log(`🚛 Calling Wheelseye pricing API with distance: ${distanceKm}km`);
+    console.log(`🚛 Calling Wheelseye pricing with chargeableWeight: ${Math.round(chargeableWeight)}kg, distance: ${distanceKm}km`);
+    
+    // CRITICAL FIX: Use chargeableWeight instead of totalWeight
     wheelseyeResult = await getWheelseyePriceFromDB(
-      totalWeight,
+      chargeableWeight,  // ← FIXED: was totalWeight
       distanceKm,
       shipment,
       token
     );
 
-    const wb = wheelseyeResult?.weightBreakdown;
-    actualWeight = wb?.actualWeight ?? totalWeight;
-    volumetricWeight = wb?.volumetricWeight ?? totalWeight;
-    chargeableWeight =
-      wb?.chargeableWeight ?? Math.max(actualWeight, volumetricWeight);
-
+    // For >18000kg loads, split into multiple vehicles using chargeableWeight
     if (chargeableWeight > 18000) {
       // split into vehicles; re-query per vehicle
       const vehicleCount = Math.ceil(chargeableWeight / 18000);
       let totalWE = 0;
       let totalFTL = 0;
 
+      console.log(`📦 Load exceeds 18T, splitting into ${vehicleCount} vehicles based on chargeableWeight`);
+
       const calls = Array.from({ length: vehicleCount }, (_, i) => {
+        // Each vehicle carries up to 18000kg of chargeable weight
         const w = Math.min(18000, chargeableWeight - i * 18000);
         return getWheelseyePriceFromDB(
           w,
@@ -507,8 +556,10 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
     wheelseyePrice = Math.round((ekartFallback * 0.95) / 10) * 10;
   }
 
-  const tooLight = actualWeight < 500 || volumetricWeight < 500;
+  // Check if load is too light for FTL (use chargeableWeight for this check too)
+  const tooLight = chargeableWeight < 500;
 
+  // Vehicle selection helpers - use chargeableWeight
   const makeVehicleByWeight = (w: number) =>
     w > 18000
       ? "Container 32 ft MXL + Additional Vehicle"
@@ -545,6 +596,7 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
 
   const etaDays = (km: number) => Math.ceil(km / 400);
 
+  // Base quote object - includes all weight values for UI
   const base = {
     actualWeight,
     volumetricWeight,
@@ -557,6 +609,7 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
     isTiedUp: false,
   };
 
+  // Build FTL quote - vehicle selection based on chargeableWeight
   const ftlQuote =
     !tooLight && isWheelseyeServiceArea(fromPincode)
       ? {
@@ -583,19 +636,19 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
           deliveryTime: `${etaDays(distanceKm)} Day${
             etaDays(distanceKm) > 1 ? "s" : ""
           }`,
+          // Vehicle selection uses chargeableWeight
           vehicle:
             wheelseyeResult?.vehicle ?? makeVehicleByWeight(chargeableWeight),
           vehicleLength:
             wheelseyeResult?.vehicleLength ?? makeVehicleLen(chargeableWeight),
           loadSplit: wheelseyeResult?.loadSplit ?? null,
-      
           vehicleBreakdown: (wheelseyeResult as any)?.vehicleBreakdown ?? null,
         }
       : null;
 
   console.log(`🚛 Local FTL quote created with distance: ${Math.round(distanceKm)} km, price: ₹${ftlPrice}`);
 
-    // 🔽 Normalise vehicle breakdown & vehicleCalculation from wheelseyeResult
+  // Normalise vehicle breakdown & vehicleCalculation from wheelseyeResult
   const rawVehicleBreakdown =
     Array.isArray((wheelseyeResult as any)?.vehicleBreakdown)
       ? (wheelseyeResult as any).vehicleBreakdown
@@ -622,6 +675,7 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
       )
     : undefined;
 
+  // Build Wheelseye quote - vehicle selection based on chargeableWeight
   const wheelseyeQuote =
     !tooLight && isWheelseyeServiceArea(fromPincode)
       ? {
@@ -651,6 +705,7 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
             etaDays(distanceKm) > 1 ? "s" : ""
           }`,
 
+          // Vehicle selection uses chargeableWeight
           vehicle:
             wheelseyeResult?.vehicle ?? makeVehicleByWeight(chargeableWeight),
           vehicleLength:
@@ -660,13 +715,13 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
           // Legacy LTL-style splitting (will only be used when no FTL combo)
           loadSplit: wheelseyeResult?.loadSplit ?? null,
 
-          // ✅ Flat vehicleBreakdown for UI
+          // Flat vehicleBreakdown for UI
           vehicleBreakdown:
             normalisedVehicleBreakdown.length > 0
               ? normalisedVehicleBreakdown
               : null,
 
-          // ✅ Nested vehicleCalculation for UI + future logic
+          // Nested vehicleCalculation for UI + future logic
           vehicleCalculation: {
             ...(wheelseyeResult as any)?.vehicleCalculation,
             vehicleBreakdown: normalisedVehicleBreakdown,
@@ -684,15 +739,8 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
       distanceKm
     )} km, price: ₹${wheelseyePrice}`
   );
-// ... inside buildFtlAndWheelseyeQuotes function, at the very end:
 
-  console.log(
-    `🚛 Wheelseye quote created with distance: ${Math.round(
-      distanceKm
-    )} km, price: ₹${wheelseyePrice}`
-  );
-
-  // ✅ ADD THIS DEBUG BLOCK RIGHT HERE ⬇️
+  // Debug block for troubleshooting
   console.log("🔍 DEBUG - wheelseyeResult.vehicleBreakdown:", 
     JSON.stringify(wheelseyeResult?.vehicleBreakdown, null, 2)
   );
@@ -702,7 +750,7 @@ export async function buildFtlAndWheelseyeQuotes(opts: {
   console.log("🔍 DEBUG - wheelseyeQuote.vehicleBreakdown:", 
     wheelseyeQuote?.vehicleBreakdown ? JSON.stringify(wheelseyeQuote.vehicleBreakdown, null, 2) : "null"
   );
-  // ✅ END DEBUG BLOCK
+
   return {
     distanceKm,
     ftlQuote,
